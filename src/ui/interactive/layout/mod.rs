@@ -49,6 +49,17 @@ impl InteractiveLayout {
     pub fn cursor_row(&self) -> usize {
         self.cursor_row
     }
+
+    /// The layout as drawn under `pad` blank rows.
+    pub fn with_pad(&self, pad: usize) -> std::borrow::Cow<'_, Self> {
+        if pad == 0 {
+            return std::borrow::Cow::Borrowed(self);
+        }
+        let mut padded = self.clone();
+        padded.lines.splice(0..0, std::iter::repeat_n(String::new(), pad));
+        padded.cursor_row += pad;
+        std::borrow::Cow::Owned(padded)
+    }
 }
 
 #[derive(Debug, Clone, Copy)]

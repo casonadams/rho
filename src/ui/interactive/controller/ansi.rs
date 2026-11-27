@@ -8,6 +8,7 @@ pub const CSI_END_SYNC_UPDATE: &str = "\x1b[?2026l";
 pub const SGR_RESET: &str = "\x1b[0m";
 pub const CLEAR_SCREEN: &str = "\x1b[2J\x1b[H\x1b[0m";
 pub const CLEAR_SCREEN_AND_SCROLLBACK: &str = "\x1b[H\x1b[2J\x1b[3J\x1b[0m";
+pub const CURSOR_HOME: &str = "\x1b[H";
 
 fn skip_escape_sequence(characters: &mut std::iter::Peekable<std::str::Chars<'_>>) {
     if characters.next_if_eq(&'[').is_some() {
@@ -89,11 +90,41 @@ fn read_csi(characters: &mut std::iter::Peekable<std::str::Chars<'_>>) -> (Strin
     (parameters, None)
 }
 
+/// The SGR sequences that reproduce the text style a stream of output leaves the terminal in.
+#[derive(Debug, Default, Clone)]
+pub(super) struct SgrStyle(String);
+
+impl SgrStyle {
+    pub(super) fn as_str(&self) -> &str {
+        &self.0
+    }
+
+    pub(super) fn clear(&mut self) {
+        self.0.clear();
+    }
+
+    /// Folds in one `CSI parameters m` sequence.
+    pub(super) fn apply(&mut self, parameters: &str) {
+        let rest = match parameters.strip_prefix("0;") {
+            Some(rest) => rest,
+            None if parameters.is_empty() || parameters == "0" => "",
+            None => {
+                self.0.push_str(&format!("\x1b[{parameters}m"));
+                return;
+            }
+        };
+        self.0.clear();
+        if !rest.is_empty() {
+            self.0.push_str(&format!("\x1b[{rest}m"));
+        }
+    }
+}
+
 #[derive(Debug, Default)]
 pub struct OutputTracker {
     line: String,
     open: bool,
-    style: String,
+    style: SgrStyle,
 }
 
 impl OutputTracker {
@@ -114,7 +145,7 @@ impl OutputTracker {
     /// The text style the terminal holds after the output so far. Repainting the live region between
     /// writes resets it, so the next write must start by restoring it.
     pub fn style(&self) -> &str {
-        &self.style
+        self.style.as_str()
     }
 
     fn track_style(&mut self, output: &str) {
@@ -126,26 +157,11 @@ impl OutputTracker {
             if characters.next_if_eq(&'[').is_some() {
                 let (parameters, last) = read_csi(&mut characters);
                 if last == Some('m') {
-                    self.apply_sgr(&parameters);
+                    self.style.apply(&parameters);
                 }
             } else {
                 skip_escape_sequence(&mut characters);
             }
-        }
-    }
-
-    fn apply_sgr(&mut self, parameters: &str) {
-        let rest = match parameters.strip_prefix("0;") {
-            Some(rest) => rest,
-            None if parameters.is_empty() || parameters == "0" => "",
-            None => {
-                self.style.push_str(&format!("\x1b[{parameters}m"));
-                return;
-            }
-        };
-        self.style.clear();
-        if !rest.is_empty() {
-            self.style.push_str(&format!("\x1b[{rest}m"));
         }
     }
 

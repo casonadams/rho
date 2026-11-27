@@ -4,7 +4,6 @@ use super::ansi::{
 };
 use super::backend::TerminalBackend;
 use super::cache::{TranscriptRenderCache, target_slot};
-use super::paint;
 use crate::ui::interactive::{TranscriptItem, TranscriptRenderInput, render_transcript_item};
 use std::io;
 
@@ -266,7 +265,7 @@ impl<B: TerminalBackend> TerminalController<B> {
             }
             let lines = rendered.split('\n').count();
             if used + lines > rows {
-                return if used == 0 { idx } else { idx + 1 };
+                return if used == 0 || self.pin.is_some() { idx } else { idx + 1 };
             }
             used += lines;
         }
@@ -317,7 +316,7 @@ impl<B: TerminalBackend> TerminalController<B> {
     }
 
     fn run_full_redraw(&mut self, scope: RedrawScope) -> io::Result<()> {
-        let rendered = self.current_layout();
+        let region = self.current_layout();
         let clear = match scope {
             RedrawScope::VisibleTail => CLEAR_SCREEN,
             RedrawScope::Everything => CLEAR_SCREEN_AND_SCROLLBACK,
@@ -325,16 +324,30 @@ impl<B: TerminalBackend> TerminalController<B> {
         self.backend.write_text(clear)?;
         self.output.clear();
         let mut redraw_buffer = String::new();
-        let rows = self.height.saturating_sub(rendered.height());
+        let rows = self.height.saturating_sub(region.height());
         self.repaint_history(&mut redraw_buffer, scope, rows);
         self.repaint_streamed_output(&mut redraw_buffer);
         if !redraw_buffer.is_empty() {
             self.backend.write_text(&redraw_buffer)?;
         }
 
-        paint::write_live_region(&mut self.backend, &rendered)?;
-        paint::apply_cursor_visibility(&mut self.backend, &rendered)?;
-        self.rendered = Some(rendered);
-        Ok(())
+        let pad = self.settle_pin(&redraw_buffer, region.height());
+        self.draw_region(region, pad)
+    }
+
+    /// Records what a redraw printed on the cleared screen and returns the pad for the region.
+    fn settle_pin(&mut self, printed: &str, region_height: usize) -> usize {
+        let open = self.output.is_open();
+        let (width, height) = (self.width, self.height);
+        let Some(pin) = self.pin.as_mut() else {
+            return 0;
+        };
+        pin.clear(width);
+        pin.print(if open {
+            printed.strip_suffix("\r\n").unwrap_or(printed)
+        } else {
+            printed
+        });
+        pin.settle(region_height, height)
     }
 }

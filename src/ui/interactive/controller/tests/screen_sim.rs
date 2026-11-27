@@ -104,7 +104,7 @@ impl ScreenBackend {
         }
     }
 
-    fn text(&self) -> Vec<String> {
+    pub fn text(&self) -> Vec<String> {
         self.grid
             .iter()
             .map(|row| row.iter().collect::<String>().trim_end().to_string())

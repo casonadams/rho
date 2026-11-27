@@ -2,6 +2,7 @@ pub mod ansi;
 pub mod backend;
 pub mod cache;
 pub mod paint;
+mod pin;
 #[cfg(test)]
 pub(crate) mod tests;
 pub mod title;
@@ -40,6 +41,8 @@ pub struct TerminalController<B: TerminalBackend> {
     /// Another agent shown in place of the main agent.
     pub(super) view: Option<view::AgentView>,
     pub(super) approval_focus: rho_harness_core::config::ApprovalFocus,
+    /// Present when the live region is kept on the last rows of the screen.
+    pin: Option<pin::BottomPin>,
     title: title::TerminalTitleController,
 }
 
@@ -60,10 +63,30 @@ impl TerminalController<CrosstermBackend> {
     pub fn stdout(state: crate::ui::interactive::InteractiveState) -> io::Result<Self> {
         Self::new(CrosstermBackend::stdout(), state)
     }
+
+    /// Like `stdout`, with the live region kept on the last rows of the screen.
+    pub fn stdout_pinned(state: crate::ui::interactive::InteractiveState) -> io::Result<Self> {
+        Self::pinned_to_bottom(CrosstermBackend::stdout(), state)
+    }
+}
+
+fn fit_pin(pin: &mut Option<pin::BottomPin>, region: &InteractiveLayout, screen: usize) -> pin::Fit {
+    pin.as_mut()
+        .map_or(pin::Fit::Pad(0), |pin| pin.fit(region.height(), screen))
 }
 
 impl<B: TerminalBackend> TerminalController<B> {
-    pub fn new(mut backend: B, state: InteractiveState) -> io::Result<Self> {
+    pub fn new(backend: B, state: InteractiveState) -> io::Result<Self> {
+        Self::build(backend, state, false)
+    }
+
+    /// A controller whose live region stays on the last rows of the screen: the visible screen is
+    /// first scrolled into the scrollback, so it starts blank with the region at the bottom.
+    pub fn pinned_to_bottom(backend: B, state: InteractiveState) -> io::Result<Self> {
+        Self::build(backend, state, true)
+    }
+
+    fn build(mut backend: B, state: InteractiveState, pinned: bool) -> io::Result<Self> {
         let (width, height) = init_terminal(&mut backend)?;
         let mut controller = Self {
             backend,
@@ -82,13 +105,23 @@ impl<B: TerminalBackend> TerminalController<B> {
             focused: true,
             view: None,
             approval_focus: rho_harness_core::config::ApprovalFocus::default(),
+            pin: pinned.then(|| pin::BottomPin::new(width)),
             title: title::TerminalTitleController::default(),
         };
-        if let Err(error) = controller.redraw() {
+        if let Err(error) = controller.start() {
             controller.restore();
             return Err(error);
         }
         Ok(controller)
+    }
+
+    fn start(&mut self) -> io::Result<()> {
+        if self.pin.is_some() {
+            self.backend.move_down(self.height)?;
+            self.backend.write_text(&"\r\n".repeat(self.height))?;
+            self.backend.write_text(ansi::CURSOR_HOME)?;
+        }
+        self.redraw()
     }
 
     pub fn focused(&self) -> bool {
@@ -117,27 +150,81 @@ impl<B: TerminalBackend> TerminalController<B> {
         self.title.set_attention(attention);
     }
 
+    fn pad(&self) -> usize {
+        self.pin.as_ref().map_or(0, pin::BottomPin::pad)
+    }
+
     pub fn redraw(&mut self) -> io::Result<()> {
-        let rendered = self.current_layout();
-        paint::render_live_diff(&mut self.backend, self.rendered.as_ref(), &rendered)?;
-        self.rendered = Some(rendered);
+        let prev_pad = self.pad();
+        let region = self.current_layout();
+        match fit_pin(&mut self.pin, &region, self.height) {
+            pin::Fit::Pad(pad) => {
+                {
+                    let prev = self.rendered.as_ref().map(|prev| prev.with_pad(prev_pad));
+                    paint::render_live_diff(&mut self.backend, prev.as_deref(), &region.with_pad(pad))?;
+                }
+                self.rendered = Some(region);
+            }
+            pin::Fit::Repaint => {
+                self.backend.write_text(ansi::CSI_BEGIN_SYNC_UPDATE)?;
+                self.backend.hide_cursor()?;
+                self.repaint_from_rows(region)?;
+                self.backend.write_text(ansi::CSI_END_SYNC_UPDATE)?;
+                self.backend.flush()?;
+            }
+        }
         self.title.sync(&mut self.backend, &self.state)?;
         Ok(())
+    }
+
+    fn erase_region(&mut self) -> io::Result<()> {
+        let pad = self.pad();
+        let painted = self.rendered.as_ref().map(|region| region.with_pad(pad));
+        paint::erase_live_region(&mut self.backend, painted.as_deref())
+    }
+
+    /// Draws the region under `pad` blank rows at the cursor.
+    pub(super) fn draw_region(&mut self, region: InteractiveLayout, pad: usize) -> io::Result<()> {
+        {
+            let painted = region.with_pad(pad);
+            paint::write_live_region(&mut self.backend, &painted)?;
+            paint::apply_cursor_visibility(&mut self.backend, &painted)?;
+        }
+        self.rendered = Some(region);
+        Ok(())
+    }
+
+    /// Clears the screen, prints the newest printed rows that fit above the region, and draws the
+    /// region under whatever blank rows remain.
+    fn repaint_from_rows(&mut self, region: InteractiveLayout) -> io::Result<()> {
+        let Some(pin) = self.pin.as_mut() else {
+            return Ok(());
+        };
+        let rows = pin.repaint_rows(region.height(), self.height);
+        let pad = pin.pad();
+        self.backend.write_text(ansi::CLEAR_SCREEN)?;
+        for row in &rows {
+            self.backend.write_text(row)?;
+            self.backend.write_text(ansi::SGR_RESET)?;
+            self.backend.write_text("\r\n")?;
+        }
+        self.draw_region(region, pad)
     }
 
     fn prepare_output_write(&mut self) -> io::Result<()> {
         self.backend.write_text(ansi::CSI_BEGIN_SYNC_UPDATE)?;
         self.backend.hide_cursor()?;
-        paint::erase_live_region(&mut self.backend, self.rendered.as_ref())?;
+        self.erase_region()?;
         self.rendered = None;
         self.output.restore_cursor(&mut self.backend, self.width)
     }
 
     fn finish_output_write(&mut self) -> io::Result<()> {
-        let rendered = self.current_layout();
-        paint::write_live_region(&mut self.backend, &rendered)?;
-        paint::apply_cursor_visibility(&mut self.backend, &rendered)?;
-        self.rendered = Some(rendered);
+        let region = self.current_layout();
+        match fit_pin(&mut self.pin, &region, self.height) {
+            pin::Fit::Pad(pad) => self.draw_region(region, pad)?,
+            pin::Fit::Repaint => self.repaint_from_rows(region)?,
+        }
         self.backend.write_text(ansi::CSI_END_SYNC_UPDATE)?;
         self.backend.flush()
     }
@@ -175,6 +262,9 @@ impl<B: TerminalBackend> TerminalController<B> {
         }
         self.backend.write_text(visible)?;
         self.output.update(&output);
+        if let Some(pin) = self.pin.as_mut() {
+            pin.print(&output);
+        }
         if !self.output.style().is_empty() {
             self.backend.write_text(ansi::SGR_RESET)?;
         }
@@ -255,7 +345,7 @@ impl<B: TerminalBackend> TerminalController<B> {
         if !self.active {
             return Ok(());
         }
-        paint::erase_live_region(&mut self.backend, self.rendered.as_ref())?;
+        self.erase_region()?;
         self.rendered = None;
         self.output.clear();
         self.backend.show_cursor()?;
@@ -272,14 +362,18 @@ impl<B: TerminalBackend> TerminalController<B> {
         self.backend.set_raw_mode(true)?;
         self.backend.hide_cursor()?;
         self.active = true;
-        self.redraw()
+        if self.pin.is_some() {
+            self.full_redraw()
+        } else {
+            self.redraw()
+        }
     }
 
     pub(super) fn restore(&mut self) {
         if !self.active {
             return;
         }
-        let _ = paint::erase_live_region(&mut self.backend, self.rendered.as_ref());
+        let _ = self.erase_region();
         self.rendered = None;
         self.title.dispose(&mut self.backend);
         let _ = self.backend.show_cursor();

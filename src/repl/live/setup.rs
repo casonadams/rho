@@ -36,7 +36,7 @@ pub(super) fn init_live_controller(
     engine: &AgentEngine,
 ) -> Result<TerminalController<CrosstermBackend>> {
     let state = init_live_state(session, engine);
-    let mut controller = TerminalController::stdout(state)?;
+    let mut controller = TerminalController::stdout_pinned(state)?;
     controller.set_approval_focus(session.config.subagents.approval_focus.unwrap_or_default());
     let _ = controller.configure_terminal_title(
         session.config.ui.terminal_title_enabled(),

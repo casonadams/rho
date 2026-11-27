@@ -25,6 +25,16 @@ Resizing the terminal clears its scrollback and replays the whole session
 transcript at the new width, so earlier output reflows instead of being
 duplicated. Output printed before `rho` started is cleared along with it.
 
+The input and footer always end on the last row of the terminal. `rho` still
+prints inline, not full screen: when little has been printed, blank rows sit
+above the input so it stays at the bottom, and as output fills the screen the
+input sits directly under the newest line. A menu or a growing editor takes
+those blank rows instead of scrolling. When one closes over a full screen, the
+rows it covered are printed again so no gap opens above the input (on terminals
+that keep a cleared screen in scrollback, those rows then appear there twice).
+On start, the visible screen is scrolled into scrollback so `rho` begins on a
+blank screen.
+
 - **Top Status Line**: Displays the current working directory, active git
   branch, and session name.
 - **Bottom Metrics Line**:

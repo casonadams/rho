@@ -3,6 +3,7 @@ mod cache;
 pub(crate) mod fake;
 mod lifecycle;
 mod output;
+mod pinned;
 mod redraw;
 mod screen_sim;
 mod system_message;
