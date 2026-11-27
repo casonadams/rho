@@ -18,7 +18,7 @@ mod question;
 
 pub use notice::NoticeTarget;
 pub(crate) use notice::{framed_notice, neutralize_notice_tags};
-pub use question::{Answering, Delivery};
+pub use question::Delivery;
 
 /// Messages a mailbox holds before further sends are refused.
 pub const MAILBOX_CAPACITY: usize = 32;
@@ -49,7 +49,7 @@ pub enum Kind {
 
 /// Where an agent sender sits relative to the recipient in the delegation tree.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Relation {
+pub(crate) enum Relation {
     /// The sender delegated to the recipient.
     Parent,
     /// The recipient delegated to the sender.
@@ -101,13 +101,13 @@ impl Envelope {
     }
 
     #[must_use]
-    pub fn is_notice(&self) -> bool {
+    pub(crate) fn is_notice(&self) -> bool {
         self.from == Party::System && self.kind == Kind::Event
     }
 
     /// For a reply, the id of the request it answers.
     #[must_use]
-    pub fn correlation(&self) -> Option<&str> {
+    pub(crate) fn correlation(&self) -> Option<&str> {
         self.correlation.as_deref()
     }
 
@@ -205,7 +205,9 @@ fn relation(registry: &Registry, from: &AgentId, to: &AgentId, to_parent: Option
 }
 
 impl Registry {
-    /// Queues `envelope` for its recipient, stamping how an agent sender relates to it.
+    /// Queues `envelope` for its recipient, stamping how an agent sender relates to it. The capacity
+    /// limit holds back chatter; it never refuses a system notice or the answer the recipient is
+    /// blocked waiting for, since neither can wait until the recipient reads its queue.
     fn deliver(&mut self, mut envelope: Envelope) -> Result<(), SendError> {
         let target = self.slots.get(&envelope.to).ok_or(SendError::NoMailbox)?;
         if let Party::Agent(from) = &envelope.from {
@@ -213,7 +215,11 @@ impl Registry {
                 Some(relation(self, from, &envelope.to, target.parent.as_ref()).ok_or(SendError::NotAllowed)?);
         }
         let slot = self.slots.get_mut(&envelope.to).ok_or(SendError::NoMailbox)?;
-        if slot.queue.len() >= MAILBOX_CAPACITY {
+        let awaited = slot
+            .awaiting
+            .as_deref()
+            .is_some_and(|request| envelope.answers(request));
+        if slot.queue.len() >= MAILBOX_CAPACITY && !envelope.is_notice() && !awaited {
             return Err(SendError::Full);
         }
         slot.queue.push_back(envelope);
@@ -242,7 +248,7 @@ impl Mailboxes {
 
     /// Starts tracking background work agent `owner` owns; its notice goes to `owner`.
     pub(crate) fn start_job(&self, owner: &AgentId, id: JobId, command: String) -> JobCompletion {
-        self.jobs.start(Some(self.notices_for(owner)), id, command)
+        self.jobs.start(self.notices_for(owner), id, command)
     }
 
     /// Opens agent `id`'s mailbox, replacing any earlier one; `parent` is the agent that delegated to it.
@@ -279,7 +285,7 @@ impl Mailboxes {
 
     /// Where agent `agent`'s notices go, whether or not its mailbox is open yet.
     #[must_use]
-    pub fn notices_for(&self, agent: &AgentId) -> NoticeTarget {
+    pub(crate) fn notices_for(&self, agent: &AgentId) -> NoticeTarget {
         NoticeTarget::new(self.clone(), agent)
     }
 

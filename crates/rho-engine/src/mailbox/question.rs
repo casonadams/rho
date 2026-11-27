@@ -17,17 +17,19 @@ pub enum Delivery {
 }
 
 impl Registry {
-    /// Marks `asker`'s question `request` answered: it no longer waits on it, and its parent no
-    /// longer has it to read.
-    fn answered(&mut self, asker: &AgentId, request: &str) {
+    /// Answers `asker`'s question `request` with `body` from `from`: delivers the reply, stops the
+    /// asker waiting, and withdraws the question from its parent's mailbox.
+    fn answer(&mut self, asker: &AgentId, request: &str, from: Party, body: &str) -> Result<(), SendError> {
+        self.deliver(Envelope::reply(from, asker, request, body))?;
         let Some(slot) = self.slots.get_mut(asker) else {
-            return;
+            return Ok(());
         };
         slot.awaiting = None;
         let parent = slot.parent.clone();
         if let Some(parent) = parent.and_then(|parent| self.slots.get_mut(&parent)) {
             parent.queue.retain(|m| m.id != request);
         }
+        Ok(())
     }
 }
 
@@ -42,9 +44,7 @@ impl Mailboxes {
                 .deliver(Envelope::new(from, to, Kind::Command, body))
                 .map(|()| Delivery::Queued);
         };
-        registry.deliver(Envelope::reply(from, to, &request, body))?;
-        registry.answered(to, &request);
-        Ok(Delivery::Reply)
+        registry.answer(to, &request, from, body).map(|()| Delivery::Reply)
     }
 }
 
@@ -99,15 +99,18 @@ impl Mailbox {
         }) else {
             return;
         };
-        let children = registry
+        let declined: Vec<(AgentId, String)> = registry
             .slots
-            .iter_mut()
-            .filter(|(_, slot)| slot.parent.as_ref() == Some(self.id()));
-        for (child, slot) in children {
-            if let Some(request) = slot.awaiting.take_if(|request| !unread.contains(request)) {
-                slot.queue
-                    .push_back(Envelope::reply(Party::System, child, &request, DECLINED));
-                slot.wake.notify_waiters();
+            .iter()
+            .filter(|(_, slot)| slot.parent.as_ref() == Some(self.id()))
+            .filter_map(|(child, slot)| {
+                let request = slot.awaiting.as_ref().filter(|request| !unread.contains(request))?;
+                Some((child.clone(), request.clone()))
+            })
+            .collect();
+        for (child, request) in declined {
+            if let Err(error) = registry.answer(&child, &request, Party::System, DECLINED) {
+                tracing::warn!("declining the question of subagent {child} failed: {error}");
             }
         }
     }
@@ -115,13 +118,13 @@ impl Mailbox {
     /// Holds this agent's turn open to its subagents' questions; dropping the guard (the turn ended,
     /// however it ended) declines the ones it read but did not answer.
     #[must_use]
-    pub fn answering(&self) -> Answering {
+    pub(crate) fn answering(&self) -> Answering {
         Answering(self.clone())
     }
 }
 
 /// An agent's turn, open to its subagents' questions until dropped; see [`Mailbox::answering`].
-pub struct Answering(Mailbox);
+pub(crate) struct Answering(Mailbox);
 
 impl Drop for Answering {
     fn drop(&mut self) {
@@ -132,6 +135,7 @@ impl Drop for Answering {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::mailbox::MAILBOX_CAPACITY;
     use std::time::Duration;
 
     fn id(name: &str) -> AgentId {
@@ -244,6 +248,28 @@ mod tests {
         let stopping_mail = stopping.take();
         assert_eq!((stopping_mail.len(), stopping_mail[0].kind), (1, Kind::Command));
         assert_eq!(waiting.take()[0].from, Party::System);
+    }
+
+    #[tokio::test]
+    async fn a_full_mailbox_still_takes_the_awaited_answer_and_system_notices() {
+        let boxes = Mailboxes::default();
+        let _root = boxes.open(&id("root"), None);
+        let child = boxes.open(&id("child"), Some(&id("root")));
+        let request = child.ask_parent("which module?").unwrap();
+        let chatter = || Envelope::new(Party::User, &id("child"), Kind::Command, "chatter");
+        for _ in 0..MAILBOX_CAPACITY {
+            boxes.send(chatter()).unwrap();
+        }
+        assert_eq!(boxes.send(chatter()), Err(SendError::Full));
+
+        assert_eq!(boxes.notices_for(&id("child")).send("job done"), Ok(()));
+        assert_eq!(
+            boxes.tell(agent("root"), &id("child"), "the parser"),
+            Ok(Delivery::Reply)
+        );
+
+        assert_eq!(child.reply(&request).await.unwrap().body, "the parser");
+        assert_eq!(child.pending(), MAILBOX_CAPACITY + 1);
     }
 
     #[test]
