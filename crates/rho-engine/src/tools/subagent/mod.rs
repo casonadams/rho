@@ -13,6 +13,7 @@ pub mod round;
 #[cfg(test)]
 mod round_tests;
 pub mod runner;
+mod runtime;
 mod snapshot;
 mod tasks;
 #[cfg(test)]
@@ -22,10 +23,11 @@ mod tests;
 pub mod types;
 pub(crate) mod workspace;
 
-pub(crate) use background::RoundSlot;
-pub use background::{DEFAULT_FOREGROUND_SECONDS, SubagentRuntime};
+pub use background::DEFAULT_FOREGROUND_SECONDS;
 pub use models::{SubagentModelResolver, SubagentModels};
 pub use runner::SubagentRunner;
+pub(crate) use runtime::RoundSlot;
+pub use runtime::SubagentRuntime;
 pub use types::{DEFAULT_SUBAGENT_TURNS, SubagentArgs, SubagentRole, resolve_turns, task_name};
 
 use crate::engine::compactor::llm::ModelHandle;
@@ -47,7 +49,6 @@ pub struct SubagentTool {
     ctx: TurnToolContext,
     roles: BTreeMap<ModelRole, String>,
     pinned_models: BTreeMap<String, ModelRole>,
-    busy: conversation::BusyContexts,
     worktrees: Option<crate::worktree::WorktreeStore>,
     worktree_lsp: Option<lsp::WorktreeLsp>,
     fresh_session_state: Option<FreshSessionState>,
@@ -109,7 +110,6 @@ impl SubagentTool {
             ctx: TurnToolContext::default(),
             roles: BTreeMap::new(),
             pinned_models: BTreeMap::new(),
-            busy: conversation::BusyContexts::default(),
             worktrees: None,
             worktree_lsp: None,
             fresh_session_state: None,
@@ -210,17 +210,21 @@ impl SubagentTool {
         self
     }
 
-    /// Shares busy markers, message inboxes, and the round count with every tool built for the session.
+    /// Shares the session's subagent runtime (mailboxes, running rounds, busy conversations, round
+    /// slots) with every tool built for the session.
     #[must_use]
     pub fn with_runtime(mut self, runtime: &SubagentRuntime) -> Self {
-        self.busy = runtime.busy();
         self.background = self.background.sharing(runtime);
         self
     }
 
+    fn runtime(&self) -> &SubagentRuntime {
+        self.background.runtime()
+    }
+
     /// Waits for a free round slot; workflow steps queue for one instead of failing at the cap.
     pub(crate) async fn wait_for_round_slot(&self) -> RoundSlot {
-        self.background.wait_for_slot().await
+        self.runtime().wait_for_slot().await
     }
 
     #[cfg(test)]

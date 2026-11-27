@@ -5,6 +5,7 @@ use crate::tools::engine_tool::{EngineTool, TurnToolContext};
 use crate::tools::{GenericTool, ToolResult};
 use rho_harness_core::model::{ToolCall, ToolFunction, UserContent};
 use serde_json::json;
+use std::sync::Arc;
 
 fn call(name: &str, args: serde_json::Value) -> Vec<ModelStreamEvent> {
     vec![ModelStreamEvent::ToolCall(ToolCall::new(
@@ -137,7 +138,7 @@ async fn a_long_round_moves_to_the_background_takes_messages_and_its_task_contin
     ]);
     let jobs = crate::tools::jobs::JobManager::new();
     let background = super::super::background::Backgrounding::new(jobs.clone(), std::time::Duration::from_secs(60));
-    let parent_inbox = background.inbox(&owner);
+    let parent_inbox = background.runtime().inbox(&owner);
     let next_notice = || async {
         parent_inbox.wait().await;
         let first = parent_inbox.take().remove(0);
@@ -705,16 +706,6 @@ fn only_subagents_limited_to_read_only_tools_run_in_parallel() {
     for (args, parallel) in cases {
         assert_eq!(tool.concurrency_safe(&args), parallel, "{args}");
     }
-}
-
-#[test]
-fn a_busy_conversation_refuses_a_second_message_until_the_first_finishes() {
-    let busy = BusyContexts::default();
-    let claim = busy.claim("ctx").unwrap();
-    assert!(busy.claim("ctx").is_err());
-    assert!(busy.claim("other").is_ok());
-    drop(claim);
-    assert!(busy.claim("ctx").is_ok());
 }
 
 #[tokio::test]

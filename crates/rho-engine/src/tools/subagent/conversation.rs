@@ -1,6 +1,7 @@
 use super::handoff::{WORKTREE_ARTIFACT, WorktreeRecord, changed_since, moved_note, pending_note, settle};
 use super::round::{Round, RoundEnd, RoundInput};
 use super::runner::SubagentRunner;
+use super::runtime::{BusyClaim, BusyContexts};
 use super::workspace::{Fingerprint, WorkspaceChange, stale_paths, versions};
 use crate::engine::runner::history::without_unanswered_tool_calls;
 use crate::tools::types::ToolResult;
@@ -10,8 +11,7 @@ use rho_harness_core::model::ChatMessage;
 use rho_harness_core::session::{SessionManager, SubagentContext};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::collections::{BTreeMap, BTreeSet, HashSet};
-use std::sync::{Arc, Mutex, PoisonError};
+use std::collections::{BTreeMap, BTreeSet};
 
 pub(crate) const RESULT_ARTIFACT: &str = "result";
 pub(crate) const RESULT_DATA_ARTIFACT: &str = "result-data";
@@ -90,35 +90,6 @@ pub(crate) struct ConversationSettings {
     pub persona: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub turns: Option<usize>,
-}
-
-/// Subagent conversations with a round in progress; a second message to one of them is refused.
-#[derive(Clone, Default)]
-pub(crate) struct BusyContexts(Arc<Mutex<HashSet<String>>>);
-
-pub(crate) struct BusyClaim {
-    contexts: BusyContexts,
-    context_id: String,
-}
-
-impl BusyContexts {
-    pub(crate) fn claim(&self, context_id: &str) -> Result<BusyClaim, String> {
-        let mut busy = self.0.lock().unwrap_or_else(PoisonError::into_inner);
-        if !busy.insert(context_id.to_string()) {
-            return Err("that subagent is still working; wait for its result before sending another message".into());
-        }
-        Ok(BusyClaim {
-            contexts: self.clone(),
-            context_id: context_id.to_string(),
-        })
-    }
-}
-
-impl Drop for BusyClaim {
-    fn drop(&mut self) {
-        let mut busy = self.contexts.0.lock().unwrap_or_else(PoisonError::into_inner);
-        busy.remove(&self.context_id);
-    }
 }
 
 fn short_id() -> String {

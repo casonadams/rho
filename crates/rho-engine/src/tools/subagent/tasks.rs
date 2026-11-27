@@ -72,13 +72,13 @@ impl SubagentTool {
         };
         let runner = self.runner_for_settings(&settings).await?;
         let context = self.compose_context(args);
-        let slot = self.background.reserve()?;
+        let slot = self.runtime().reserve()?;
         if self.ctx.session.is_none() {
             let result = runner.run(&args.prompt, context.as_deref()).await;
             drop(slot);
             return Ok(result);
         }
-        let exchange = conversation::Exchange::start(&settings).claimed(&self.busy)?;
+        let exchange = conversation::Exchange::start(&settings).claimed(self.runtime().busy())?;
         let exchange = self.attach_worktree(exchange).await?;
         let input = round::build_subagent_prompt(&args.prompt, context.as_deref());
         Ok(self.converse(slot, exchange, runner, input, None).await)
@@ -90,7 +90,7 @@ impl SubagentTool {
             .session
             .as_ref()
             .ok_or("continuing a subagent task needs a saved session")?;
-        if let Some(settings) = self.background.running_settings(task_id) {
+        if let Some(settings) = self.runtime().running_settings(task_id) {
             check_continuation(&settings, args, task_id)?;
             if args.model.is_some() || args.turns.is_some() {
                 return Err(format!(
@@ -98,7 +98,7 @@ impl SubagentTool {
                 ));
             }
             let message = round::build_subagent_prompt(&args.prompt, self.compose_context(args).as_deref());
-            match self.background.steer(task_id, &message) {
+            match self.runtime().steer(task_id, &message) {
                 Ok(queued) => return Ok(ToolResult::success(queued)),
                 Err(SendError::NoMailbox) => {}
                 Err(error) => return Err(format!("could not message subagent task '{task_id}': {error}")),
@@ -117,9 +117,9 @@ impl SubagentTool {
         settings.model = args.model.clone().or(settings.model);
         settings.turns = args.turns.or(settings.turns);
         let runner = self.runner_for_settings(&settings).await?;
-        let slot = self.background.reserve()?;
+        let slot = self.runtime().reserve()?;
         let exchange = self
-            .attach_worktree(exchange.with_settings(&settings).claimed(&self.busy)?)
+            .attach_worktree(exchange.with_settings(&settings).claimed(self.runtime().busy())?)
             .await?;
         let input = round::build_subagent_prompt(&args.prompt, self.compose_context(args).as_deref());
         Ok(self
@@ -130,7 +130,7 @@ impl SubagentTool {
     /// Runs one round on its own task, which moves to the background if it outlasts the foreground budget.
     async fn converse(
         &self,
-        slot: background::RoundSlot,
+        slot: super::RoundSlot,
         exchange: conversation::Exchange,
         runner: SubagentRunner,
         input: String,

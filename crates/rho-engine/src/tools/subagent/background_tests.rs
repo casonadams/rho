@@ -1,4 +1,6 @@
+use super::super::runtime::MAX_ACTIVE_ROUNDS;
 use super::*;
+use crate::mailbox::SendError;
 use std::sync::Mutex;
 
 #[derive(Default)]
@@ -12,14 +14,14 @@ impl ToolStreamSink for Chunks {
 
 /// The next notice in the owner's mailbox, as (recipient, text).
 async fn next_notice(background: &Backgrounding) -> (String, String) {
-    let inbox = background.inbox("owner-a");
+    let inbox = background.runtime.inbox("owner-a");
     inbox.wait().await;
     let first = inbox.take().remove(0);
     (first.to, first.body)
 }
 
 fn no_notice(background: &Backgrounding) -> bool {
-    background.inbox("owner-a").pending() == 0
+    background.runtime.inbox("owner-a").pending() == 0
 }
 
 struct TestTask<'a> {
@@ -42,7 +44,7 @@ impl Backgrounding {
     where
         F: Future<Output = ToolResult> + Send + 'static,
     {
-        let slot = match self.reserve() {
+        let slot = match self.runtime.reserve() {
             Ok(slot) => slot,
             Err(refusal) => return ToolResult::error(refusal),
         };
@@ -117,7 +119,7 @@ async fn no_more_than_the_limit_of_rounds_run_at_once() {
     );
 
     release.notify_waiters();
-    while background.rounds.active() > 0 {
+    while background.runtime.active_rounds() > 0 {
         tokio::task::yield_now().await;
     }
     let allowed = background
@@ -129,23 +131,25 @@ async fn no_more_than_the_limit_of_rounds_run_at_once() {
 #[tokio::test(start_paused = true)]
 async fn a_caller_waiting_for_a_slot_gets_one_when_a_round_ends() {
     let background = Backgrounding::new(JobManager::new(), Duration::from_secs(60));
-    let mut held: Vec<RoundSlot> = (0..MAX_ACTIVE_ROUNDS).map(|_| background.reserve().unwrap()).collect();
+    let mut held: Vec<RoundSlot> = (0..MAX_ACTIVE_ROUNDS)
+        .map(|_| background.runtime.reserve().unwrap())
+        .collect();
     let waiter = tokio::spawn({
         let background = background.clone();
-        async move { background.wait_for_slot().await }
+        async move { background.runtime.wait_for_slot().await }
     });
     tokio::time::sleep(Duration::from_secs(3600)).await;
     assert!(!waiter.is_finished(), "no slot is free");
-    assert!(background.reserve().is_err());
+    assert!(background.runtime.reserve().is_err());
 
     held.pop();
     let slot = tokio::time::timeout(Duration::from_secs(1), waiter)
         .await
         .unwrap()
         .unwrap();
-    assert_eq!(background.rounds.active(), MAX_ACTIVE_ROUNDS);
+    assert_eq!(background.runtime.active_rounds(), MAX_ACTIVE_ROUNDS);
     drop(slot);
-    assert!(background.reserve().is_ok());
+    assert!(background.runtime.reserve().is_ok());
 }
 
 #[tokio::test(start_paused = true)]
@@ -166,8 +170,11 @@ async fn tools_rebuilt_for_the_session_reach_and_count_rounds_the_old_tool_start
             .await;
     }
 
-    assert!(after.steer("r-0", "new instructions").is_ok());
-    assert_eq!(unrelated.steer("r-0", "new instructions"), Err(SendError::NoMailbox));
+    assert!(after.runtime.steer("r-0", "new instructions").is_ok());
+    assert_eq!(
+        unrelated.runtime.steer("r-0", "new instructions"),
+        Err(SendError::NoMailbox)
+    );
     let refused = after
         .start(task("r-extra", None), &port, |_| async { ToolResult::success("never") })
         .await;
@@ -271,7 +278,7 @@ async fn a_background_round_ending_after_cancellation_reports_nothing() {
 async fn messages_reach_a_running_round_and_unread_ones_are_reported_with_its_result() {
     let background = Backgrounding::new(JobManager::new(), Duration::from_secs(60));
     assert_eq!(
-        background.steer("t-5", "too early"),
+        background.runtime.steer("t-5", "too early"),
         Err(SendError::NoMailbox),
         "no round is running"
     );
@@ -290,9 +297,9 @@ async fn messages_reach_a_running_round_and_unread_ones_are_reported_with_its_re
         })
         .await;
     assert!(moved.content.contains("Started subagent task"), "{}", moved.content);
-    let queued = background.steer("t-5", "focus on src/hot.rs").unwrap();
+    let queued = background.runtime.steer("t-5", "focus on src/hot.rs").unwrap();
     assert_eq!(
-        background.running_settings("t-5").unwrap().persona.as_deref(),
+        background.runtime.running_settings("t-5").unwrap().persona.as_deref(),
         Some("skeptic")
     );
     assert!(
@@ -300,7 +307,7 @@ async fn messages_reach_a_running_round_and_unread_ones_are_reported_with_its_re
         "{queued}"
     );
     assert_eq!(read_rx.await.unwrap(), ["focus on src/hot.rs"]);
-    assert!(background.steer("t-5", "also check tests").is_ok());
+    assert!(background.runtime.steer("t-5", "also check tests").is_ok());
     release.notify_one();
 
     let (_, notice) = next_notice(&background).await;
@@ -309,11 +316,11 @@ async fn messages_reach_a_running_round_and_unread_ones_are_reported_with_its_re
         "{notice}"
     );
     assert_eq!(
-        background.steer("t-5", "late"),
+        background.runtime.steer("t-5", "late"),
         Err(SendError::NoMailbox),
         "a finished round accepts nothing"
     );
-    assert!(background.running_settings("t-5").is_none());
+    assert!(background.runtime.running_settings("t-5").is_none());
 }
 
 #[tokio::test(start_paused = true)]
@@ -324,10 +331,10 @@ async fn steering_a_round_whose_mailbox_is_full_reports_why_it_was_refused() {
         .start(task("full", None), &port, |_| std::future::pending())
         .await;
     for i in 0..crate::mailbox::MAILBOX_CAPACITY {
-        background.steer("full", &format!("note {i}")).unwrap();
+        background.runtime.steer("full", &format!("note {i}")).unwrap();
     }
 
-    assert_eq!(background.steer("full", "one more"), Err(SendError::Full));
+    assert_eq!(background.runtime.steer("full", "one more"), Err(SendError::Full));
 }
 
 #[tokio::test(start_paused = true)]
@@ -357,7 +364,7 @@ async fn one_round_can_be_stopped_by_task_id_in_the_foreground_or_background() {
         .await;
     assert!(moved.content.contains("Started subagent task"), "{}", moved.content);
     assert!(runtime.stop("bg"));
-    while background.rounds.active() > 0 {
+    while background.runtime.active_rounds() > 0 {
         tokio::time::sleep(Duration::from_millis(10)).await;
     }
     assert!(!runtime.stop("bg"), "a finished round has nothing to stop");
@@ -406,21 +413,21 @@ async fn a_background_round_that_ignores_the_stop_is_aborted_after_a_grace_perio
         })
         .await;
     assert!(moved.content.contains("Started subagent task"), "{}", moved.content);
-    assert_eq!(background.rounds.active(), 1);
+    assert_eq!(background.runtime.active_rounds(), 1);
 
     jobs.cancel_owner("owner-b");
     tokio::task::yield_now().await;
     assert!(jobs.has_running("owner-a"), "another session's round is left alone");
 
     jobs.cancel_owner("owner-a");
-    while jobs.has_running("owner-a") || background.rounds.active() > 0 {
+    while jobs.has_running("owner-a") || background.runtime.active_rounds() > 0 {
         tokio::time::sleep(Duration::from_secs(1)).await;
     }
 
     tokio::time::sleep(Duration::from_secs(7200)).await;
     assert!(!finished.load(Ordering::Relaxed), "the round was stopped");
     assert!(no_notice(&background));
-    assert_eq!(background.steer("t-8", "anyone?"), Err(SendError::NoMailbox));
+    assert_eq!(background.runtime.steer("t-8", "anyone?"), Err(SendError::NoMailbox));
     assert_eq!(
         jobs.get("t-8").unwrap().status,
         JobStatus::Failed {
@@ -436,7 +443,7 @@ async fn an_aborted_round_closes_its_inbox() {
     let call = background.start(task("t-6", None), &port, |_| std::future::pending());
     assert!(tokio::time::timeout(Duration::from_secs(1), call).await.is_err());
     tokio::task::yield_now().await;
-    assert_eq!(background.steer("t-6", "anyone?"), Err(SendError::NoMailbox));
+    assert_eq!(background.runtime.steer("t-6", "anyone?"), Err(SendError::NoMailbox));
 }
 
 #[tokio::test(start_paused = true)]
@@ -464,14 +471,14 @@ async fn a_zero_budget_starts_the_round_in_the_background_at_once() {
 async fn wait_returns_a_background_subagents_result_once() {
     use crate::tools::engine_tool::{EngineTool, TurnToolContext};
     let background = Backgrounding::new(JobManager::global().clone(), Duration::ZERO);
-    let inbox = background.inbox("wait-owner");
+    let inbox = background.runtime.inbox("wait-owner");
     let wait = crate::tools::wait::WaitTool::default()
         .bind_turn(&TurnToolContext {
             inbox: Some(inbox.clone()),
             ..TurnToolContext::default()
         })
         .unwrap();
-    let slot = background.reserve().unwrap();
+    let slot = background.runtime.reserve().unwrap();
     let started = background
         .run(
             slot,
@@ -511,7 +518,7 @@ async fn background_round_emits_and_deletes_a2ui_subagent_surface() {
     let recording = RecordingSink::default();
     let presenter: Arc<dyn Presenter> = Arc::new(StructuredPresenter::new(Arc::new(recording.clone())));
     let background = Backgrounding::new(JobManager::default(), Duration::from_secs(5));
-    let slot = background.reserve().unwrap();
+    let slot = background.runtime.reserve().unwrap();
 
     let result = background
         .run(
