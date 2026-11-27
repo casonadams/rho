@@ -2,9 +2,13 @@
 //! envelopes, addressed by agent id. Where an agent sits in the delegation tree decides who it may
 //! message and how its messages are introduced to the reader ([`Relation`]).
 //!
-//! Steering, messages to a running subagent, replies to questions, and background notices all travel
-//! as [`Envelope`]s. An agent reads its [`Mailbox`] at a safe point (before its next model call); a
-//! wake signal only tells a waiting reader to look, so a missed wake-up never loses a message.
+//! Steering, messages to a running subagent, questions and their replies, and background notices
+//! all travel as [`Envelope`]s. An agent reads its [`Mailbox`] at a safe point (before its next model
+//! call); a wake signal only tells a waiting reader to look, so a missed wake-up never loses a
+//! message. An agent that asks its parent a question ([`Mailbox::ask_parent`]) waits for the reply
+//! with its work in progress; the next message anyone sends it is that reply ([`Mailboxes::tell`]),
+//! and a parent that blocks or finishes its turn without answering declines the questions it read
+//! ([`Mailbox::decline_unanswered`]).
 
 use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
@@ -12,8 +16,6 @@ use tokio::sync::Notify;
 
 /// Messages a mailbox holds before further sends are refused.
 pub const MAILBOX_CAPACITY: usize = 32;
-/// Longest chain of replies to replies; stops two agents from answering each other forever.
-pub const MAX_HOPS: u8 = 8;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Party {
@@ -55,8 +57,6 @@ pub struct Envelope {
     pub body: String,
     /// For a reply, the id of the request it answers.
     pub correlation: Option<String>,
-    /// How many replies deep this message is.
-    pub hops: u8,
     /// How an agent sender relates to the recipient, set when the message is sent.
     relation: Option<Relation>,
 }
@@ -71,21 +71,16 @@ impl Envelope {
             kind,
             body: body.into(),
             correlation: None,
-            hops: 0,
             relation: None,
         }
     }
 
-    /// An answer to `request`, addressed to the agent that asked; `None` when the asker is not an agent.
+    /// The answer to request `request` from agent `to`.
     #[must_use]
-    pub fn reply_to(request: &Self, from: Party, body: impl Into<String>) -> Option<Self> {
-        let Party::Agent(asker) = &request.from else {
-            return None;
-        };
-        let mut reply = Self::new(from, asker.clone(), Kind::Reply, body);
-        reply.correlation = Some(request.id.clone());
-        reply.hops = request.hops.saturating_add(1);
-        Some(reply)
+    pub fn reply(from: Party, to: impl Into<String>, request: &str, body: impl Into<String>) -> Self {
+        let mut reply = Self::new(from, to, Kind::Reply, body);
+        reply.correlation = Some(request.to_string());
+        reply
     }
 
     /// How the message is shown to a model; `top_level` says no agent delegated to the reader. System
@@ -106,18 +101,28 @@ impl Envelope {
     /// How the message is introduced to the model, by who sent it relative to the reader.
     #[must_use]
     pub fn heading(&self) -> String {
-        let source = match (&self.from, self.relation) {
-            (Party::User, _) => "Message from the user".to_string(),
-            (Party::System, _) => "System message".to_string(),
-            (Party::Agent(_), Some(Relation::Parent)) => "Message from the delegating agent".to_string(),
-            (Party::Agent(id), Some(Relation::Child)) => format!("Message from subagent {id}"),
-            (Party::Agent(id), Some(Relation::Sibling) | None) => format!("Message from agent {id}"),
+        let sender = match (&self.from, self.relation) {
+            (Party::System, _) => return "System message".to_string(),
+            (Party::User, _) => "the user".to_string(),
+            (Party::Agent(_), Some(Relation::Parent)) => "the delegating agent".to_string(),
+            (Party::Agent(id), Some(Relation::Child)) => format!("subagent {id}"),
+            (Party::Agent(id), Some(Relation::Sibling) | None) => format!("agent {id}"),
         };
         match self.kind {
-            Kind::Request => format!("{source} (a reply is expected)"),
-            Kind::Command | Kind::Event | Kind::Reply => source,
+            Kind::Request => format!("Message from {sender} (a reply is expected)"),
+            Kind::Reply => format!("Reply from {sender}"),
+            Kind::Command | Kind::Event => format!("Message from {sender}"),
         }
     }
+}
+
+/// How [`Mailboxes::tell`] delivered a message.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Delivery {
+    /// The recipient was waiting on a question, and the message answers it.
+    Reply,
+    /// Queued for the recipient's next model call.
+    Queued,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -127,7 +132,6 @@ pub enum SendError {
     /// An agent may message its parent, its children, and its siblings, and nobody else.
     NotAllowed,
     Full,
-    TooManyHops,
 }
 
 impl std::fmt::Display for SendError {
@@ -139,7 +143,6 @@ impl std::fmt::Display for SendError {
                 f,
                 "the recipient already has {MAILBOX_CAPACITY} unread messages; wait for it to read them"
             ),
-            Self::TooManyHops => write!(f, "the reply chain is longer than {MAX_HOPS} replies"),
         }
     }
 }
@@ -151,6 +154,8 @@ struct Slot {
     parent: Option<String>,
     queue: VecDeque<Envelope>,
     wake: Arc<Notify>,
+    /// The request this agent asked and is waiting on a reply to.
+    awaiting: Option<String>,
 }
 
 #[derive(Default)]
@@ -171,6 +176,37 @@ fn relation(registry: &Registry, from: &str, to: &str, to_parent: Option<&str>) 
         Some(Relation::Child)
     } else {
         (sender_parent == to_parent).then_some(Relation::Sibling)
+    }
+}
+
+impl Registry {
+    /// Queues `envelope` for its recipient, stamping how an agent sender relates to it.
+    fn deliver(&mut self, mut envelope: Envelope) -> Result<(), SendError> {
+        let target = self.slots.get(&envelope.to).ok_or(SendError::NoMailbox)?;
+        if let Party::Agent(from) = &envelope.from {
+            envelope.relation =
+                Some(relation(self, from, &envelope.to, target.parent.as_deref()).ok_or(SendError::NotAllowed)?);
+        }
+        let slot = self.slots.get_mut(&envelope.to).ok_or(SendError::NoMailbox)?;
+        if slot.queue.len() >= MAILBOX_CAPACITY {
+            return Err(SendError::Full);
+        }
+        slot.queue.push_back(envelope);
+        slot.wake.notify_waiters();
+        Ok(())
+    }
+
+    /// Marks `asker`'s question `request` answered: it no longer waits on it, and its parent no
+    /// longer has it to read.
+    fn answered(&mut self, asker: &str, request: &str) {
+        let Some(slot) = self.slots.get_mut(asker) else {
+            return;
+        };
+        slot.awaiting = None;
+        let parent = slot.parent.clone();
+        if let Some(parent) = parent.and_then(|parent| self.slots.get_mut(&parent)) {
+            parent.queue.retain(|m| m.id != request);
+        }
     }
 }
 
@@ -196,6 +232,7 @@ impl Mailboxes {
                 parent: parent.map(str::to_string),
                 queue: VecDeque::new(),
                 wake: wake.clone(),
+                awaiting: None,
             },
         );
         Mailbox(Arc::new(Handle {
@@ -211,23 +248,23 @@ impl Mailboxes {
         self.lock().slots.contains_key(id)
     }
 
-    pub fn send(&self, mut envelope: Envelope) -> Result<(), SendError> {
-        if envelope.hops > MAX_HOPS {
-            return Err(SendError::TooManyHops);
-        }
+    pub fn send(&self, envelope: Envelope) -> Result<(), SendError> {
+        self.lock().deliver(envelope)
+    }
+
+    /// Sends `body` from `from` to agent `to`: the reply to its question when it is waiting on one,
+    /// otherwise a command it reads before its next model call.
+    pub fn tell(&self, from: Party, to: &str, body: &str) -> Result<Delivery, SendError> {
         let mut registry = self.lock();
-        let target = registry.slots.get(&envelope.to).ok_or(SendError::NoMailbox)?;
-        if let Party::Agent(from) = &envelope.from {
-            envelope.relation =
-                Some(relation(&registry, from, &envelope.to, target.parent.as_deref()).ok_or(SendError::NotAllowed)?);
-        }
-        let slot = registry.slots.get_mut(&envelope.to).ok_or(SendError::NoMailbox)?;
-        if slot.queue.len() >= MAILBOX_CAPACITY {
-            return Err(SendError::Full);
-        }
-        slot.queue.push_back(envelope);
-        slot.wake.notify_waiters();
-        Ok(())
+        let awaiting = registry.slots.get(to).and_then(|slot| slot.awaiting.clone());
+        let Some(request) = awaiting else {
+            return registry
+                .deliver(Envelope::new(from, to, Kind::Command, body))
+                .map(|()| Delivery::Queued);
+        };
+        registry.deliver(Envelope::reply(from, to, &request, body))?;
+        registry.answered(to, &request);
+        Ok(Delivery::Reply)
     }
 }
 
@@ -256,11 +293,15 @@ impl Mailbox {
 
     fn with_slot<R>(&self, f: impl FnOnce(&mut Slot) -> R) -> Option<R> {
         let mut registry = self.0.registry.lock();
+        self.own(&mut registry).map(f)
+    }
+
+    /// This handle's slot in `registry`, unless the mailbox was closed or replaced.
+    fn own<'a>(&self, registry: &'a mut Registry) -> Option<&'a mut Slot> {
         registry
             .slots
             .get_mut(&self.0.id)
             .filter(|slot| slot.generation == self.0.generation)
-            .map(f)
     }
 
     /// The agent that delegated to this one, if any.
@@ -304,7 +345,84 @@ impl Mailbox {
 
     /// Returns once at least one message is waiting.
     pub async fn wait(&self) {
-        crate::wake::until(&self.0.wake, || (self.pending() > 0).then_some(())).await;
+        self.until(|slot| (!slot.queue.is_empty()).then_some(())).await;
+    }
+
+    /// Returns what `ready` finds in this agent's slot, re-checking whenever a message arrives; never
+    /// returns once the mailbox is closed.
+    async fn until<T>(&self, mut ready: impl FnMut(&mut Slot) -> Option<T>) -> T {
+        crate::wake::until(&self.0.wake, || self.with_slot(&mut ready).flatten()).await
+    }
+
+    /// Asks this agent's parent `question`, returning the request to wait on with [`Self::reply`].
+    pub fn ask_parent(&self, question: &str) -> Result<String, SendError> {
+        let mut registry = self.0.registry.lock();
+        let parent = self
+            .own(&mut registry)
+            .and_then(|slot| slot.parent.clone())
+            .ok_or(SendError::NoMailbox)?;
+        let request = Envelope::new(Party::Agent(self.id().to_string()), parent, Kind::Request, question);
+        let id = request.id.clone();
+        registry.deliver(request)?;
+        if let Some(slot) = self.own(&mut registry) {
+            slot.awaiting = Some(id.clone());
+            slot.wake.notify_waiters();
+        }
+        Ok(id)
+    }
+
+    /// Stops waiting on `request` (the asker is stopping), so later messages are no longer its reply.
+    pub fn withdraw(&self, request: &str) {
+        self.with_slot(|slot| slot.awaiting.take_if(|awaiting| awaiting == request));
+    }
+
+    /// Waits for the reply to `request`; other messages stay queued for the next model call. A reply
+    /// from [`Party::System`] means the parent declined to answer.
+    pub async fn reply(&self, request: &str) -> Envelope {
+        self.until(|slot| {
+            let at = slot
+                .queue
+                .iter()
+                .position(|m| m.kind == Kind::Reply && m.correlation.as_deref() == Some(request))?;
+            slot.queue.remove(at)
+        })
+        .await
+    }
+
+    /// Returns once this agent is waiting on the reply to a question it asked.
+    pub async fn asked(&self) {
+        self.until(|slot| slot.awaiting.is_some().then_some(())).await;
+    }
+
+    /// Declines the questions this agent's subagents asked that it has read but not answered: it is
+    /// blocking or ending its turn instead, so each asker stops waiting and pauses with its question.
+    pub fn decline_unanswered(&self) {
+        let mut registry = self.0.registry.lock();
+        let Some(unread) = self.own(&mut registry).map(|slot| {
+            let requests = slot.queue.iter().filter(|m| m.kind == Kind::Request);
+            requests.map(|m| m.id.clone()).collect::<Vec<_>>()
+        }) else {
+            return;
+        };
+        let children = registry
+            .slots
+            .iter_mut()
+            .filter(|(_, slot)| slot.parent.as_deref() == Some(self.id()));
+        for (child, slot) in children {
+            if let Some(request) = slot.awaiting.take_if(|request| !unread.contains(request)) {
+                let declined = "The delegating agent did not answer.";
+                slot.queue
+                    .push_back(Envelope::reply(Party::System, child.clone(), &request, declined));
+                slot.wake.notify_waiters();
+            }
+        }
+    }
+
+    /// Holds this agent's turn open to its subagents' questions; dropping the guard (the turn ended,
+    /// however it ended) declines the ones it read but did not answer.
+    #[must_use]
+    pub fn answering(&self) -> Answering {
+        Answering(self.clone())
     }
 
     /// Closes the mailbox for every clone, returning the messages the agent never read.
@@ -317,6 +435,15 @@ impl Mailbox {
     #[must_use]
     pub fn same(&self, other: &Self) -> bool {
         Arc::ptr_eq(&self.0, &other.0)
+    }
+}
+
+/// An agent's turn, open to its subagents' questions until dropped; see [`Mailbox::answering`].
+pub struct Answering(Mailbox);
+
+impl Drop for Answering {
+    fn drop(&mut self) {
+        self.0.decline_unanswered();
     }
 }
 
@@ -486,28 +613,116 @@ mod tests {
         );
     }
 
-    #[test]
-    fn replies_route_back_to_the_asker_and_stop_after_too_many_hops() {
+    #[tokio::test(start_paused = true)]
+    async fn a_question_waits_for_the_next_message_to_the_asker_which_answers_it() {
         let boxes = Mailboxes::default();
-        let _root = boxes.open("root", None);
-        let _child = boxes.open("child", Some("root"));
-        let question = Envelope::new(agent("child"), "root", Kind::Request, "which module?");
-        boxes.send(question.clone()).unwrap();
+        let root = boxes.open("root", None);
+        let child = boxes.open("child", Some("root"));
+        let request = child.ask_parent("which module?").unwrap();
+        boxes
+            .send(Envelope::new(Party::System, "child", Kind::Event, "tests passed"))
+            .unwrap();
+        let asked = root.take();
+        assert_eq!(
+            root.for_model(&asked),
+            ["Message from subagent child (a reply is expected):\nwhich module?"]
+        );
 
-        let reply = Envelope::reply_to(&question, agent("root"), "the parser").unwrap();
+        let waiting = tokio::spawn({
+            let (child, request) = (child.clone(), request.clone());
+            async move { child.reply(&request).await }
+        });
+        tokio::task::yield_now().await;
+        assert!(!waiting.is_finished(), "a notice is not the reply");
+        assert_eq!(boxes.tell(agent("root"), "child", "the parser"), Ok(Delivery::Reply));
 
-        assert_eq!((reply.to.as_str(), reply.kind, reply.hops), ("child", Kind::Reply, 1));
-        assert_eq!(reply.correlation.as_deref(), Some(question.id.as_str()));
-        assert_eq!(boxes.send(reply.clone()), Ok(()));
-        assert!(Envelope::reply_to(&command(Party::User, "root", "x"), agent("root"), "?").is_none());
+        let reply = waiting.await.unwrap();
+        assert_eq!(reply.correlation.as_deref(), Some(request.as_str()));
+        assert_eq!(
+            child.for_model(&[reply]),
+            ["Reply from the delegating agent:\nthe parser"]
+        );
+        assert_eq!(child.take()[0].body, "tests passed", "other messages stay queued");
+        assert_eq!(
+            boxes.tell(agent("root"), "child", "and the lexer"),
+            Ok(Delivery::Queued),
+            "once answered, messages are commands again"
+        );
+    }
 
-        let mut chain = reply;
-        for _ in 0..MAX_HOPS {
-            let (from, to) = (chain.to.clone(), chain.from.clone());
-            chain = Envelope::reply_to(&chain, Party::Agent(from), "again").unwrap();
-            assert_eq!(to, Party::Agent(chain.to.clone()));
-        }
-        assert_eq!(boxes.send(chain), Err(SendError::TooManyHops));
+    #[test]
+    fn a_parent_declines_only_the_questions_it_has_read() {
+        let boxes = Mailboxes::default();
+        let root = boxes.open("root", None);
+        let read = boxes.open("read", Some("root"));
+        let unread = boxes.open("unread", Some("root"));
+        let _other_root = boxes.open("other", None);
+        let elsewhere = boxes.open("elsewhere", Some("other"));
+        let read_request = read.ask_parent("seen?").unwrap();
+        let _ = root.take();
+        unread.ask_parent("not yet seen?").unwrap();
+        elsewhere.ask_parent("another parent's?").unwrap();
+
+        root.decline_unanswered();
+
+        let declined = read.take();
+        assert_eq!(declined.len(), 1);
+        assert_eq!(
+            (&declined[0].from, declined[0].correlation.as_deref()),
+            (&Party::System, Some(read_request.as_str()))
+        );
+        assert!(
+            unread.take().is_empty(),
+            "a question still in the parent's mailbox waits"
+        );
+        assert!(elsewhere.take().is_empty());
+        assert_eq!(boxes.tell(agent("root"), "read", "late"), Ok(Delivery::Queued));
+        assert_eq!(boxes.tell(agent("root"), "unread", "now"), Ok(Delivery::Reply));
+    }
+
+    #[tokio::test]
+    async fn an_answered_question_is_not_also_declined_or_left_for_the_parent_to_read() {
+        let boxes = Mailboxes::default();
+        let root = boxes.open("root", None);
+        let child = boxes.open("child", Some("root"));
+        let request = child.ask_parent("which module?").unwrap();
+
+        assert_eq!(boxes.tell(Party::User, "child", "the parser"), Ok(Delivery::Reply));
+        root.decline_unanswered();
+
+        assert!(
+            root.take().is_empty(),
+            "the answered question is withdrawn from the parent"
+        );
+        assert_eq!(child.reply(&request).await.from, Party::User);
+        assert!(child.take().is_empty(), "no decline follows the answer");
+    }
+
+    #[test]
+    fn a_withdrawn_question_takes_no_reply_and_a_finished_turn_declines_what_it_read() {
+        let boxes = Mailboxes::default();
+        let root = boxes.open("root", None);
+        let stopping = boxes.open("stopping", Some("root"));
+        let waiting = boxes.open("waiting", Some("root"));
+        let withdrawn = stopping.ask_parent("first?").unwrap();
+        stopping.withdraw(&withdrawn);
+        waiting.ask_parent("second?").unwrap();
+        let _ = root.take();
+
+        assert_eq!(boxes.tell(agent("root"), "stopping", "late"), Ok(Delivery::Queued));
+        drop(root.answering());
+
+        let stopping_mail = stopping.take();
+        assert_eq!((stopping_mail.len(), stopping_mail[0].kind), (1, Kind::Command));
+        assert_eq!(waiting.take()[0].from, Party::System);
+    }
+
+    #[test]
+    fn only_an_agent_with_a_parent_can_ask() {
+        let boxes = Mailboxes::default();
+        let root = boxes.open("root", None);
+        assert_eq!(root.ask_parent("anyone?"), Err(SendError::NoMailbox));
+        assert_eq!(boxes.tell(Party::User, "root", "hi"), Ok(Delivery::Queued));
     }
 
     #[test]

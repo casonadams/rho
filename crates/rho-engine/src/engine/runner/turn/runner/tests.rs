@@ -192,6 +192,50 @@ async fn a_job_ending_without_a_notice_ends_the_wait_at_once() {
 }
 
 #[tokio::test(start_paused = true)]
+async fn a_turn_that_waits_instead_of_answering_declines_the_questions_it_read() {
+    let _queue = BACKGROUND_QUEUE_TEST_LOCK.lock().await;
+    let (runner, _temp, mut buf, mut tracker) = test_agent_env(Arc::new(MockAdapter::default()));
+    let owner = runner.session_file().session_id.clone();
+    let mut ctx = RunnerStepContext::from_test_buffers(&mut buf, &mut tracker);
+    let emitter = acking_emitter();
+    let parent = runner.inbox.clone().unwrap();
+    let child = parent.registry().open("asker-6a1", Some(parent.id()));
+    let request = child.ask_parent("which module?").unwrap();
+    let _ = parent.take();
+    let job = crate::tools::jobs::JobManager::global().start(&owner, None, "asker-job-6a1".into(), "subagent".into());
+    let asker = tokio::spawn(async move {
+        let reply = child.reply(&request).await;
+        job.finish(crate::tools::jobs::JobStatus::Failed { error: "paused".into() }, None);
+        reply.from
+    });
+
+    let delivered = wait_for_background_jobs(&runner, &mut ctx, &emitter).await.unwrap();
+
+    assert!(!delivered);
+    assert_eq!(asker.await.unwrap(), crate::mailbox::Party::System);
+}
+
+#[tokio::test]
+async fn a_turn_that_ends_without_answering_declines_the_question_it_read() {
+    let (runner, _temp, _buf, _tracker) = test_agent_env(Arc::new(MockAdapter::text("no idea")));
+    let parent = runner.inbox.clone().unwrap();
+    let child = parent.registry().open("asker-9c4", Some(parent.id()));
+    let request = child.ask_parent("which module?").unwrap();
+
+    let mut stream = runner.prompt("go").stream();
+    while let Some(item) = stream.next().await {
+        if let Ok(MultiTurnStreamItem::DisplayBarrier(drained)) = item {
+            drained.notify_one();
+        }
+    }
+
+    let reply = tokio::time::timeout(std::time::Duration::from_secs(1), child.reply(&request))
+        .await
+        .expect("the finished turn declined the question");
+    assert_eq!(reply.from, crate::mailbox::Party::System);
+}
+
+#[tokio::test(start_paused = true)]
 async fn steering_typed_while_waiting_for_background_work_is_delivered_at_once() {
     struct Queued(std::sync::Mutex<Vec<String>>, tokio::sync::Notify);
     #[async_trait::async_trait]

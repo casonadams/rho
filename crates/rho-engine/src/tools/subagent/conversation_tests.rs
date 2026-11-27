@@ -1,9 +1,10 @@
-use super::super::{SubagentTool, observed::ASK_PARENT_TOOL};
+use super::super::{SubagentRuntime, SubagentTool, observed::ASK_PARENT_TOOL};
 use super::*;
 use crate::provider::adapter::{MockAdapter, ModelStreamEvent};
 use crate::tools::engine_tool::{EngineTool, TurnToolContext};
 use crate::tools::{GenericTool, ToolResult};
 use rho_harness_core::model::{ToolCall, ToolFunction, UserContent};
+use rho_harness_core::presentation::SUBAGENT_STARTED_MARKER;
 use serde_json::json;
 use std::sync::Arc;
 
@@ -66,28 +67,117 @@ async fn ask(tool: &Arc<dyn EngineTool>, args: serde_json::Value) -> String {
     tool.execute(args).await.unwrap().content
 }
 
-#[tokio::test]
-async fn a_question_pauses_the_task_and_the_reply_resumes_it() {
-    let dir = tempfile::tempdir().unwrap();
-    let session = SessionManager::new(dir.path(), None).unwrap();
-    let adapter = MockAdapter::from_turns([
+/// The subagent tool sharing `runtime`, run for `session` with a 60 second foreground budget.
+fn tool_with_runtime(
+    adapter: &MockAdapter,
+    session: &SessionManager,
+    runtime: &SubagentRuntime,
+) -> Arc<dyn EngineTool> {
+    let ctx = TurnToolContext {
+        session: Some(session.clone()),
+        ..Default::default()
+    };
+    inline_tool(Some(Arc::new(adapter.clone())), vec![read_tool()])
+        .with_runtime(runtime)
+        .bind_turn(&ctx)
+        .unwrap()
+}
+
+fn ask_turns() -> MockAdapter {
+    MockAdapter::from_turns([
         call("read", json!({ "path": "src/hot.rs" })),
         call(
             ASK_PARENT_TOOL,
             json!({ "question": "Optimize for latency or memory?" }),
         ),
         text("Latency: hoisted the allocation out of hot()."),
-    ]);
-    let tool = bound_tool(&adapter, Some(session.clone()));
+    ])
+}
 
-    let asked = ask(&tool, json!({ "name": "performanceAudit", "prompt": "Audit hot.rs" })).await;
-    let id = task_id(&asked);
+/// Starts a task whose subagent asks a question, returning its id and the question as the
+/// delegating agent receives it.
+async fn start_asking(tool: &Arc<dyn EngineTool>, parent: &crate::mailbox::Mailbox) -> (String, String) {
+    let started = ask(tool, json!({ "name": "performanceAudit", "prompt": "Audit hot.rs" })).await;
     assert!(
-        asked.starts_with("Question for you: Optimize for latency or memory?"),
-        "{asked}"
+        started.starts_with(SUBAGENT_STARTED_MARKER),
+        "a question moves the round to the background at once: {started}"
     );
-    assert!(asked.contains("\u{b7} input-required: incomplete, 2 turns"), "{asked}");
+    let id = started[SUBAGENT_STARTED_MARKER.len()..]
+        .split('\'')
+        .next()
+        .unwrap()
+        .to_string();
+    parent.wait().await;
+    let question = parent.for_model(&parent.take()).concat();
+    (id, question)
+}
+
+async fn next_notice(parent: &crate::mailbox::Mailbox) -> String {
+    parent.wait().await;
+    parent.for_model(&parent.take()).concat()
+}
+
+#[tokio::test]
+async fn a_question_is_answered_while_the_subagent_waits_with_its_work_in_progress() {
+    let dir = tempfile::tempdir().unwrap();
+    let session = SessionManager::new(dir.path(), None).unwrap();
+    let runtime = SubagentRuntime::default();
+    let parent = runtime.inbox(&session.session_id);
+    let adapter = ask_turns();
+    let tool = tool_with_runtime(&adapter, &session, &runtime);
+
+    let (id, question) = start_asking(&tool, &parent).await;
     assert!(id.starts_with("performanceAudit-"), "{id}");
+    assert!(
+        question.starts_with(&format!(
+            "Message from subagent {id} (a reply is expected):\nOptimize for latency or memory?\n\nAnswer with subagent {{\"task_id\": \"{id}\""
+        )),
+        "{question}"
+    );
+
+    let answered = ask(&tool, json!({ "task_id": id, "prompt": "Latency." })).await;
+
+    assert_eq!(
+        answered,
+        format!("Reply delivered to subagent task '{id}'; it continues from its question.")
+    );
+    let notice = next_notice(&parent).await;
+    assert!(notice.contains("Latency: hoisted the allocation"), "{notice}");
+    let last = adapter.requests().pop().unwrap();
+    let results = tool_results(&last.messages);
+    assert_eq!(results[1].0, ASK_PARENT_TOOL);
+    assert!(
+        results[1].1.contains("Reply from the delegating agent:\\nLatency."),
+        "the reply is the call's result: {results:?}"
+    );
+    let context = session.subagent_context(&id).await.unwrap();
+    let task = context.latest_task().unwrap();
+    assert_eq!(context.tasks.len(), 1);
+    assert_eq!(task.status.state, TaskState::Completed);
+    let roles: Vec<Role> = task.history.iter().map(|m| m.role).collect();
+    assert_eq!(roles, [Role::User, Role::Agent], "one round answered the question");
+}
+
+#[tokio::test]
+async fn a_declined_question_pauses_the_task_and_the_reply_resumes_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let session = SessionManager::new(dir.path(), None).unwrap();
+    let runtime = SubagentRuntime::default();
+    let parent = runtime.inbox(&session.session_id);
+    let adapter = ask_turns();
+    let tool = tool_with_runtime(&adapter, &session, &runtime);
+    let (id, _) = start_asking(&tool, &parent).await;
+
+    parent.decline_unanswered();
+    let paused = next_notice(&parent).await;
+    assert!(
+        paused.contains("Question for you: Optimize for latency or memory?"),
+        "{paused}"
+    );
+    assert!(
+        paused.contains("\u{b7} input-required: incomplete, 2 turns"),
+        "{paused}"
+    );
 
     let done = ask(&tool, json!({ "task_id": id, "prompt": "Latency." })).await;
 
@@ -98,13 +188,11 @@ async fn a_question_pauses_the_task_and_the_reply_resumes_it() {
     assert_eq!(last.asked(), "Reply from the delegating agent:\nLatency.");
     let results = tool_results(&last.messages);
     assert_eq!(results.len(), 2, "{results:?}");
-    assert_eq!(results[1].0, ASK_PARENT_TOOL);
     assert!(
         results[1].1.contains("Question sent to the delegating agent"),
         "{results:?}"
     );
     assert!(last.tools.iter().any(|t| t.name == ASK_PARENT_TOOL));
-
     let context = session.subagent_context(&id).await.unwrap();
     let task = context.latest_task().unwrap();
     assert_eq!(context.tasks.len(), 1);

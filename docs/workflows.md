@@ -519,7 +519,7 @@ You fix validated findings...
 | `Enter` / `Right` | Agents list | Show the selected agent in the main terminal, in place of the main agent |
 | `Delete` | Agents list | Stop the selected running agent; it saves its work and the task can be continued |
 | `Left` / `Esc` | Agents list | Close the list |
-| type, then `Enter` | agent shown | Message the agent: a running agent reads it before its next model call; for a finished one, the main agent is asked to continue its task (inside a normal, permission-checked turn). Workflow agents cannot be messaged while the workflow runs. |
+| type, then `Enter` | agent shown | Message the agent: a running agent reads it before its next model call, or takes it as the answer when it is waiting on a question; for a finished one, the main agent is asked to continue its task (inside a normal, permission-checked turn). Workflow agents cannot be messaged while the workflow runs. |
 | `Esc` | agent shown | Stop the agent if it is running (it saves its work first), otherwise return to the main agent |
 | `Left` | agent shown, empty prompt | Return to the main agent |
 

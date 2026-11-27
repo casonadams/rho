@@ -61,9 +61,13 @@ pub(crate) struct Wakeups<'a> {
 }
 
 impl Wakeups<'_> {
-    /// Returns once a message or steering is waiting, or after a job ended since the last call.
+    /// Returns once a message or steering is waiting, or after a job ended since the last call. An
+    /// agent that blocks here is not answering, so it first declines the questions it has read.
     pub(crate) async fn next(&mut self) {
         let Self { inbox, steering, ended } = self;
+        if let Some(inbox) = inbox {
+            inbox.decline_unanswered();
+        }
         let job_ended = async {
             if ended.changed().await.is_err() {
                 std::future::pending::<()>().await;

@@ -194,6 +194,7 @@ impl AgentRunner {
             cancellation: self.cancellation.clone(),
         };
         let task = tokio::spawn(async move {
+            let _answering = self.inbox.as_ref().map(crate::mailbox::Mailbox::answering);
             if let Err(error) = run_agent_loop(self, &emitter).await {
                 let _ = emitter.tx.send(Err(error)).await;
             }

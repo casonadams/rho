@@ -145,9 +145,9 @@ impl SubagentTool {
             "subagent {}",
             settings
                 .name
-                .or(settings.agent)
-                .as_deref()
-                .unwrap_or(SubagentRole::default().as_str())
+                .as_ref()
+                .or(settings.agent.as_ref())
+                .map_or(SubagentRole::default().as_str(), String::as_str)
         );
         let runner = runner.with_parent_channel();
         let owner = session.session_id.clone();
@@ -156,7 +156,7 @@ impl SubagentTool {
             owner: &owner,
             label,
             cancellation: self.ctx.cancellation.clone(),
-            settings: exchange.settings(),
+            settings,
             presenter: (self.ctx.a2ui_widgets && self.ctx.a2ui_config.subagent_widget)
                 .then(|| self.ctx.presenter.clone())
                 .flatten(),

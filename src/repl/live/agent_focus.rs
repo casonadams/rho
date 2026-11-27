@@ -202,11 +202,15 @@ pub fn route<B: TerminalBackend>(
     };
     if summary.status == AgentStatus::Running {
         match engine.message_running_subagent(&task_id, text) {
-            Ok(()) => {
-                controller.set_system_message(format!(
-                    "Sent to {}; it reads it before its next model call",
-                    summary.label
-                ));
+            Ok(delivery) => {
+                controller.set_system_message(match delivery {
+                    rho_engine::mailbox::Delivery::Reply => {
+                        format!("Answered {}'s question; it continues", summary.label)
+                    }
+                    rho_engine::mailbox::Delivery::Queued => {
+                        format!("Sent to {}; it reads it before its next model call", summary.label)
+                    }
+                });
                 return Routed::Handled;
             }
             Err(rho_engine::mailbox::SendError::NoMailbox) => {}

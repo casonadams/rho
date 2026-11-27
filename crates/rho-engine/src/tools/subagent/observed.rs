@@ -1,11 +1,13 @@
 //! Tools a subagent's turn runs through: each call is recorded as evidence for its result (outcome,
-//! files read and changed, what changed while a bash command ran), and `ask_parent` ends the turn
-//! with a question for the delegating agent.
+//! files read and changed, what changed while a bash command ran), and `ask_parent` puts a question
+//! to the delegating agent.
 
 use super::evidence::{OutcomeStatus, ToolOutcome};
 use super::snapshot::Snapshot;
 use super::workspace::{WorkspaceChange, bash_file_arguments, normalize};
 use crate::engine::runner::turn::runner::ToolObserver;
+use crate::engine::runner::turn::types::{CancellationSignal, unless_cancelled};
+use crate::mailbox::{Envelope, Mailbox, Party};
 use crate::tools::engine_tool::{EngineTool, TurnToolContext};
 use crate::tools::types::ToolResult;
 use rho_harness_core::error::AppError;
@@ -19,7 +21,7 @@ const MAX_TOOL_OUTPUT_CHARS: usize = 20_000;
 const FILE_CHANGING_TOOLS: [&str; 2] = ["write", "edit"];
 const FILE_READING_TOOLS: [&str; 3] = ["read", "write", "edit"];
 pub(crate) const ASK_PARENT_TOOL: &str = "ask_parent";
-const ASK_PARENT_DESCRIPTION: &str = "Ask the agent that delegated this task a question and pause until it replies. Use it only when you cannot proceed without a decision or information you cannot find yourself; the reply arrives as the next message.";
+const ASK_PARENT_DESCRIPTION: &str = "Ask the agent that delegated this task a question. Use it only when you cannot proceed without a decision or information you cannot find yourself. The reply is this call's result; if the delegating agent cannot answer now, your turn pauses with the question and the reply arrives as the next message.";
 const QUESTION_SENT: &str = "Question sent to the delegating agent; its reply arrives as the next message.";
 const NO_QUESTION: &str = "(the subagent asked without a question)";
 
@@ -247,10 +249,14 @@ impl EngineTool for RecordedTool {
     }
 }
 
-/// Lets the subagent ask the delegating agent a question: the call is answered at once and ends
-/// the turn, and every question asked is kept for the round's result.
+/// Lets the subagent ask the delegating agent a question. With a live mailbox the question goes to
+/// the parent and the call returns its reply, so the round keeps its work in progress; when the
+/// parent declines (it waits or ends its turn instead), the call ends the turn and the question is
+/// kept for the round's result, to be answered by continuing the task.
 pub(crate) struct AskParentTool {
     questions: Arc<Mutex<Vec<String>>>,
+    inbox: Option<Mailbox>,
+    cancellation: Option<CancellationSignal>,
 }
 
 impl AskParentTool {
@@ -259,9 +265,41 @@ impl AskParentTool {
         let questions = Arc::new(Mutex::new(Vec::new()));
         let tool = Arc::new(Self {
             questions: questions.clone(),
+            inbox: None,
+            cancellation: None,
         });
         (tool, questions)
     }
+
+    /// Ends the turn with `question` kept for the round's result.
+    fn pause(&self, question: String) -> ToolResult {
+        self.questions
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .push(question);
+        ToolResult {
+            ends_turn: true,
+            ..ToolResult::success(QUESTION_SENT)
+        }
+    }
+
+    /// The parent's reply to `question`, or `None` when it declined or the round is stopping.
+    async fn ask(&self, inbox: &Mailbox, question: &str) -> Option<Envelope> {
+        let request = inbox.ask_parent(&reply_hint(inbox.id(), question)).ok()?;
+        let Some(reply) = unless_cancelled(self.cancellation.as_ref(), inbox.reply(&request)).await else {
+            inbox.withdraw(&request);
+            return None;
+        };
+        (reply.from != Party::System).then_some(reply)
+    }
+}
+
+/// The question as the parent receives it, with how to answer.
+fn reply_hint(task_id: &str, question: &str) -> String {
+    let question = if question.is_empty() { NO_QUESTION } else { question };
+    format!(
+        "{question}\n\nAnswer with subagent {{\"task_id\": \"{task_id}\", \"prompt\": \"<answer>\"}}; it waits for your reply with its work in progress. If you wait or end your turn instead, it pauses with this question, and you can answer it the same way later."
+    )
 }
 
 /// The questions asked this turn as one: blank asks only count when nothing real was asked.
@@ -298,14 +336,21 @@ impl EngineTool for AskParentTool {
 
     async fn execute(&self, args: Value) -> Result<ToolResult, AppError> {
         let asked = args["question"].as_str().unwrap_or_default().trim().to_string();
-        self.questions
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .push(asked);
-        Ok(ToolResult {
-            ends_turn: true,
-            ..ToolResult::success(QUESTION_SENT)
+        let Some(inbox) = &self.inbox else {
+            return Ok(self.pause(asked));
+        };
+        Ok(match self.ask(inbox, &asked).await {
+            Some(reply) => ToolResult::success(inbox.for_model(&[reply]).concat()),
+            None => self.pause(asked),
         })
+    }
+
+    fn bind_turn(&self, ctx: &TurnToolContext) -> Option<Arc<dyn EngineTool>> {
+        Some(Arc::new(Self {
+            questions: self.questions.clone(),
+            inbox: ctx.inbox.clone(),
+            cancellation: ctx.cancellation.clone(),
+        }))
     }
 }
 
@@ -419,5 +464,50 @@ mod tests {
         let (blank, only_blank) = AskParentTool::with_question_slot();
         blank.execute(serde_json::json!({})).await.unwrap();
         assert_eq!(take_question(&only_blank).as_deref(), Some(NO_QUESTION));
+    }
+
+    #[tokio::test]
+    async fn with_a_mailbox_the_parents_reply_is_the_result_and_a_decline_pauses_the_turn() {
+        let boxes = crate::mailbox::Mailboxes::default();
+        let parent = boxes.open("boss", None);
+        let inbox = boxes.open("task", Some("boss"));
+        let (tool, questions) = AskParentTool::with_question_slot();
+        let tool = tool
+            .bind_turn(&TurnToolContext {
+                inbox: Some(inbox),
+                ..TurnToolContext::default()
+            })
+            .unwrap();
+        let question = serde_json::json!({ "question": "Which module?" });
+
+        let answering = tokio::spawn({
+            let (boxes, parent) = (boxes.clone(), parent.clone());
+            async move {
+                parent.wait().await;
+                let asked = parent.take();
+                boxes.tell(Party::Agent("boss".into()), "task", "The parser.").unwrap();
+                asked
+            }
+        });
+        let answered = tool.execute(question.clone()).await.unwrap();
+        let asked = answering.await.unwrap();
+        let declining = tokio::spawn(async move {
+            parent.wait().await;
+            let _ = parent.take();
+            parent.decline_unanswered();
+        });
+        let declined = tool.execute(question).await.unwrap();
+        declining.await.unwrap();
+
+        assert!(
+            asked[0]
+                .body
+                .starts_with("Which module?\n\nAnswer with subagent {\"task_id\": \"task\"")
+        );
+        assert!(!answered.ends_turn);
+        assert_eq!(answered.content, "Reply from the delegating agent:\nThe parser.");
+        assert!(declined.ends_turn);
+        assert_eq!(declined.content, QUESTION_SENT);
+        assert_eq!(take_question(&questions).as_deref(), Some("Which module?"));
     }
 }

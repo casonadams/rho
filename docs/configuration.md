@@ -413,10 +413,15 @@ happen.
   subagent reads or waits for it first. A subagent that ends with a plain
   reply instead has that reply used as its result.
 - **Questions**: a subagent can call `ask_parent` when it cannot proceed
-  without a decision. The call ends its turn; its task becomes `input-required`
-  and its result is `Question for you: ...`. The main agent answers with the
-  same `task_id`, and the answer reaches the subagent as its next message,
-  marked as a reply from the delegating agent.
+  without a decision. The question reaches the main agent as a message from
+  the subagent, and the subagent waits with its work in progress. The main
+  agent answers with the same `task_id`; the answer is the `ask_parent` call's
+  result and the subagent continues in the same round. If the main agent waits
+  or ends its turn instead of answering, the subagent pauses: its task becomes
+  `input-required`, its result is `Question for you: ...`, and answering with
+  the same `task_id` later resumes it with the reply as its next message. A
+  message the user sends a waiting subagent from the agent view answers it the
+  same way.
 - **Same loop as the main agent**: a subagent runs on the main agent's turn
   loop with its own tools, instructions, and turn limit. It gets the same
   request retries, repeated-call guard, "Please continue" nudge after an empty
@@ -467,9 +472,13 @@ happen.
   then, inspecting that task says it is still running, and continuing it
   queues the prompt (with any `context_slice`) as a message the subagent reads
   before its next model call (also when it answers: it keeps working with the
-  message). A `role`, `agent`, or `persona` that differs from the task's, or
-  any `model` or `turns`, is refused instead of being ignored. Messages it
-  never read are listed with its result. At most 8 subagents run at once;
+  message), or, while it waits on an `ask_parent` question, answers that
+  question. A `role`, `agent`, or `persona` that differs from the task's, or
+  any `model` or `turns`, is refused instead of being ignored. A message is
+  also refused, with the reason, when the subagent already has 32 unread
+  messages. Messages it never read are listed with its result. A subagent
+  running inline moves to the background as soon as it asks a question, so the
+  main agent can answer. At most 8 subagents run at once;
   starting another is refused until one finishes. A result placed in a follow-up
   message is clipped at 20 KB (the session keeps the full record) and is marked
   as untrusted output, not instructions. Each result's footer names the model

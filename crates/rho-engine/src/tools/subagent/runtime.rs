@@ -4,7 +4,7 @@
 
 use super::conversation::ConversationSettings;
 use crate::engine::runner::turn::types::CancellationSignal;
-use crate::mailbox::{Envelope, Kind, Mailbox, Mailboxes, Party, SendError};
+use crate::mailbox::{Delivery, Mailbox, Mailboxes, Party, SendError};
 use rho_harness_core::a2ui::{SemanticTone, SubagentSurfaceRow, subagent_surface_messages};
 use rho_harness_core::args::SubagentRole;
 use rho_harness_core::presentation::Presenter;
@@ -42,10 +42,10 @@ impl SubagentRuntime {
         inbox
     }
 
-    /// Queues a message the user typed for task `task_id`'s running round.
-    pub fn message_from_user(&self, task_id: &str, text: &str) -> Result<(), SendError> {
-        self.mailboxes
-            .send(Envelope::new(Party::User, task_id, Kind::Command, text))
+    /// Sends a message the user typed to task `task_id`'s running round, answering its question if it
+    /// is waiting on one.
+    pub fn message_from_user(&self, task_id: &str, text: &str) -> Result<Delivery, SendError> {
+        self.mailboxes.tell(Party::User, task_id, text)
     }
 
     /// Asks task `task_id`'s running round to stop and save what it has; `false` if none is running.
@@ -53,18 +53,22 @@ impl SubagentRuntime {
         self.open.with(task_id, |round| round.stop.cancel()).is_some()
     }
 
-    /// Queues `message` from the delegating agent for task `task_id`'s running round, returning the
-    /// confirmation; [`SendError::NoMailbox`] when no round of it runs.
+    /// Sends `message` from the delegating agent to task `task_id`'s running round, answering its
+    /// question if it is waiting on one, and returns the confirmation; [`SendError::NoMailbox`] when
+    /// no round of it runs.
     pub(crate) fn steer(&self, task_id: &str, message: &str) -> Result<String, SendError> {
         let parent = self
             .open
             .with(task_id, |round| round.owner.clone())
             .ok_or(SendError::NoMailbox)?;
-        self.mailboxes
-            .send(Envelope::new(Party::Agent(parent), task_id, Kind::Command, message))?;
-        Ok(format!(
-            "Message queued for running subagent task '{task_id}'; it reads it before its next model call."
-        ))
+        Ok(match self.mailboxes.tell(Party::Agent(parent), task_id, message)? {
+            Delivery::Reply => {
+                format!("Reply delivered to subagent task '{task_id}'; it continues from its question.")
+            }
+            Delivery::Queued => {
+                format!("Message queued for running subagent task '{task_id}'; it reads it before its next model call.")
+            }
+        })
     }
 
     /// What task `task_id` runs as while one of its rounds is running.

@@ -395,7 +395,7 @@ impl std::str::FromStr for SubagentRole {
 
 #[derive(Debug, Clone, Deserialize, Serialize, schemars::JsonSchema)]
 pub struct SubagentArgs {
-    /// Continue an earlier subagent task by the id its result reported: answer its question or send review feedback (e.g. 'you missed X, fix it'). It keeps its full history; role, agent, persona, and name come from that task. While the task still runs, the prompt is queued as a message it reads before its next model call
+    /// Continue an earlier subagent task by the id its result reported: answer its question or send review feedback (e.g. 'you missed X, fix it'). It keeps its full history; role, agent, persona, and name come from that task. While the task still runs, the prompt answers the question it is waiting on, or is otherwise queued as a message it reads before its next model call
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub task_id: Option<String>,
     /// Short camelCase name for what this subagent is doing (e.g. 'performanceAudit'); labels its progress, /agents entry, and result

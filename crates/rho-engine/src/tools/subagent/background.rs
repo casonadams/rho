@@ -208,9 +208,10 @@ impl Backgrounding {
             task.presenter.clone(),
             stop.clone(),
         );
+        let inbox = round.mailbox();
         let work = work(RoundIo {
             progress: gated,
-            inbox: round.mailbox(),
+            inbox: inbox.clone(),
             stop: stop.clone(),
         });
         let turn = task.cancellation.clone();
@@ -221,7 +222,7 @@ impl Backgrounding {
             with_undelivered(result, &round.close())
         });
         let mut guard = AbortOnDrop(Some(handle.abort_handle()));
-        match self.wait_inline(&mut handle).await {
+        match self.wait_inline(&mut handle, &inbox).await {
             Some(result) => joined(result),
             None => {
                 guard.0 = None;
@@ -232,15 +233,21 @@ impl Backgrounding {
         }
     }
 
-    /// The round's outcome if it ends within the foreground budget; a zero budget never waits.
+    /// The round's outcome if it ends within the foreground budget, before it asks the delegating
+    /// agent a question (which that agent can only answer once this call returns); a zero budget
+    /// never waits.
     async fn wait_inline(
         &self,
         handle: &mut JoinHandle<ToolResult>,
+        inbox: &Mailbox,
     ) -> Option<Result<ToolResult, tokio::task::JoinError>> {
         if self.budget.is_zero() {
             return None;
         }
-        tokio::time::timeout(self.budget, handle).await.ok()
+        tokio::select! {
+            result = tokio::time::timeout(self.budget, handle) => result.ok(),
+            () = inbox.asked() => None,
+        }
     }
 
     /// Tracks a round that moved to the background. Stopping its job asks the round to stop so it can
