@@ -1,7 +1,7 @@
 //! Rounds of the subagent turn loop: compaction, failures, the agent view, evidence in results,
 //! and the worktree language servers a round starts.
 
-use super::tests::{CollectedProgress, TestModel, counting_tool, named_tool, text_turn, tool_call_turn};
+use super::tests::{CollectedProgress, TestModel, counting_tool, named_tool, text_turn, tool_call_turn, window};
 use super::*;
 use crate::engine::runner::turn::types::CancellationSignal;
 use crate::provider::adapter::{MockAdapter, ModelAdapter, ModelCompletionRequest, ModelStreamEvent};
@@ -25,8 +25,8 @@ async fn a_subagent_that_overflows_its_context_compacts_and_finishes_the_round()
         vec![Ok(ModelStreamEvent::Text("Done after compacting.".into()))],
     ]);
     let tools = vec![counting_tool("read", Arc::new(AtomicUsize::new(0)), "x".repeat(4_000))];
-    let runner =
-        SubagentRunner::new(Arc::new(adapter.clone()), SubagentRole::Scout, &tools, 5).with_keep_recent_tokens(1);
+    let runner = SubagentRunner::new(Arc::new(adapter.clone()), SubagentRole::Scout, &tools, 5)
+        .with_context_policy(window(1_000_000, 1));
 
     let round = runner.run_round(Vec::new(), round::RoundInput::Prompt("look")).await;
 
@@ -56,15 +56,6 @@ fn read_using(file: &str, used: u64) -> Vec<Result<ModelStreamEvent, AppError>> 
     turn
 }
 
-/// A window of 10k tokens that compacts past 8k.
-fn small_window() -> Option<crate::engine::tracking::ContextPolicy> {
-    Some(crate::engine::tracking::ContextPolicy::new(
-        crate::provider::ModelCatalog::default(),
-        Some(10_000),
-        2_000,
-    ))
-}
-
 #[tokio::test]
 async fn a_subagent_compacts_once_its_context_passes_the_threshold_without_waiting_for_an_overflow() {
     let adapter = MockAdapter::from_result_turns([
@@ -75,8 +66,7 @@ async fn a_subagent_compacts_once_its_context_passes_the_threshold_without_waiti
     ]);
     let tools = vec![counting_tool("read", Arc::new(AtomicUsize::new(0)), "x".repeat(4_000))];
     let runner = SubagentRunner::new(Arc::new(adapter.clone()), SubagentRole::Scout, &tools, 5)
-        .with_keep_recent_tokens(1)
-        .with_context_policy(small_window());
+        .with_context_policy(window(10_000, 1));
 
     let round = runner.run_round(Vec::new(), round::RoundInput::Prompt("look")).await;
 
@@ -98,8 +88,7 @@ async fn a_subagent_with_nothing_to_compact_runs_on_instead_of_stopping_early() 
     ]);
     let tools = vec![counting_tool("read", Arc::new(AtomicUsize::new(0)), "x".to_string())];
     let runner = SubagentRunner::new(Arc::new(adapter.clone()), SubagentRole::Scout, &tools, 5)
-        .with_keep_recent_tokens(1_000_000)
-        .with_context_policy(small_window());
+        .with_context_policy(window(10_000, 1_000_000));
 
     let round = runner.run_round(Vec::new(), round::RoundInput::Prompt("look")).await;
 
@@ -141,7 +130,8 @@ async fn an_overflow_on_the_first_call_compacts_and_still_gives_the_model_the_in
         })
         .collect();
     history.push(ChatMessage::user("the plan is settled"));
-    let runner = SubagentRunner::new(Arc::new(adapter.clone()), SubagentRole::Scout, &[], 5).with_keep_recent_tokens(1);
+    let runner = SubagentRunner::new(Arc::new(adapter.clone()), SubagentRole::Scout, &[], 5)
+        .with_context_policy(window(1_000_000, 1));
 
     let round = runner
         .run_round(history, round::RoundInput::Prompt("check the lexer"))

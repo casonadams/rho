@@ -370,6 +370,14 @@ pub(super) fn text_turn(text: &str) -> Vec<ModelStreamEvent> {
     vec![ModelStreamEvent::Text(text.to_string())]
 }
 
+/// A `limit`-token window that compacts 2k short of it, keeping `keep` recent tokens.
+pub(super) fn window(limit: usize, keep: usize) -> Option<crate::engine::tracking::ContextPolicy> {
+    Some(
+        crate::engine::tracking::ContextPolicy::new(crate::provider::ModelCatalog::default(), Some(limit), 2_000)
+            .with_keep_recent_tokens(keep),
+    )
+}
+
 pub(super) fn counting_tool(name: &'static str, calls: Arc<AtomicUsize>, output: String) -> Arc<dyn EngineTool> {
     Arc::new(GenericTool::new(name, "counts calls", json!({}), move |_| {
         calls.fetch_add(1, Ordering::SeqCst);

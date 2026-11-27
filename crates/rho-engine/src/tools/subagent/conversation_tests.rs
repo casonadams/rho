@@ -815,10 +815,10 @@ async fn a_compacted_round_replaces_the_saved_conversation_and_the_next_round_co
         session: Some(session.clone()),
         ..Default::default()
     };
-    let tool = inline_tool(Some(Arc::new(adapter.clone())), vec![read_tool()])
-        .with_keep_recent_tokens(1)
-        .bind_turn(&ctx)
-        .unwrap();
+    let tool = inline_tool(Some(Arc::new(adapter.clone())), vec![read_tool()]);
+    tool.models()
+        .set_context_policy(crate::tools::subagent::tests::window(1_000_000, 1).unwrap());
+    let tool = tool.bind_turn(&ctx).unwrap();
 
     let first = ask(&tool, json!({ "prompt": "Audit" })).await;
     let second = ask(&tool, json!({ "task_id": task_id(&first), "prompt": "Go on" })).await;

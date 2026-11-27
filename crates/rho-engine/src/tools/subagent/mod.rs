@@ -54,8 +54,6 @@ pub struct SubagentTool {
     worktree_lsp: Option<lsp::WorktreeLsp>,
     fresh_session_state: Option<FreshSessionState>,
     background: background::Backgrounding,
-    /// Recent conversation a subagent keeps word for word when it compacts.
-    keep_recent_tokens: usize,
 }
 
 #[derive(serde::Deserialize)]
@@ -115,17 +113,9 @@ impl SubagentTool {
             worktree_lsp: None,
             fresh_session_state: None,
             background: background::Backgrounding::default(),
-            keep_recent_tokens: rho_harness_core::tokens::DEFAULT_KEEP_RECENT_TOKENS,
             description: String::new(),
         }
         .describe()
-    }
-
-    /// How much recent conversation a subagent keeps word for word when it compacts.
-    #[must_use]
-    pub fn with_keep_recent_tokens(mut self, tokens: usize) -> Self {
-        self.keep_recent_tokens = tokens;
-        self
     }
 
     #[must_use]
@@ -396,7 +386,6 @@ impl SubagentTool {
         let runner = runner
             .with_context(self.ctx.clone())
             .with_worktree_lsp(self.worktree_lsp.clone())
-            .with_keep_recent_tokens(self.keep_recent_tokens)
             .with_context_policy(source.context);
         let runner = match persona {
             Some(persona) => runner.with_persona(persona),

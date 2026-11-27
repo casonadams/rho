@@ -178,7 +178,6 @@ pub fn build_builtin_toolset(
         .with_personas(rho_harness_core::agents::resolved_personas(Some(base_dir)))
         .with_runtime(runtime)
         .with_pinned_models(config.subagents.models.clone())
-        .with_keep_recent_tokens(config.keep_recent_tokens)
         .with_foreground_budget(std::time::Duration::from_secs(
             config
                 .subagents

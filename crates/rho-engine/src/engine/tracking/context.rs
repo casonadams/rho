@@ -104,13 +104,14 @@ impl ContextBudget {
     }
 }
 
-/// Where a model's window comes from and how much of it compaction keeps free. The main agent and
-/// subagents share it, so each compacts at the same point of its own model's window.
+/// Where a model's window comes from, how much of it compaction keeps free, and how much recent
+/// conversation it keeps. The main agent and subagents share it.
 #[derive(Debug, Clone)]
 pub struct ContextPolicy {
     catalog: ModelCatalog,
     configured_limit: Option<usize>,
     reserve_tokens: usize,
+    keep_recent_tokens: usize,
 }
 
 impl ContextPolicy {
@@ -119,7 +120,19 @@ impl ContextPolicy {
             catalog,
             configured_limit,
             reserve_tokens,
+            keep_recent_tokens: rho_harness_core::tokens::DEFAULT_KEEP_RECENT_TOKENS,
         }
+    }
+
+    #[must_use]
+    pub fn with_keep_recent_tokens(mut self, tokens: usize) -> Self {
+        self.keep_recent_tokens = tokens;
+        self
+    }
+
+    /// Recent conversation a compaction keeps word for word.
+    pub fn keep_recent_tokens(&self) -> usize {
+        self.keep_recent_tokens
     }
 
     /// The configured limit, else the provider's window for `route`, else an estimate from its name.

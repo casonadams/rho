@@ -73,9 +73,8 @@ pub struct SubagentRunner {
     inbox: Option<Mailbox>,
     /// The saved task the round belongs to, shown with it in the agent view.
     task_id: Option<String>,
-    /// Recent conversation a compaction keeps word for word.
-    keep_recent_tokens: usize,
-    /// Where its model's window compacts; without one it compacts only after an overflow.
+    /// Where its model's window compacts and what that keeps; without one it compacts only after an
+    /// overflow, keeping the default recent conversation.
     context_policy: Option<ContextPolicy>,
     worktree_lsp: Option<WorktreeLsp>,
     /// The worktree whose language servers the round started.
@@ -196,7 +195,6 @@ impl SubagentRunner {
             isolated: false,
             inbox: None,
             task_id: None,
-            keep_recent_tokens: rho_harness_core::tokens::DEFAULT_KEEP_RECENT_TOKENS,
             context_policy: None,
             worktree_lsp: None,
             lsp_root: None,
@@ -218,13 +216,6 @@ impl SubagentRunner {
     /// the round being dropped.
     pub(crate) fn worktree_lsp_guard(&self) -> WorktreeLspGuard {
         WorktreeLspGuard(self.lsp_root.clone())
-    }
-
-    /// How much recent conversation a compaction keeps word for word.
-    #[must_use]
-    pub fn with_keep_recent_tokens(mut self, tokens: usize) -> Self {
-        self.keep_recent_tokens = tokens;
-        self
     }
 
     #[must_use]
@@ -661,7 +652,11 @@ impl SubagentRunner {
 
     /// `messages` compacted for another run, with the summary redacted like the session's.
     async fn compacted(&self, messages: &[ChatMessage]) -> Option<Vec<ChatMessage>> {
-        let mut compacted = compact_messages(&self.model, messages, self.keep_recent_tokens).await?;
+        let keep = self.context_policy.as_ref().map_or(
+            rho_harness_core::tokens::DEFAULT_KEEP_RECENT_TOKENS,
+            ContextPolicy::keep_recent_tokens,
+        );
+        let mut compacted = compact_messages(&self.model, messages, keep).await?;
         if let (Some(session), Some(ChatMessage::System { content })) = (&self.ctx.session, compacted.first_mut()) {
             *content = session.redact_credentials(content);
         }

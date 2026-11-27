@@ -65,6 +65,7 @@ impl AgentEngine {
             self.config.context_limit,
             self.config.reserve_tokens,
         )
+        .with_keep_recent_tokens(self.config.keep_recent_tokens)
     }
 
     /// The context size past which the session's model compacts.
@@ -301,5 +302,28 @@ mod tests {
 
         assert_eq!(window(&catalog), Some(1_048_576));
         assert_eq!(context.probe_error(), None);
+    }
+
+    #[test]
+    fn the_context_policy_carries_every_compaction_setting() {
+        let dir = crate::test_support::TestDir::new();
+        let engine = crate::engine::eval::mock::mock_engine(
+            std::sync::Arc::new(MockAdapter::default()),
+            crate::engine::eval::mock::MockEngineConfig {
+                base_dir: &dir,
+                app_config: Config {
+                    context_limit: Some(50_000),
+                    reserve_tokens: 5_000,
+                    keep_recent_tokens: 7_000,
+                    ..Config::default()
+                },
+                session_manager: None,
+                built_in_tools: None,
+            },
+        );
+        let policy = engine.context_policy();
+        assert_eq!(policy.window(&engine.config.route()).0, 50_000);
+        assert_eq!(policy.compaction_at(50_000), 45_000);
+        assert_eq!(policy.keep_recent_tokens(), 7_000);
     }
 }
