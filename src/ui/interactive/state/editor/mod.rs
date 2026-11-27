@@ -4,8 +4,8 @@ use cursor::{char_class, compute_vertical_target, skip_whitespace_back, skip_whi
 
 use crate::ui::interactive::state::{
     paste::{
-        PasteStore, check_paste_threshold, find_marker_covering, find_marker_ending_at, find_marker_starting_at,
-        sanitize_paste,
+        MarkerSpan, PasteStore, check_paste_threshold, find_marker_covering, find_marker_ending_at,
+        find_marker_starting_at, sanitize_paste,
     },
     types::{QueueKind, QueuedMessage},
 };
@@ -187,11 +187,8 @@ impl EditorState {
         if let Some(marker) =
             find_marker_ending_at(&self.text, self.cursor).or_else(|| find_marker_covering(&self.text, self.cursor))
         {
-            self.record_undo();
-            self.text.drain(marker.start..marker.end);
+            self.remove_marker(marker);
             self.cursor = marker.start;
-            self.pastes.remove_and_renumber(marker.id, &mut self.text);
-            self.preferred_column = None;
             return;
         }
         let Some((index, _)) = self.text[..self.cursor].char_indices().next_back() else {
@@ -203,14 +200,18 @@ impl EditorState {
         self.preferred_column = None;
     }
 
+    fn remove_marker(&mut self, marker: MarkerSpan) {
+        self.record_undo();
+        self.text.drain(marker.start..marker.end);
+        self.pastes.remove_and_renumber(marker.id, &mut self.text);
+        self.preferred_column = None;
+    }
+
     pub fn delete(&mut self) {
         if let Some(marker) =
             find_marker_starting_at(&self.text, self.cursor).or_else(|| find_marker_covering(&self.text, self.cursor))
         {
-            self.record_undo();
-            self.text.drain(marker.start..marker.end);
-            self.pastes.remove_and_renumber(marker.id, &mut self.text);
-            self.preferred_column = None;
+            self.remove_marker(marker);
             return;
         }
         let Some(character) = self.text[self.cursor..].chars().next() else {

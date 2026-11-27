@@ -3,16 +3,16 @@ use std::sync::LazyLock;
 use crate::tools::web::http::LYNX_UA;
 use crate::tools::web::search::engine::{EngineRequest, fetch_results_page};
 use crate::tools::web::search::query::{recency_param, urlencoding_encode};
-use crate::tools::web::search::result::SearchResult;
+use crate::tools::web::search::result::{ResultSelectors, SearchResult, parse_result_blocks};
+use crate::tools::web::selector;
 use rho_harness_core::args::WebSearchRecency;
 use rho_harness_core::error::AppError;
-use scraper::{Html, Selector};
 
-static BLOCK_SEL: LazyLock<Selector> =
-    LazyLock::new(|| Selector::parse("div.algo-sr, div.Sr, div.dd").expect("valid selector"));
-static LINK_SEL: LazyLock<Selector> = LazyLock::new(|| Selector::parse("a[href]").expect("valid selector"));
-static TITLE_SEL: LazyLock<Selector> = LazyLock::new(|| Selector::parse("h3, a.title").expect("valid selector"));
-static SNIPPET_SEL: LazyLock<Selector> = LazyLock::new(|| Selector::parse(".compText, p").expect("valid selector"));
+static SELECTORS: LazyLock<ResultSelectors> = LazyLock::new(|| ResultSelectors {
+    block: selector("div.algo-sr, div.Sr, div.dd"),
+    title: selector("h3, a.title"),
+    snippet: selector(".compText, p"),
+});
 
 pub fn yahoo_search_url(query: &str, recency: Option<WebSearchRecency>) -> String {
     let age_param = recency_param(recency, "age", ["1d", "1w", "1m", "1y"]);
@@ -50,36 +50,7 @@ fn urlencoding_decode(s: &str) -> Result<String, ()> {
 }
 
 pub fn parse_yahoo_html(html: &str) -> Vec<SearchResult> {
-    let document = Html::parse_document(html);
-
-    let mut results = Vec::new();
-    for block in document.select(&BLOCK_SEL) {
-        let url = block
-            .select(&LINK_SEL)
-            .next()
-            .and_then(|a| a.value().attr("href"))
-            .map(decode_yahoo_url);
-
-        let title = block
-            .select(&TITLE_SEL)
-            .next()
-            .map(|t| t.text().collect::<Vec<_>>().join(" "));
-
-        let (Some(u), Some(t)) = (url, title) else {
-            continue;
-        };
-
-        if u.starts_with("http") {
-            let abstract_text = block
-                .select(&SNIPPET_SEL)
-                .next()
-                .map(|s| s.text().collect::<Vec<_>>().join(" "))
-                .unwrap_or_default();
-
-            results.push(SearchResult::new(t, abstract_text, u));
-        }
-    }
-    results
+    parse_result_blocks(html, &SELECTORS, decode_yahoo_url)
 }
 
 #[cfg(test)]

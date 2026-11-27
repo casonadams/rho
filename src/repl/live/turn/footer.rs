@@ -60,22 +60,14 @@ fn metric_changes_differ(footer: &mut crate::ui::interactive::FooterState, m: &L
 }
 
 fn sync_turn_git_footer(footer: &mut crate::ui::interactive::FooterState) -> bool {
-    use crate::ui::interactive::footer::segments::status_bar_uses_segment;
-    use rho_harness_core::config::StatusBarSegmentId;
-
     let Some(cfg) = footer.status_bar_config.as_ref() else {
         return false;
     };
     let Some(cwd) = footer.cwd.as_deref() else {
         return false;
     };
-    let cwd_path = std::path::Path::new(cwd);
-    let pr = status_bar_uses_segment(cfg, StatusBarSegmentId::Pr)
-        .then(|| crate::ui::interactive::footer::cached_git_pr(cwd_path, footer.git_branch.as_deref()))
-        .flatten();
-    let git_status = status_bar_uses_segment(cfg, StatusBarSegmentId::Git)
-        .then(|| crate::ui::interactive::footer::path::cached_git_status_counts(cwd_path))
-        .flatten();
+    let (pr, git_status) =
+        crate::ui::interactive::footer::cached_footer_git(cfg, std::path::Path::new(cwd), footer.git_branch.as_deref());
     let changed = footer.git_pr != pr || footer.git_status != git_status;
     if changed {
         footer.git_pr = pr;

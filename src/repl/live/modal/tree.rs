@@ -1,11 +1,9 @@
 use crate::error::Result;
-use crate::ui::interactive::{
-    InputAction, ModalKind, ModalMode, ModalOption, ModalState, TerminalBackend, TerminalController, map_key,
-};
+use crate::ui::interactive::{ModalKind, ModalMode, ModalOption, ModalState, TerminalBackend, TerminalController};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use rho_harness_core::session::tree::SessionTree;
 
-use super::{ModalKeyResult, apply_input_edit};
+use super::{ModalKeyResult, apply_modal_edit_key};
 
 pub fn open_tree_selector<B: TerminalBackend>(tree: &SessionTree, controller: &mut TerminalController<B>) {
     let entries = crate::tree_display::build_tree_display(tree);
@@ -59,31 +57,6 @@ fn handle_tree_enter<B: TerminalBackend>(controller: &mut TerminalController<B>)
     };
     controller.state_mut().pop_modal();
     Ok(ModalKeyResult::TreeNodeSelected { node_id })
-}
-
-fn apply_tree_edit<B: TerminalBackend>(controller: &mut TerminalController<B>, key: KeyEvent) -> Result<()> {
-    match map_key(key) {
-        InputAction::Clear => {
-            if let Some(modal) = controller.state_mut().active_modal_mut() {
-                modal.input.set_text("");
-            }
-        }
-        InputAction::ClipboardPasteImage => {
-            if let Some(text) = crate::platform::clipboard::get_text_or_image_path()
-                && let Some(modal) = controller.state_mut().active_modal_mut()
-            {
-                apply_input_edit(&mut modal.input, crate::ui::interactive::UiAction::Paste(text));
-            }
-        }
-        InputAction::Edit(action) => {
-            if let Some(modal) = controller.state_mut().active_modal_mut() {
-                apply_input_edit(&mut modal.input, action);
-            }
-        }
-        _ => {}
-    }
-    controller.redraw()?;
-    Ok(())
 }
 
 fn handle_tree_select_key<B: TerminalBackend>(
@@ -157,7 +130,8 @@ fn handle_tree_input_key<B: TerminalBackend>(
         KeyCode::Esc => exit_tree_input_mode(controller),
         KeyCode::Enter => submit_tree_label(controller),
         _ => {
-            apply_tree_edit(controller, key)?;
+            apply_modal_edit_key(controller, key);
+            controller.redraw()?;
             Ok(ModalKeyResult::Handled)
         }
     }

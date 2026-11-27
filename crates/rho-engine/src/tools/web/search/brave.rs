@@ -3,18 +3,15 @@ use std::sync::LazyLock;
 use crate::tools::web::http::BRAVE_CHROME_UA;
 use crate::tools::web::search::engine::{EngineRequest, fetch_results_page};
 use crate::tools::web::search::query::{recency_param, urlencoding_encode};
-use crate::tools::web::search::result::SearchResult;
+use crate::tools::web::search::result::{ResultSelectors, SearchResult, parse_result_blocks};
+use crate::tools::web::selector;
 use rho_harness_core::args::WebSearchRecency;
 use rho_harness_core::error::AppError;
-use scraper::{Html, Selector};
 
-static SNIPPET_SEL: LazyLock<Selector> =
-    LazyLock::new(|| Selector::parse(r#"div.snippet[data-type="web"], div.snippet"#).expect("valid selector"));
-static LINK_SEL: LazyLock<Selector> = LazyLock::new(|| Selector::parse("a[href]").expect("valid selector"));
-static TITLE_SEL: LazyLock<Selector> =
-    LazyLock::new(|| Selector::parse("div.title, a.title, h2").expect("valid selector"));
-static CONTENT_SEL: LazyLock<Selector> = LazyLock::new(|| {
-    Selector::parse("div.content, p.snippet-description, div.snippet-description").expect("valid selector")
+static SELECTORS: LazyLock<ResultSelectors> = LazyLock::new(|| ResultSelectors {
+    block: selector(r#"div.snippet[data-type="web"], div.snippet"#),
+    title: selector("div.title, a.title, h2"),
+    snippet: selector("div.content, p.snippet-description, div.snippet-description"),
 });
 
 pub fn brave_search_url(query: &str, recency: Option<WebSearchRecency>) -> String {
@@ -32,36 +29,7 @@ pub async fn search_brave(req: &EngineRequest<'_>) -> Result<Vec<SearchResult>, 
 }
 
 pub fn parse_brave_html(html: &str) -> Vec<SearchResult> {
-    let document = Html::parse_document(html);
-
-    let mut results = Vec::new();
-    for block in document.select(&SNIPPET_SEL) {
-        let url = block
-            .select(&LINK_SEL)
-            .next()
-            .and_then(|a| a.value().attr("href"))
-            .map(|s| s.to_string());
-
-        let title = block
-            .select(&TITLE_SEL)
-            .next()
-            .map(|t| t.text().collect::<Vec<_>>().join(" "));
-
-        let (Some(u), Some(t)) = (url, title) else {
-            continue;
-        };
-
-        if u.starts_with("http") {
-            let abstract_text = block
-                .select(&CONTENT_SEL)
-                .next()
-                .map(|c| c.text().collect::<Vec<_>>().join(" "))
-                .unwrap_or_default();
-
-            results.push(SearchResult::new(t, abstract_text, u));
-        }
-    }
-    results
+    parse_result_blocks(html, &SELECTORS, |href| href.to_string())
 }
 
 #[cfg(test)]

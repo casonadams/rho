@@ -6,12 +6,13 @@
 //! multimodal `functionResponse.parts`, and `parametersJsonSchema` tool declarations.
 
 use crate::antigravity::request::contents::{
-    Content, FunctionCall, FunctionResponse, FunctionResponsePart, InlineData, Part, SKIP_THOUGHT_SIGNATURE, part_text,
+    Content, FunctionCall, FunctionResponse, FunctionResponsePart, InlineData, Part, SKIP_THOUGHT_SIGNATURE,
+    append_turn, finish_contents, part_text, tool_result_text_and_images,
 };
 use crate::antigravity::request::model::sanitize_tool_call_id;
 use crate::antigravity::request::schema::convert_tools;
 use crate::provider::adapter::ModelCompletionRequest;
-use rho_harness_core::model::{AssistantContent, ChatMessage, ToolResult, ToolResultContent, UserContent};
+use rho_harness_core::model::{AssistantContent, ChatMessage, ToolResult, UserContent};
 use rho_harness_core::thinking::ThinkingLevel;
 use serde_json::{Value, json};
 
@@ -176,18 +177,7 @@ impl ReplayCaps {
 }
 
 fn convert_tool_result_parts(result: &ToolResult, caps: ReplayCaps) -> Vec<Part> {
-    let mut text = String::new();
-    let mut inline_images = Vec::new();
-    for item in &result.content {
-        match item {
-            ToolResultContent::Text(t) => text.push_str(&t.text),
-            ToolResultContent::Image(img) => inline_images.push(InlineData {
-                mime_type: img.media_type_or_png().to_string(),
-                data: img.data.clone(),
-            }),
-            ToolResultContent::Json { value } => text.push_str(&value.to_string()),
-        }
-    }
+    let (text, mut inline_images) = tool_result_text_and_images(result);
 
     let nested_parts = if caps.multimodal_tool_response && !inline_images.is_empty() {
         Some(
@@ -228,10 +218,7 @@ fn convert_user_content(content: &[UserContent], caps: ReplayCaps) -> Vec<Part> 
             UserContent::Text(t) if !t.text.trim().is_empty() => parts.push(part_text(&t.text)),
             UserContent::Text(_) => {}
             UserContent::Image(img) => parts.push(Part {
-                inline_data: Some(InlineData {
-                    mime_type: img.media_type_or_png().to_string(),
-                    data: img.data.clone(),
-                }),
+                inline_data: Some(InlineData::from_image(img)),
                 ..Part::default()
             }),
             UserContent::ToolResult(result) => parts.extend(convert_tool_result_parts(result, caps)),
@@ -278,22 +265,6 @@ fn convert_assistant_part(part: &AssistantContent, caps: ReplayCaps) -> Option<P
     }
 }
 
-fn append_turn(contents: &mut Vec<Content>, role: &str, mut parts: Vec<Part>) {
-    if parts.is_empty() {
-        return;
-    }
-    if let Some(last) = contents.last_mut()
-        && last.role == role
-    {
-        last.parts.append(&mut parts);
-    } else {
-        contents.push(Content {
-            role: role.to_string(),
-            parts,
-        });
-    }
-}
-
 pub fn convert_contents(request: &ModelCompletionRequest, model: &str) -> Vec<Content> {
     let caps = ReplayCaps::for_model(model);
     let mut contents = Vec::new();
@@ -312,18 +283,7 @@ pub fn convert_contents(request: &ModelCompletionRequest, model: &str) -> Vec<Co
             }
         }
     }
-    if !request.prompt.trim().is_empty() {
-        append_turn(&mut contents, "user", vec![part_text(request.prompt.trim())]);
-    }
-    if contents.first().is_some_and(|first| first.role == "model") {
-        contents.insert(
-            0,
-            Content {
-                role: "user".to_string(),
-                parts: vec![part_text("Hello")],
-            },
-        );
-    }
+    finish_contents(&mut contents, &request.prompt);
     contents
 }
 
@@ -352,7 +312,7 @@ pub fn build_request_body(model: &str, thinking_level: Option<&str>, request: &M
 mod tests {
     use super::*;
     use crate::provider::adapter::ModelToolDefinition;
-    use rho_harness_core::model::{Reasoning, ToolCall, ToolFunction, ToolResult};
+    use rho_harness_core::model::{Reasoning, ToolCall, ToolFunction, ToolResult, ToolResultContent};
 
     #[test]
     fn gemini_4_thinking_levels_avoid_minimal_and_enable_thoughts() {

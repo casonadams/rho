@@ -1,6 +1,48 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::sync::LazyLock;
 use url::Url;
+
+pub struct ResultSelectors {
+    pub block: scraper::Selector,
+    pub title: scraper::Selector,
+    pub snippet: scraper::Selector,
+}
+
+static LINK_SEL: LazyLock<scraper::Selector> = LazyLock::new(|| crate::tools::web::selector("a[href]"));
+
+/// Skips blocks whose first link is not an absolute http(s) URL.
+pub fn parse_result_blocks(
+    html: &str,
+    selectors: &ResultSelectors,
+    normalize_url: fn(&str) -> String,
+) -> Vec<SearchResult> {
+    let document = scraper::Html::parse_document(html);
+    let mut results = Vec::new();
+    for block in document.select(&selectors.block) {
+        let url = block
+            .select(&LINK_SEL)
+            .next()
+            .and_then(|a| a.value().attr("href"))
+            .map(normalize_url);
+        let title = block
+            .select(&selectors.title)
+            .next()
+            .map(|t| t.text().collect::<Vec<_>>().join(" "));
+        let (Some(u), Some(t)) = (url, title) else {
+            continue;
+        };
+        if u.starts_with("http") {
+            let abstract_text = block
+                .select(&selectors.snippet)
+                .next()
+                .map(|s| s.text().collect::<Vec<_>>().join(" "))
+                .unwrap_or_default();
+            results.push(SearchResult::new(t, abstract_text, u));
+        }
+    }
+    results
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct SearchResult {

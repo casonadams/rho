@@ -24,3 +24,8 @@ pub use fetch::{WebFetchConfig, WebFetchTool};
 pub use http::HttpClient;
 pub use rate_limiter::SearchRateLimiter;
 pub use search::{WebSearchConfig, WebSearchTool};
+
+/// Parses a CSS selector literal that is known valid at compile time.
+pub(crate) fn selector(css: &str) -> scraper::Selector {
+    scraper::Selector::parse(css).expect("selector literal is valid CSS")
+}

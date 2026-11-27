@@ -1,6 +1,8 @@
 use super::model::{gemini_requires_thought_signature, needs_function_call_id, sanitize_tool_call_id};
 use crate::provider::adapter::ModelCompletionRequest;
-use rho_harness_core::model::{AssistantContent, ChatMessage, ToolResultContent, UserContent};
+use rho_harness_core::model::{
+    AssistantContent, ChatMessage, ImageContent, ToolResult, ToolResultContent, UserContent,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
@@ -76,23 +78,36 @@ pub struct ConversionContext {
     pub call_ids: bool,
 }
 
-fn convert_tool_result_part(result: &rho_harness_core::model::ToolResult, call_ids: bool) -> Part {
+impl InlineData {
+    pub fn from_image(image: &ImageContent) -> Self {
+        Self {
+            mime_type: image.media_type_or_png().to_string(),
+            data: image.data.clone(),
+        }
+    }
+}
+
+pub fn tool_result_text_and_images(result: &ToolResult) -> (String, Vec<InlineData>) {
     let mut text = String::new();
-    let mut image_parts = Vec::new();
+    let mut images = Vec::new();
     for c in &result.content {
         match c {
             ToolResultContent::Text(t) => text.push_str(&t.text),
-            ToolResultContent::Image(img) => {
-                image_parts.push(FunctionResponsePart {
-                    inline_data: Some(InlineData {
-                        mime_type: img.media_type_or_png().to_string(),
-                        data: img.data.clone(),
-                    }),
-                });
-            }
+            ToolResultContent::Image(img) => images.push(InlineData::from_image(img)),
             ToolResultContent::Json { value } => text.push_str(&value.to_string()),
         }
     }
+    (text, images)
+}
+
+fn convert_tool_result_part(result: &ToolResult, call_ids: bool) -> Part {
+    let (text, images) = tool_result_text_and_images(result);
+    let image_parts: Vec<FunctionResponsePart> = images
+        .into_iter()
+        .map(|inline_data| FunctionResponsePart {
+            inline_data: Some(inline_data),
+        })
+        .collect();
     Part {
         function_response: Some(FunctionResponse {
             name: result.name.clone(),
@@ -115,10 +130,7 @@ fn convert_antigravity_user_part(part: &UserContent, call_ids: bool) -> Option<P
             }
         }
         UserContent::Image(img) => Some(Part {
-            inline_data: Some(InlineData {
-                mime_type: img.media_type_or_png().to_string(),
-                data: img.data.clone(),
-            }),
+            inline_data: Some(InlineData::from_image(img)),
             ..Part::default()
         }),
         UserContent::ToolResult(result) => Some(convert_tool_result_part(result, call_ids)),
@@ -194,7 +206,7 @@ fn convert_antigravity_assistant(content: &[AssistantContent], ctx: &ConversionC
     parts
 }
 
-fn append_turn(contents: &mut Vec<Content>, role: &str, mut parts: Vec<Part>) {
+pub fn append_turn(contents: &mut Vec<Content>, role: &str, mut parts: Vec<Part>) {
     if parts.is_empty() {
         return;
     }
@@ -207,6 +219,21 @@ fn append_turn(contents: &mut Vec<Content>, role: &str, mut parts: Vec<Part>) {
             role: role.to_string(),
             parts,
         });
+    }
+}
+
+pub fn finish_contents(contents: &mut Vec<Content>, prompt: &str) {
+    if !prompt.trim().is_empty() {
+        append_turn(contents, "user", vec![part_text(prompt.trim())]);
+    }
+    if contents.first().is_some_and(|first| first.role == "model") {
+        contents.insert(
+            0,
+            Content {
+                role: "user".to_string(),
+                parts: vec![part_text("Hello")],
+            },
+        );
     }
 }
 
@@ -230,18 +257,6 @@ pub fn convert_contents(request: &ModelCompletionRequest, runtime_model: &str) -
         }
     }
 
-    if !request.prompt.trim().is_empty() {
-        append_turn(&mut contents, "user", vec![part_text(request.prompt.trim())]);
-    }
-
-    if contents.first().is_some_and(|first| first.role == "model") {
-        contents.insert(
-            0,
-            Content {
-                role: "user".to_string(),
-                parts: vec![part_text("Hello")],
-            },
-        );
-    }
+    finish_contents(&mut contents, &request.prompt);
     contents
 }

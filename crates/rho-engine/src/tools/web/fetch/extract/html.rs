@@ -1,22 +1,20 @@
 use super::FetchMode;
 use super::markdown::resolve_markdown_links;
+use crate::tools::web::selector;
 use rho_harness_core::error::{AppError, Result};
 use scraper::{ElementRef, Html, Selector};
 use std::collections::HashSet;
 use std::sync::LazyLock;
 use url::Url;
 
-static BASE_SEL: LazyLock<Selector> = LazyLock::new(|| Selector::parse("base[href]").expect("valid selector"));
-static TITLE_SEL: LazyLock<Selector> = LazyLock::new(|| Selector::parse("title").expect("valid selector"));
-static AUTHOR_SEL: LazyLock<Selector> = LazyLock::new(|| {
-    Selector::parse(r#"meta[name="author"], meta[property="article:author"]"#).expect("valid selector")
-});
-static SITE_SEL: LazyLock<Selector> =
-    LazyLock::new(|| Selector::parse(r#"meta[property="og:site_name"]"#).expect("valid selector"));
-static MAIN_SEL: LazyLock<Selector> = LazyLock::new(|| Selector::parse("main, article").expect("valid selector"));
-static SCRIPT_SEL: LazyLock<Selector> = LazyLock::new(|| Selector::parse("script").expect("valid selector"));
-static SPA_ROOT_SEL: LazyLock<Selector> =
-    LazyLock::new(|| Selector::parse("#app, #root, #__next").expect("valid selector"));
+static BASE_SEL: LazyLock<Selector> = LazyLock::new(|| selector("base[href]"));
+static TITLE_SEL: LazyLock<Selector> = LazyLock::new(|| selector("title"));
+static AUTHOR_SEL: LazyLock<Selector> =
+    LazyLock::new(|| selector(r#"meta[name="author"], meta[property="article:author"]"#));
+static SITE_SEL: LazyLock<Selector> = LazyLock::new(|| selector(r#"meta[property="og:site_name"]"#));
+static MAIN_SEL: LazyLock<Selector> = LazyLock::new(|| selector("main, article"));
+static SCRIPT_SEL: LazyLock<Selector> = LazyLock::new(|| selector("script"));
+static SPA_ROOT_SEL: LazyLock<Selector> = LazyLock::new(|| selector("#app, #root, #__next"));
 
 fn effective_base_url(document: &Html, response_url: &str) -> String {
     if let Some(base_el) = document.select(&BASE_SEL).next()

@@ -3,7 +3,7 @@ use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 
 use super::types::{CommandResult, SlashCommandContext, WorkflowLaunch};
-use rho_harness_core::workflow::{WorkflowBundle, WorkflowCatalog, WorkflowOrigin};
+use rho_harness_core::workflow::{WorkflowBundle, WorkflowCatalog, WorkflowOrigin, split_command};
 
 pub(crate) async fn discover_workflows(cwd: Option<PathBuf>, home: Option<PathBuf>) -> WorkflowCatalog {
     tokio::task::spawn_blocking(move || WorkflowCatalog::discover(cwd.as_deref(), home.as_deref()))
@@ -71,36 +71,7 @@ pub(crate) fn format_workflow_list(catalog: &WorkflowCatalog) -> String {
 /// Splits a command line on whitespace, keeping `"..."` and `'...'` groups together; an unclosed quote
 /// falls back to plain whitespace splitting.
 pub(crate) fn split_args(line: &str) -> Vec<String> {
-    let mut args = Vec::new();
-    let mut current = String::new();
-    let mut quote: Option<char> = None;
-    let mut started = false;
-    for c in line.chars() {
-        match (quote, c) {
-            (Some(open), c) if c == open => quote = None,
-            (Some(_), c) => current.push(c),
-            (None, '"' | '\'') => {
-                quote = Some(c);
-                started = true;
-            }
-            (None, c) if c.is_whitespace() => {
-                if std::mem::take(&mut started) {
-                    args.push(std::mem::take(&mut current));
-                }
-            }
-            (None, c) => {
-                current.push(c);
-                started = true;
-            }
-        }
-    }
-    if quote.is_some() {
-        return line.split_whitespace().map(str::to_string).collect();
-    }
-    if started {
-        args.push(current);
-    }
-    args
+    split_command(line).unwrap_or_else(|_| line.split_whitespace().map(str::to_string).collect())
 }
 
 pub(crate) async fn handle_workflow(ctx: &SlashCommandContext<'_>, parts: &[&str]) -> CommandResult {

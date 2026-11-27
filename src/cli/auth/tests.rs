@@ -166,13 +166,27 @@ fn test_store_api_key_valid_and_empty() {
 }
 
 #[test]
-fn test_parse_logout_choice() {
+fn test_prompt_logout_selection_maps_invalid_input_to_cancelled() {
+    use std::io::Cursor;
     let configured = vec!["anthropic".to_string(), "gemini".to_string()];
-    assert_eq!(super::parse_logout_choice("1", &configured).unwrap(), "anthropic");
-    assert_eq!(super::parse_logout_choice("2", &configured).unwrap(), "gemini");
-    assert!(super::parse_logout_choice("0", &configured).is_err());
-    assert!(super::parse_logout_choice("3", &configured).is_err());
-    assert!(super::parse_logout_choice("abc", &configured).is_err());
+    for (input, expected) in [
+        ("1\n", Ok("anthropic")),
+        ("2\n", Ok("gemini")),
+        ("0\n", Err(())),
+        ("3\n", Err(())),
+        ("abc\n", Err(())),
+    ] {
+        let mut reader = Cursor::new(input.as_bytes());
+        let mut writer = Vec::new();
+        let result = super::prompt_logout_selection(&mut reader, &mut writer, &configured);
+        match expected {
+            Ok(name) => assert_eq!(result.unwrap(), name, "{input:?}"),
+            Err(()) => assert!(
+                matches!(result, Err(crate::error::AppError::Cancelled(ref msg)) if msg == "Logout cancelled"),
+                "{input:?}"
+            ),
+        }
+    }
 }
 
 #[test]

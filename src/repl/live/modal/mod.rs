@@ -9,7 +9,9 @@ mod tests;
 pub mod tree;
 
 use crate::error::Result;
-use crate::ui::interactive::{EditorState, ModalKind, ModalMode, TerminalBackend, TerminalController, UiAction};
+use crate::ui::interactive::{
+    EditorState, InputAction, ModalKind, ModalMode, TerminalBackend, TerminalController, UiAction, map_key,
+};
 use crossterm::event::{KeyCode, KeyEvent};
 use rho_harness_core::config::ModelRole;
 
@@ -135,6 +137,29 @@ fn apply_mutation_action(input: &mut EditorState, action: UiAction) {
         UiAction::Yank => input.yank(),
         UiAction::Undo => input.undo(),
         UiAction::Paste(text) => input.handle_paste(&text),
+        _ => {}
+    }
+}
+
+pub(crate) fn apply_modal_edit_key<B: TerminalBackend>(controller: &mut TerminalController<B>, key: KeyEvent) {
+    match map_key(key) {
+        InputAction::Clear => {
+            if let Some(modal) = controller.state_mut().active_modal_mut() {
+                modal.input.set_text("");
+            }
+        }
+        InputAction::ClipboardPasteImage => {
+            if let Some(text) = crate::platform::clipboard::get_text_or_image_path()
+                && let Some(modal) = controller.state_mut().active_modal_mut()
+            {
+                apply_input_edit(&mut modal.input, UiAction::Paste(text));
+            }
+        }
+        InputAction::Edit(action) => {
+            if let Some(modal) = controller.state_mut().active_modal_mut() {
+                apply_input_edit(&mut modal.input, action);
+            }
+        }
         _ => {}
     }
 }

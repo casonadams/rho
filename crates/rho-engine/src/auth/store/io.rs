@@ -21,13 +21,7 @@ pub(super) fn load_credentials(path: &Path) -> Result<HashMap<String, StoredCred
     }
     let content =
         std::fs::read_to_string(path).map_err(|e| AppError::Auth(format!("Failed to read auth file: {e}")))?;
-    let content = content.strip_prefix('\u{FEFF}').unwrap_or(&content);
-    if content.trim().is_empty() {
-        return Ok(HashMap::new());
-    }
-    let raw_map: HashMap<String, RawStoredEntry> = serde_json::from_str(content)
-        .map_err(|e| AppError::Auth(format!("Failed to parse auth file {}: {e}", path.display())))?;
-    Ok(parse_credentials_map(raw_map))
+    parse_credentials(&content, path)
 }
 
 pub(super) async fn load_credentials_async(path: &Path) -> Result<HashMap<String, StoredCredential>> {
@@ -37,7 +31,11 @@ pub(super) async fn load_credentials_async(path: &Path) -> Result<HashMap<String
     let content = tokio::fs::read_to_string(path)
         .await
         .map_err(|e| AppError::Auth(format!("Failed to read auth file: {e}")))?;
-    let content = content.strip_prefix('\u{FEFF}').unwrap_or(&content);
+    parse_credentials(&content, path)
+}
+
+fn parse_credentials(content: &str, path: &Path) -> Result<HashMap<String, StoredCredential>> {
+    let content = content.strip_prefix('\u{FEFF}').unwrap_or(content);
     if content.trim().is_empty() {
         return Ok(HashMap::new());
     }

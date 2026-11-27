@@ -92,6 +92,21 @@ pub(crate) fn is_hard_quota(body: &str) -> bool {
     MARKERS.iter().any(|marker| body.contains(marker))
 }
 
+pub fn error_message_or_excerpt(body: &str) -> String {
+    serde_json::from_str::<serde_json::Value>(body)
+        .ok()
+        .and_then(|v| {
+            v.pointer("/error/message")
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_string)
+        })
+        .unwrap_or_else(|| body_excerpt(body))
+}
+
+pub fn body_excerpt(body: &str) -> String {
+    body.chars().take(300).collect()
+}
+
 fn classify_status(status: u16, body: &str, retry_after: Option<Duration>, message: String) -> AppError {
     let wait_too_long = retry_after.is_some_and(|wait| wait > MAX_RETRY_AFTER);
     match status {

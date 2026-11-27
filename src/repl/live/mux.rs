@@ -46,7 +46,16 @@ fn unsupported_fork_message(session_id: &str) -> String {
     )
 }
 
-fn push_resume_tail(args: &mut Vec<String>, exe: &Path, session_id: &str, separator: bool) {
+fn push_cwd_and_resume(
+    args: &mut Vec<String>,
+    cwd_flag: &str,
+    cwd: &Path,
+    exe: &Path,
+    session_id: &str,
+    separator: bool,
+) {
+    args.push(cwd_flag.to_string());
+    args.push(cwd.to_string_lossy().into_owned());
     if separator {
         args.push("--".to_string());
     }
@@ -56,7 +65,6 @@ fn push_resume_tail(args: &mut Vec<String>, exe: &Path, session_id: &str, separa
 }
 
 fn tmux_plan(target: ForkTarget, exe: &Path, session_id: &str, cwd: &Path) -> ForkLaunchPlan {
-    let cwd_str = cwd.to_string_lossy().into_owned();
     let (subcmd, split_flag, label) = match target {
         ForkTarget::Pane => ("split-window", Some("-h"), "tmux pane"),
         ForkTarget::HSplit => ("split-window", Some("-h"), "tmux hsplit"),
@@ -65,12 +73,8 @@ fn tmux_plan(target: ForkTarget, exe: &Path, session_id: &str, cwd: &Path) -> Fo
         ForkTarget::Tab => ("new-window", None, "tmux tab"),
     };
     let mut args = vec![subcmd.to_string()];
-    if let Some(flag) = split_flag {
-        args.push(flag.to_string());
-    }
-    args.push("-c".to_string());
-    args.push(cwd_str);
-    push_resume_tail(&mut args, exe, session_id, true);
+    args.extend(split_flag.map(str::to_string));
+    push_cwd_and_resume(&mut args, "-c", cwd, exe, session_id, true);
     ForkLaunchPlan {
         program: "tmux".to_string(),
         args,
@@ -79,7 +83,6 @@ fn tmux_plan(target: ForkTarget, exe: &Path, session_id: &str, cwd: &Path) -> Fo
 }
 
 fn zellij_plan(target: ForkTarget, exe: &Path, session_id: &str, cwd: &Path) -> ForkLaunchPlan {
-    let cwd_str = cwd.to_string_lossy().into_owned();
     let (action, direction, label) = match target {
         ForkTarget::Pane => ("new-pane", None, "Zellij pane"),
         ForkTarget::HSplit => ("new-pane", Some("right"), "Zellij hsplit"),
@@ -92,9 +95,7 @@ fn zellij_plan(target: ForkTarget, exe: &Path, session_id: &str, cwd: &Path) -> 
         args.push("--direction".to_string());
         args.push(dir.to_string());
     }
-    args.push("--cwd".to_string());
-    args.push(cwd_str);
-    push_resume_tail(&mut args, exe, session_id, true);
+    push_cwd_and_resume(&mut args, "--cwd", cwd, exe, session_id, true);
     ForkLaunchPlan {
         program: "zellij".to_string(),
         args,
@@ -103,7 +104,6 @@ fn zellij_plan(target: ForkTarget, exe: &Path, session_id: &str, cwd: &Path) -> 
 }
 
 fn wezterm_plan(target: ForkTarget, exe: &Path, session_id: &str, cwd: &Path) -> ForkLaunchPlan {
-    let cwd_str = cwd.to_string_lossy().into_owned();
     let (subcmd, dir_flag, label) = match target {
         ForkTarget::Pane => ("split-pane", None, "WezTerm pane"),
         ForkTarget::HSplit => ("split-pane", Some("--right"), "WezTerm hsplit"),
@@ -112,12 +112,8 @@ fn wezterm_plan(target: ForkTarget, exe: &Path, session_id: &str, cwd: &Path) ->
         ForkTarget::Tab => ("spawn", None, "WezTerm tab"),
     };
     let mut args = vec!["cli".to_string(), subcmd.to_string()];
-    if let Some(flag) = dir_flag {
-        args.push(flag.to_string());
-    }
-    args.push("--cwd".to_string());
-    args.push(cwd_str);
-    push_resume_tail(&mut args, exe, session_id, true);
+    args.extend(dir_flag.map(str::to_string));
+    push_cwd_and_resume(&mut args, "--cwd", cwd, exe, session_id, true);
     ForkLaunchPlan {
         program: "wezterm".to_string(),
         args,
@@ -126,19 +122,12 @@ fn wezterm_plan(target: ForkTarget, exe: &Path, session_id: &str, cwd: &Path) ->
 }
 
 fn kitty_plan(target: ForkTarget, exe: &Path, session_id: &str, cwd: &Path) -> ForkLaunchPlan {
-    let cwd_str = cwd.to_string_lossy().into_owned();
     let (launch_type, label) = match target {
         ForkTarget::Window | ForkTarget::Tab => ("--type=tab", "Kitty tab"),
         ForkTarget::Pane | ForkTarget::HSplit | ForkTarget::VSplit => ("--type=window", "Kitty pane"),
     };
-    let mut args = vec![
-        "@".to_string(),
-        "launch".to_string(),
-        launch_type.to_string(),
-        "--cwd".to_string(),
-        cwd_str,
-    ];
-    push_resume_tail(&mut args, exe, session_id, false);
+    let mut args = vec!["@".to_string(), "launch".to_string(), launch_type.to_string()];
+    push_cwd_and_resume(&mut args, "--cwd", cwd, exe, session_id, false);
     ForkLaunchPlan {
         program: "kitten".to_string(),
         args,
@@ -157,30 +146,19 @@ fn applescript_escape(raw: &str) -> String {
 
 fn iterm_plan(target: ForkTarget, shell_cmd: &str) -> ForkLaunchPlan {
     let escaped = applescript_escape(shell_cmd);
-    let (script, label) = match target {
-        ForkTarget::Window => (
-            format!("tell application \"iTerm\" to create window with default profile command \"{escaped}\""),
-            "iTerm2 window",
-        ),
-        ForkTarget::Tab => (
-            format!(
-                "tell application \"iTerm\" to tell current window to create tab with default profile command \"{escaped}\""
-            ),
-            "iTerm2 tab",
-        ),
+    let (action, label) = match target {
+        ForkTarget::Window => ("create window", "iTerm2 window"),
+        ForkTarget::Tab => ("tell current window to create tab", "iTerm2 tab"),
         ForkTarget::Pane | ForkTarget::HSplit => (
-            format!(
-                "tell application \"iTerm\" to tell current session of current window to split vertically with default profile command \"{escaped}\""
-            ),
+            "tell current session of current window to split vertically",
             "iTerm2 split",
         ),
         ForkTarget::VSplit => (
-            format!(
-                "tell application \"iTerm\" to tell current session of current window to split horizontally with default profile command \"{escaped}\""
-            ),
+            "tell current session of current window to split horizontally",
             "iTerm2 vsplit",
         ),
     };
+    let script = format!("tell application \"iTerm\" to {action} with default profile command \"{escaped}\"");
     ForkLaunchPlan {
         program: "osascript".to_string(),
         args: vec!["-e".to_string(), script],
@@ -274,6 +252,17 @@ pub fn spawn_forked_session(target: ForkTarget, session_id: &str, cwd: &Path) ->
         ));
     }
     Ok(plan.label)
+}
+
+pub fn fork_status_message(session_id: &str, target: Option<ForkTarget>, fallback_cwd: &Path) -> String {
+    let Some(target) = target else {
+        return format!("Forked session: {session_id}");
+    };
+    let cwd = std::env::current_dir().unwrap_or_else(|_| fallback_cwd.to_path_buf());
+    match spawn_forked_session(target, session_id, &cwd) {
+        Ok(label) => format!("Forked session {session_id} in {label}"),
+        Err(err) => err,
+    }
 }
 
 #[cfg(test)]

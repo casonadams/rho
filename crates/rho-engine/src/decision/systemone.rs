@@ -1,8 +1,9 @@
 //! TypeSafe System One (`POST /v1/systemone`) and OpenRouter Decisions (`POST /api/alpha/decisions`) client.
 
+use super::post_decision;
 use super::types::{DecisionAnswer, DecisionModel, DecisionQuestion, DecisionRequest, DecisionResponse, DecisionUsage};
-use crate::http::{bearer, post_json_checked};
-use crate::provider::error::HttpFailure;
+use crate::http::bearer;
+use crate::provider::error::{HttpFailure, error_message_or_excerpt};
 use reqwest::header::{ACCEPT, AUTHORIZATION, CONTENT_TYPE, HeaderMap, HeaderValue};
 use rho_harness_core::error::AppError;
 use serde::Deserialize;
@@ -129,10 +130,7 @@ struct WireResponse {
 }
 
 fn friendly_error(status: Option<u16>, body: &str) -> String {
-    let msg = serde_json::from_str::<Value>(body)
-        .ok()
-        .and_then(|v| v.pointer("/error/message").and_then(Value::as_str).map(str::to_string))
-        .unwrap_or_else(|| body.chars().take(300).collect());
+    let msg = error_message_or_excerpt(body);
     match status {
         Some(code) => format!("System One decision API error ({code}): {msg}"),
         None => format!("System One decision request failed: {msg}"),
@@ -155,16 +153,8 @@ impl DecisionModel for SystemOneClient {
 
     async fn decide(&self, request: DecisionRequest) -> Result<DecisionResponse, AppError> {
         let body = build_request_body(&self.model, &request);
-        let headers = self.headers().map_err(|f| f.into_app_error(friendly_error))?;
-        let response = post_json_checked(&self.endpoint, headers, &body)
-            .await
-            .map_err(|f| f.into_app_error(friendly_error))?;
-        let text = response
-            .text()
-            .await
-            .map_err(|e| AppError::Network(format!("System One response read failed: {e}")))?;
         let parsed: WireResponse =
-            serde_json::from_str(&text).map_err(|e| AppError::Provider(format!("Invalid System One JSON: {e}")))?;
+            post_decision(&self.endpoint, self.headers(), &body, "System One", friendly_error).await?;
         let usage = parsed.usage.map_or_else(DecisionUsage::default, |u| DecisionUsage {
             input_tokens: u.input_tokens,
             output_tokens: u.output_tokens,

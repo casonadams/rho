@@ -21,6 +21,13 @@ pub use types::{
     DecisionResponse, DecisionUsage,
 };
 
+use crate::http::post_json_checked;
+use crate::provider::error::HttpFailure;
+use reqwest::header::HeaderMap;
+use rho_harness_core::error::AppError;
+use serde::de::DeserializeOwned;
+use serde_json::Value;
+
 /// True when `(provider, model)` identifies a native structured-decision endpoint rather
 /// than a chat completion model.
 pub fn is_native_decision_model(provider: &str, model: &str) -> bool {
@@ -32,4 +39,22 @@ pub fn is_native_decision_model(provider: &str, model: &str) -> bool {
         "openrouter" => m.contains("decision") || m.contains("jev"),
         _ => false,
     }
+}
+
+pub(super) async fn post_decision<T: DeserializeOwned>(
+    endpoint: &str,
+    headers: Result<HeaderMap, HttpFailure>,
+    body: &Value,
+    provider: &str,
+    friendly_error: fn(Option<u16>, &str) -> String,
+) -> Result<T, AppError> {
+    let headers = headers.map_err(|f| f.into_app_error(friendly_error))?;
+    let response = post_json_checked(endpoint, headers, body)
+        .await
+        .map_err(|f| f.into_app_error(friendly_error))?;
+    let text = response
+        .text()
+        .await
+        .map_err(|e| AppError::Network(format!("{provider} response read failed: {e}")))?;
+    serde_json::from_str(&text).map_err(|e| AppError::Provider(format!("Invalid {provider} JSON: {e}")))
 }

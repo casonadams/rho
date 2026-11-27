@@ -4,7 +4,7 @@ use super::request::build_request_body;
 use super::stream::GeminiSseParser;
 use crate::http::{header_value, post_json_checked};
 use crate::provider::adapter::{ModelAdapter, ModelCompletionRequest, ModelEventStream};
-use crate::provider::error::{HttpFailure, HttpResult};
+use crate::provider::error::{HttpFailure, HttpResult, error_message_or_excerpt};
 use crate::provider::sse::open_sse_stream;
 use reqwest::header::{ACCEPT, CONTENT_TYPE, HeaderMap, HeaderValue};
 use rho_harness_core::error::AppError;
@@ -79,21 +79,8 @@ impl GeminiClient {
     }
 }
 
-fn parse_google_error(body: &str) -> String {
-    let Ok(v) = serde_json::from_str::<serde_json::Value>(body) else {
-        return body.chars().take(300).collect();
-    };
-    let Some(err) = v.get("error") else {
-        return body.chars().take(300).collect();
-    };
-    err.get("message")
-        .and_then(|m| m.as_str())
-        .map(str::to_string)
-        .unwrap_or_else(|| body.chars().take(300).collect())
-}
-
 fn friendly_error(status: Option<u16>, body: &str) -> String {
-    let message = parse_google_error(body);
+    let message = error_message_or_excerpt(body);
     match status {
         Some(401) => "Gemini API key rejected (401). Check GEMINI_API_KEY or run 'rho login gemini'.".to_string(),
         Some(403) => format!("Gemini access denied (403): {message}"),

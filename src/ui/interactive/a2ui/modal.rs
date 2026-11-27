@@ -13,7 +13,7 @@ use controls::{ChoicePicker, ControlKind, FocusableControl, OTHER_SENTINEL, coll
 
 mod controls;
 mod options;
-mod view;
+pub(super) mod view;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum A2uiKeyOutcome {

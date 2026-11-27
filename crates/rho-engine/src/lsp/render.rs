@@ -170,7 +170,7 @@ pub fn count_summary(diagnostics: &[Diagnostic]) -> String {
 /// One `LINE:COL severity [source] message (code)` row per diagnostic, at most `MAX_DIAGNOSTICS`.
 pub fn diagnostic_rows(diagnostics: &[Diagnostic]) -> String {
     let mut out = String::new();
-    for d in diagnostics.iter().take(MAX_DIAGNOSTICS) {
+    write_capped_rows(&mut out, diagnostics, MAX_DIAGNOSTICS, |out, d| {
         let source = d.source.as_deref().map(|s| format!(" [{s}]")).unwrap_or_default();
         let code = d.code.as_deref().map(|c| format!(" ({c})")).unwrap_or_default();
         let _ = writeln!(
@@ -181,12 +181,18 @@ pub fn diagnostic_rows(diagnostics: &[Diagnostic]) -> String {
             severity_name(d.severity),
             short_message(&d.message)
         );
-    }
-    if diagnostics.len() > MAX_DIAGNOSTICS {
-        let _ = writeln!(out, "[{} more not shown]", diagnostics.len() - MAX_DIAGNOSTICS);
-    }
+    });
     out.truncate(out.trim_end().len());
     out
+}
+
+fn write_capped_rows<T>(out: &mut String, items: &[T], max: usize, write_row: impl Fn(&mut String, &T)) {
+    for item in items.iter().take(max) {
+        write_row(out, item);
+    }
+    if items.len() > max {
+        let _ = writeln!(out, "[{} more not shown]", items.len() - max);
+    }
 }
 
 pub fn hover_text(response: &Value) -> String {
@@ -277,7 +283,7 @@ pub fn format_outline(entries: &[SymbolEntry]) -> String {
         return "No symbols found".into();
     }
     let mut out = String::new();
-    for entry in entries.iter().take(MAX_SYMBOLS) {
+    write_capped_rows(&mut out, entries, MAX_SYMBOLS, |out, entry| {
         let indent = "  ".repeat(entry.names.len().saturating_sub(1));
         let detail = entry
             .detail
@@ -292,10 +298,7 @@ pub fn format_outline(entries: &[SymbolEntry]) -> String {
             entry.kind,
             entry.names.last().map_or("", String::as_str)
         );
-    }
-    if entries.len() > MAX_SYMBOLS {
-        let _ = writeln!(out, "[{} more not shown]", entries.len() - MAX_SYMBOLS);
-    }
+    });
     out.truncate(out.trim_end().len());
     out
 }

@@ -65,18 +65,23 @@ async fn run_local_command(cmd: &str) -> std::io::Result<std::process::Output> {
     }
 }
 
+fn echo_command_output(renderer: &TerminalRenderer, res: &std::process::Output) -> (String, String) {
+    let stdout = String::from_utf8_lossy(&res.stdout).into_owned();
+    let stderr = String::from_utf8_lossy(&res.stderr).into_owned();
+    if !stdout.is_empty() {
+        renderer.write_output(&stdout);
+    }
+    if !stderr.is_empty() {
+        renderer.write_output(&stderr);
+    }
+    (stdout, stderr)
+}
+
 async fn execute_silent_shell(cmd: &str, renderer: &TerminalRenderer) {
     renderer.print_notice(&format!("  [Executing local shell: `{cmd}`]\n"));
     match run_local_command(cmd).await {
         Ok(res) => {
-            let stdout = String::from_utf8_lossy(&res.stdout);
-            let stderr = String::from_utf8_lossy(&res.stderr);
-            if !stdout.is_empty() {
-                renderer.write_output(&stdout);
-            }
-            if !stderr.is_empty() {
-                renderer.write_output(&stderr);
-            }
+            echo_command_output(renderer, &res);
         }
         Err(e) => {
             renderer.print_notice(&format!("  Command execution failed: {e}\n"));
@@ -88,14 +93,7 @@ async fn execute_turn_shell(cmd: &str, renderer: &TerminalRenderer) -> String {
     renderer.print_notice(&format!("  [Executing local shell: `{cmd}`]\n"));
     match run_local_command(cmd).await {
         Ok(res) => {
-            let stdout = String::from_utf8_lossy(&res.stdout);
-            let stderr = String::from_utf8_lossy(&res.stderr);
-            if !stdout.is_empty() {
-                renderer.write_output(&stdout);
-            }
-            if !stderr.is_empty() {
-                renderer.write_output(&stderr);
-            }
+            let (stdout, stderr) = echo_command_output(renderer, &res);
             format!(
                 "Executed local shell command: `{cmd}`\n\nOutput:\n```\n{}{}\n```",
                 stdout, stderr

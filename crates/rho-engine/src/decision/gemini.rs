@@ -3,13 +3,14 @@
 //! Targets `gemini-decision-1` (262k context, calibrated `noul`/`choice`/`score` answers,
 //! multimodal text/image inputs, $0.10/1M input tokens, $0 output tokens).
 
+use super::post_decision;
 use super::types::{
     DecisionAnswer, DecisionInput, DecisionModel, DecisionPart, DecisionQuestion, DecisionRequest, DecisionResponse,
     DecisionUsage,
 };
 use crate::gemini::client::DEFAULT_BASE_URL;
-use crate::http::{header_value, post_json_checked};
-use crate::provider::error::HttpFailure;
+use crate::http::header_value;
+use crate::provider::error::{HttpFailure, error_message_or_excerpt};
 use reqwest::header::{ACCEPT, CONTENT_TYPE, HeaderMap, HeaderValue};
 use rho_harness_core::error::AppError;
 use serde::Deserialize;
@@ -153,10 +154,7 @@ struct WireResponse {
 }
 
 fn friendly_error(status: Option<u16>, body: &str) -> String {
-    let msg = serde_json::from_str::<Value>(body)
-        .ok()
-        .and_then(|v| v.pointer("/error/message").and_then(Value::as_str).map(str::to_string))
-        .unwrap_or_else(|| body.chars().take(300).collect());
+    let msg = error_message_or_excerpt(body);
     match status {
         Some(401) => "Gemini Decisions API key rejected (401). Check GEMINI_API_KEY.".to_string(),
         Some(code) => format!("Gemini Decisions API error ({code}): {msg}"),
@@ -180,16 +178,14 @@ impl DecisionModel for GeminiDecisionClient {
 
     async fn decide(&self, request: DecisionRequest) -> Result<DecisionResponse, AppError> {
         let body = build_request_body(&self.model, &request);
-        let headers = self.headers().map_err(|f| f.into_app_error(friendly_error))?;
-        let response = post_json_checked(&self.endpoint_url(), headers, &body)
-            .await
-            .map_err(|f| f.into_app_error(friendly_error))?;
-        let text = response
-            .text()
-            .await
-            .map_err(|e| AppError::Network(format!("Gemini Decisions response read failed: {e}")))?;
-        let parsed: WireResponse = serde_json::from_str(&text)
-            .map_err(|e| AppError::Provider(format!("Invalid Gemini Decisions JSON: {e}")))?;
+        let parsed: WireResponse = post_decision(
+            &self.endpoint_url(),
+            self.headers(),
+            &body,
+            "Gemini Decisions",
+            friendly_error,
+        )
+        .await?;
         let usage = parsed.usage.map_or_else(DecisionUsage::default, |u| DecisionUsage {
             input_tokens: u.total_input_tokens,
             output_tokens: u.total_output_tokens,

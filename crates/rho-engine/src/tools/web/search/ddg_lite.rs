@@ -4,15 +4,15 @@ use crate::tools::web::http::LYNX_UA;
 use crate::tools::web::search::engine::{EngineRequest, fetch_results_page};
 use crate::tools::web::search::query::{recency_param, urlencoding_encode};
 use crate::tools::web::search::result::SearchResult;
+use crate::tools::web::selector;
 use rho_harness_core::args::WebSearchRecency;
 use rho_harness_core::error::AppError;
 use scraper::{Html, Selector};
 use url::Url;
 
-static TR_SEL: LazyLock<Selector> = LazyLock::new(|| Selector::parse("tr").expect("valid selector"));
-static LINK_SEL: LazyLock<Selector> = LazyLock::new(|| Selector::parse("a.result-link").expect("valid selector"));
-static SNIPPET_SEL: LazyLock<Selector> =
-    LazyLock::new(|| Selector::parse("td.result-snippet").expect("valid selector"));
+static TR_SEL: LazyLock<Selector> = LazyLock::new(|| selector("tr"));
+static LINK_SEL: LazyLock<Selector> = LazyLock::new(|| selector("a.result-link"));
+static SNIPPET_SEL: LazyLock<Selector> = LazyLock::new(|| selector("td.result-snippet"));
 
 pub fn ddg_lite_search_url(query: &str, region: &str, recency: Option<WebSearchRecency>) -> String {
     let df_param = recency_param(recency, "df", ["d", "w", "m", "y"]);

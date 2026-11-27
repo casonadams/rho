@@ -3,11 +3,11 @@ use rho_engine::engine::{AgentEngine, EphemeralTurnRequest};
 use rho_harness_core::model::ChatMessage;
 use tokio::sync::mpsc;
 
-use super::{ModalKeyResult, apply_input_edit};
+use super::{ModalKeyResult, apply_input_edit, apply_modal_edit_key};
 use crate::engine::runner::CancellationSignal;
 use crate::error::Result;
 use crate::ui::interactive::{
-    InputAction, ModalKind, ModalState, TerminalBackend, TerminalController, UiAction, map_key, modal_body_max_scroll,
+    ModalKind, ModalState, TerminalBackend, TerminalController, UiAction, modal_body_max_scroll,
 };
 
 pub const BTW_MODAL_TITLE: &str = "Side Question (/btw)";
@@ -338,29 +338,6 @@ fn is_newline_key(key: &KeyEvent) -> bool {
         || key.code == KeyCode::Char('\n')
 }
 
-fn handle_btw_edit_key<B: TerminalBackend>(controller: &mut TerminalController<B>, key: KeyEvent) {
-    match map_key(key) {
-        InputAction::Clear => {
-            if let Some(modal) = controller.state_mut().active_modal_mut() {
-                modal.input.set_text("");
-            }
-        }
-        InputAction::ClipboardPasteImage => {
-            if let Some(text) = crate::platform::clipboard::get_text_or_image_path()
-                && let Some(modal) = controller.state_mut().active_modal_mut()
-            {
-                apply_input_edit(&mut modal.input, UiAction::Paste(text));
-            }
-        }
-        InputAction::Edit(action) => {
-            if let Some(modal) = controller.state_mut().active_modal_mut() {
-                apply_input_edit(&mut modal.input, action);
-            }
-        }
-        _ => {}
-    }
-}
-
 pub fn handle_btw_key<B: TerminalBackend>(
     controller: &mut TerminalController<B>,
     key: KeyEvent,
@@ -387,7 +364,7 @@ pub fn handle_btw_key<B: TerminalBackend>(
     if key.code == KeyCode::Enter {
         return submit_btw_enter(controller);
     }
-    handle_btw_edit_key(controller, key);
+    apply_modal_edit_key(controller, key);
     controller.redraw()?;
     Ok(ModalKeyResult::Handled)
 }

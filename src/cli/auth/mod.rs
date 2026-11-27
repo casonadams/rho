@@ -7,6 +7,8 @@ mod terminal;
 #[cfg(test)]
 mod tests;
 
+use provider::prompt_select_from;
+
 pub use callbacks::TerminalOAuthCallbacks;
 pub use provider::{
     AuthMethod, login_choices, prompt_auth_method, prompt_select_login_provider, resolve_provider_name,
@@ -121,32 +123,19 @@ pub async fn login_provider(
     login_api_key(&target, key_stdin, auth_store)
 }
 
-fn parse_logout_choice(input: &str, configured: &[String]) -> Result<String> {
-    let idx = input
-        .trim()
-        .parse::<usize>()
-        .map_err(|_| AppError::Cancelled("Logout cancelled".to_string()))?;
-    if (1..=configured.len()).contains(&idx) {
-        Ok(configured[idx - 1].clone())
-    } else {
-        Err(AppError::Cancelled("Logout cancelled".to_string()))
-    }
-}
-
 fn prompt_logout_selection<R: std::io::BufRead, W: std::io::Write>(
     reader: &mut R,
     writer: &mut W,
     configured: &[String],
 ) -> Result<String> {
-    writeln!(writer, "\nSelect provider credentials to remove:").map_err(|e| AppError::Other(e.into()))?;
-    for (i, p) in configured.iter().enumerate() {
-        writeln!(writer, "  {}. {p}", i + 1).map_err(|e| AppError::Other(e.into()))?;
-    }
-    write!(writer, "Enter choice [1-{}]: ", configured.len()).map_err(|e| AppError::Other(e.into()))?;
-    writer.flush().map_err(|e| AppError::Other(e.into()))?;
-    let mut input = String::new();
-    reader.read_line(&mut input).map_err(|e| AppError::Other(e.into()))?;
-    parse_logout_choice(&input, configured)
+    let idx =
+        prompt_select_from(reader, writer, "Select provider credentials to remove:", configured).map_err(|err| {
+            match err {
+                AppError::Cancelled(_) => AppError::Cancelled("Logout cancelled".to_string()),
+                other => other,
+            }
+        })?;
+    Ok(configured[idx].clone())
 }
 
 fn select_logout_target(auth_store: &AuthStore) -> Result<Option<String>> {

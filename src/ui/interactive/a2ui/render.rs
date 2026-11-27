@@ -6,18 +6,35 @@ use rho_harness_core::a2ui::{
     TextUsageHint, resolve_pointer, resolve_typed,
 };
 
+use super::modal::A2uiModalState;
+use super::modal::view::{
+    ChoicePickerRender, TextFieldRender, render_modal_button, render_modal_checkbox, render_modal_choice_picker,
+    render_modal_text_field,
+};
 use crate::ui::block::visible_width;
+use crate::ui::interactive::CursorPosition;
 use crate::ui::interactive::footer::truncate_to_width;
 use crate::ui::interactive::layout::wrap_to_width;
 use crate::ui::theme::SGR_RESET;
 use crate::ui::theme::Theme;
 
-struct RenderCtx<'a, 'b> {
-    surface: &'a A2uiSurface,
+const STATIC_MASK_CAP: usize = 12;
+
+#[derive(Clone, Copy)]
+pub(super) struct ModalFocus<'a> {
+    pub(super) state: &'a A2uiModalState,
+    pub(super) focused: bool,
+}
+
+pub(super) struct RenderCtx<'a, 'b> {
+    pub(super) surface: &'a A2uiSurface,
     depth: usize,
     visited: &'b mut HashSet<&'a str>,
-    width: usize,
-    theme: &'a Theme,
+    pub(super) width: usize,
+    pub(super) theme: &'a Theme,
+    pub(super) modal: Option<ModalFocus<'a>>,
+    pub(super) cursor: Option<CursorPosition>,
+    pub(super) focus_range: Option<(usize, usize)>,
 }
 
 impl<'a> RenderCtx<'a, '_> {
@@ -28,14 +45,25 @@ impl<'a> RenderCtx<'a, '_> {
             visited: self.visited,
             width,
             theme: self.theme,
+            modal: self.modal,
+            cursor: None,
+            focus_range: None,
         }
     }
 }
 
-pub fn render_surface(surface: &A2uiSurface, width: usize, theme: &Theme) -> Vec<String> {
-    if width == 0 {
-        return Vec::new();
-    }
+pub(super) struct RenderedTree {
+    pub(super) lines: Vec<String>,
+    pub(super) cursor: Option<CursorPosition>,
+    pub(super) focus_range: Option<(usize, usize)>,
+}
+
+pub(super) fn walk_tree<'a>(
+    surface: &'a A2uiSurface,
+    width: usize,
+    theme: &'a Theme,
+    modal: Option<ModalFocus<'a>>,
+) -> RenderedTree {
     let mut visited = HashSet::new();
     let mut ctx = RenderCtx {
         surface,
@@ -43,9 +71,27 @@ pub fn render_surface(surface: &A2uiSurface, width: usize, theme: &Theme) -> Vec
         visited: &mut visited,
         width,
         theme,
+        modal,
+        cursor: None,
+        focus_range: None,
     };
     let lines = render_node(&mut ctx, &surface.root_id);
-    lines.into_iter().map(|line| clamp_line(&line, width)).collect()
+    RenderedTree {
+        lines,
+        cursor: ctx.cursor,
+        focus_range: ctx.focus_range,
+    }
+}
+
+pub fn render_surface(surface: &A2uiSurface, width: usize, theme: &Theme) -> Vec<String> {
+    if width == 0 {
+        return Vec::new();
+    }
+    walk_tree(surface, width, theme, None)
+        .lines
+        .into_iter()
+        .map(|line| clamp_line(&line, width))
+        .collect()
 }
 
 pub fn render_surfaces(surfaces: &[&A2uiSurface], width: usize, max_lines: usize, theme: &Theme) -> Vec<String> {
@@ -139,22 +185,75 @@ fn render_component<'a>(ctx: &mut RenderCtx<'a, '_>, component: &'a A2uiComponen
         }
         A2uiComponentKind::Badge { label, tone } => render_badge(ctx.surface, label, *tone, ctx.width, ctx.theme),
         A2uiComponentKind::Table { headers, rows } => render_table(ctx.surface, headers, rows, ctx.width, ctx.theme),
-        A2uiComponentKind::Button { label, variant, .. } => {
-            render_button(ctx.surface, label, *variant, ctx.width, ctx.theme)
-        }
-        A2uiComponentKind::ChoicePicker { label, options, .. } => {
-            render_choice_picker(ctx.surface, label.as_ref(), options, ctx.width, ctx.theme)
-        }
+        A2uiComponentKind::Button { label, variant, .. } => match ctx.modal {
+            Some(modal) => render_modal_button(ctx, modal, &component.id, label, *variant),
+            None => render_button(ctx.surface, label, *variant, ctx.width, ctx.theme),
+        },
+        A2uiComponentKind::ChoicePicker {
+            label,
+            options,
+            selection_path,
+            multi_select,
+            allow_other,
+            other_path,
+        } => match ctx.modal {
+            Some(modal) => render_modal_choice_picker(
+                ctx,
+                modal,
+                ChoicePickerRender {
+                    id: &component.id,
+                    label: label.as_ref(),
+                    options,
+                    selection_path,
+                    multi_select: *multi_select,
+                    allow_other: *allow_other,
+                    other_path: other_path.as_deref(),
+                },
+            ),
+            None => render_choice_picker(ctx.surface, label.as_ref(), options, ctx.width, ctx.theme),
+        },
         A2uiComponentKind::TextField {
             label,
             placeholder,
             value_path,
             masked,
             ..
-        } => render_text_field(ctx, label.as_ref(), placeholder.as_deref(), value_path, *masked),
-        A2uiComponentKind::CheckBox { label, checked_path } => {
-            render_checkbox(ctx.surface, label, checked_path, ctx.width, ctx.theme)
-        }
+        } => match ctx.modal {
+            Some(modal) => render_modal_text_field(
+                ctx,
+                modal,
+                TextFieldRender {
+                    id: &component.id,
+                    label: label.as_ref(),
+                    placeholder: placeholder.as_deref(),
+                    value_path,
+                    masked: *masked,
+                },
+            ),
+            None => render_text_field(ctx, label.as_ref(), placeholder.as_deref(), value_path, *masked),
+        },
+        A2uiComponentKind::CheckBox { label, checked_path } => match ctx.modal {
+            Some(modal) => render_modal_checkbox(ctx, modal, &component.id, label, checked_path),
+            None => render_checkbox(ctx.surface, label, checked_path, ctx.width, ctx.theme),
+        },
+    }
+}
+
+fn merge_child_offsets(
+    ctx: &mut RenderCtx<'_, '_>,
+    child_cursor: Option<CursorPosition>,
+    child_focus: Option<(usize, usize)>,
+    base_row: usize,
+    col_offset: usize,
+) {
+    if let Some(c) = child_cursor {
+        ctx.cursor = Some(CursorPosition {
+            row: base_row + c.row,
+            column: col_offset + c.column,
+        });
+    }
+    if let Some((start, end)) = child_focus {
+        ctx.focus_range = Some((base_row + start, base_row + end));
     }
 }
 
@@ -164,12 +263,15 @@ fn render_column<'a>(ctx: &mut RenderCtx<'a, '_>, children: &'a [String], gap: u
     for child_id in children {
         let mut child_ctx = ctx.child(width);
         let rendered = render_node(&mut child_ctx, child_id);
+        let (child_cursor, child_focus) = (child_ctx.cursor, child_ctx.focus_range);
         if rendered.is_empty() {
             continue;
         }
         if !out.is_empty() && gap > 0 {
             out.extend(std::iter::repeat_n(String::new(), gap));
         }
+        let base_row = out.len();
+        merge_child_offsets(ctx, child_cursor, child_focus, base_row, 0);
         out.extend(rendered);
     }
     out
@@ -178,15 +280,20 @@ fn render_column<'a>(ctx: &mut RenderCtx<'a, '_>, children: &'a [String], gap: u
 fn render_row<'a>(ctx: &mut RenderCtx<'a, '_>, children: &'a [String], gap: usize, justify: RowJustify) -> Vec<String> {
     let mut segments = Vec::new();
     let width = ctx.width;
+    let mut has_focus = false;
     for child_id in children {
         let mut child_ctx = ctx.child(width);
         let lines = render_node(&mut child_ctx, child_id);
         if !lines.is_empty() {
+            has_focus |= child_ctx.focus_range.is_some();
             segments.push(lines.join(" "));
         }
     }
     if segments.is_empty() {
         return Vec::new();
+    }
+    if has_focus {
+        ctx.focus_range = Some((0, 1));
     }
     vec![layout_row_segments(&segments, gap, justify, width)]
 }
@@ -244,10 +351,15 @@ fn render_card<'a>(
     let width = ctx.width;
     if width < 4 {
         let mut child_ctx = ctx.child(width);
-        return render_node(&mut child_ctx, child);
+        let out = render_node(&mut child_ctx, child);
+        let (child_cursor, child_focus) = (child_ctx.cursor, child_ctx.focus_range);
+        merge_child_offsets(ctx, child_cursor, child_focus, 0, 0);
+        return out;
     }
     let mut child_ctx = ctx.child(card_inner_width(width));
     let child_lines = render_node(&mut child_ctx, child);
+    let (child_cursor, child_focus) = (child_ctx.cursor, child_ctx.focus_range);
+    merge_child_offsets(ctx, child_cursor, child_focus, 1, 2);
     let border = card_border_style(tone, ctx.theme);
     card_frame(ctx.surface, title, width, border, child_lines)
 }
@@ -506,6 +618,11 @@ fn render_choice_picker(
     out
 }
 
+pub(super) fn mask_text(value: &str, max_stars: Option<usize>) -> String {
+    let count = value.chars().count();
+    "*".repeat(max_stars.map_or(count, |cap| count.min(cap)))
+}
+
 fn render_text_field(
     ctx: &RenderCtx<'_, '_>,
     label: Option<&BoundString>,
@@ -519,7 +636,7 @@ fn render_text_field(
     let display = if val.is_empty() {
         placeholder.unwrap_or("").to_string()
     } else if masked {
-        "*".repeat(val.chars().count().min(12))
+        mask_text(val, Some(STATIC_MASK_CAP))
     } else {
         val.to_string()
     };
@@ -704,6 +821,25 @@ mod tests {
         let last_plain = strip_ansi(&truncated[2]);
         assert!(last_plain.starts_with("... (+"), "got {last_plain:?}");
         assert!(last_plain.ends_with("lines)"));
+    }
+
+    #[test]
+    fn masked_text_field_caps_asterisks_at_twelve() {
+        let surface = build_surface(
+            vec![A2uiComponent::new(
+                "root",
+                A2uiComponentKind::TextField {
+                    label: None,
+                    placeholder: None,
+                    value_path: "/pw".to_string(),
+                    multiline: false,
+                    masked: true,
+                },
+            )],
+            json!({ "pw": "x".repeat(20) }),
+        );
+        let lines = render_surface(&surface, 60, &Theme::default());
+        assert_eq!(strip_ansi(&lines[0]), format!("[{}]", "*".repeat(12)));
     }
 
     #[test]

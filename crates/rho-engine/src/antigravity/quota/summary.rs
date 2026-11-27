@@ -75,15 +75,19 @@ fn canonical_target(target: &str) -> &str {
     trimmed.strip_prefix("antigravity/").unwrap_or(trimmed)
 }
 
-fn bucket_structural_text(bucket: &Value) -> String {
+fn structural_text(node: &Value, keys: &[&str]) -> String {
     let mut s = String::new();
-    for key in ["bucketId", "id", "name", "window", "displayName", "label"] {
-        if let Some(v) = bucket.get(key).and_then(|v| v.as_str()) {
+    for &key in keys {
+        if let Some(v) = node.get(key).and_then(|v| v.as_str()) {
             s.push(' ');
             s.push_str(v);
         }
     }
     s.to_ascii_lowercase()
+}
+
+fn bucket_structural_text(bucket: &Value) -> String {
+    structural_text(bucket, &["bucketId", "id", "name", "window", "displayName", "label"])
 }
 
 fn bucket_matches_target(bucket: &Value, target: &str) -> bool {
@@ -109,14 +113,7 @@ fn bucket_matches_target(bucket: &Value, target: &str) -> bool {
 }
 
 fn extract_group_text(group: &Value) -> String {
-    let mut s = String::new();
-    for key in ["displayName", "name", "groupId", "id", "description", "label"] {
-        if let Some(v) = group.get(key).and_then(|v| v.as_str()) {
-            s.push(' ');
-            s.push_str(v);
-        }
-    }
-    s.to_ascii_lowercase()
+    structural_text(group, &["displayName", "name", "groupId", "id", "description", "label"])
 }
 
 const CLAUDE_KEYWORDS: &[&str] = &["claude", "3p", "third"];

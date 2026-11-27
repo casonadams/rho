@@ -170,13 +170,22 @@ impl AgentEngine {
     }
 
     pub async fn rebuild(&self, config: Config, auth_store: AuthStore) -> Result<Self> {
+        self.build_successor(config, auth_store, self.base_dir.clone()).await
+    }
+
+    async fn build_successor(
+        &self,
+        config: Config,
+        auth_store: AuthStore,
+        base_dir: std::path::PathBuf,
+    ) -> Result<Self> {
         let mut builder = builder::AgentEngineBuilder::new(config, auth_store)
             .session(self.session_manager.clone())
             .agent_monitor(self.agent_monitor.clone())
             .subagent_runtime(self.subagent_runtime.clone())
             .turn_notes(self.turn_notes.clone())
             .model_catalog(self.model_catalog().clone())
-            .base_dir(self.base_dir.clone());
+            .base_dir(base_dir);
         if let Some(hook) = &self.demotion_hook {
             builder = builder.demotion_hook(Arc::clone(hook));
         }
@@ -202,21 +211,9 @@ impl AgentEngine {
             &self.session_manager.session_id,
         )?;
         let auth_store = self.router.auth().lock().await.clone();
-        let mut builder = builder::AgentEngineBuilder::new(self.config.clone(), auth_store)
-            .session(self.session_manager.clone())
-            .agent_monitor(self.agent_monitor.clone())
-            .subagent_runtime(self.subagent_runtime.clone())
-            .turn_notes(self.turn_notes.clone())
-            .model_catalog(self.model_catalog().clone())
-            .base_dir(new_base_dir);
-        if let Some(hook) = &self.demotion_hook {
-            builder = builder.demotion_hook(Arc::clone(hook));
-        }
-        if let Some(presenter) = &self.presenter {
-            builder = builder.presenter(Arc::clone(presenter));
-        }
-        let rebuilt = builder.build().await?;
-        rebuilt.spawn_refresh_quota();
+        let rebuilt = self
+            .build_successor(self.config.clone(), auth_store, new_base_dir)
+            .await?;
         self.switch_to(rebuilt);
         Ok(())
     }

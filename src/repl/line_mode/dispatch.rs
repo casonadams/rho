@@ -86,23 +86,13 @@ pub(crate) async fn fork_session(
     target: Option<crate::repl::commands::ForkTarget>,
     id: Option<&str>,
 ) -> Result<()> {
-    let forked = engine
+    let forked_id = engine
         .session_manager
         .fork_session(&session.config.sessions_dir, id)
-        .await?;
-    let forked_id = forked.session_id.clone();
-    drop(forked);
-    if let Some(target) = target {
-        let cwd = std::env::current_dir().unwrap_or_else(|_| engine.base_dir.clone());
-        match crate::repl::live::mux::spawn_forked_session(target, &forked_id, &cwd) {
-            Ok(label) => session
-                .renderer
-                .print_status(&format!("Forked session {forked_id} in {label}")),
-            Err(err) => session.renderer.print_status(&err),
-        }
-    } else {
-        session.renderer.print_status(&format!("Forked session: {forked_id}"));
-    }
+        .await?
+        .session_id;
+    let msg = crate::repl::live::mux::fork_status_message(&forked_id, target, &engine.base_dir);
+    session.renderer.print_status(&msg);
     Ok(())
 }
 

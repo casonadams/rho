@@ -1,6 +1,7 @@
 pub use crate::provider::adapter::ModelHandle;
 use rho_harness_core::error::AppError;
 use rho_harness_core::model::{ChatMessage, ToolResult, ToolResultContent, UserContent};
+use std::future::Future;
 use std::time::Duration;
 
 use rho_harness_core::session::compaction::{
@@ -89,6 +90,30 @@ fn truncate_oldest_round(messages: &[ChatMessage]) -> Option<Vec<ChatMessage>> {
     }
     truncated.extend_from_slice(&messages[second_user_idx..]);
     Some(truncated)
+}
+
+const MAX_OVERFLOW_RETRIES: usize = 3;
+
+/// Calls `call` on `messages`, dropping the oldest round and retrying on context overflow.
+/// Returns `None` when the call fails otherwise or no round is left to drop.
+async fn retry_dropping_oldest_rounds<T, Fut>(
+    mut messages: Vec<ChatMessage>,
+    mut call: impl FnMut(&[ChatMessage]) -> Fut,
+) -> Option<T>
+where
+    Fut: Future<Output = Result<T, LlmCallError>>,
+{
+    let mut retries = 0;
+    loop {
+        match call(&messages).await {
+            Ok(value) => return Some(value),
+            Err(LlmCallError::ContextOverflow(_)) if retries < MAX_OVERFLOW_RETRIES => {
+                retries += 1;
+                messages = truncate_oldest_round(&messages)?;
+            }
+            Err(_) => return None,
+        }
+    }
 }
 
 pub fn strip_media_for_summarization(messages: &[ChatMessage]) -> Vec<ChatMessage> {
@@ -199,34 +224,25 @@ impl LlmCompactor {
         messages: &[ChatMessage],
         options: SummarizeOptions<'_>,
     ) -> (String, Option<StructuralUsage>) {
-        const MAX_OVERFLOW_RETRIES: usize = 3;
-        let mut current_messages = strip_media_for_summarization(messages);
-
-        for attempt in 0..=MAX_OVERFLOW_RETRIES {
-            let transcript = serialize_conversation(&current_messages);
-            let prompt = Self::resolve_summary_prompt(&transcript, &options);
-
-            let Some(model) = self.model.as_ref().cloned() else {
-                break;
-            };
-
-            match Self::execute_summary_call(model, &prompt, options.structured).await {
-                Ok((summary, usage)) => return (summary, usage),
-                Err(LlmCallError::ContextOverflow(_)) if attempt < MAX_OVERFLOW_RETRIES => {
-                    if let Some(truncated) = truncate_oldest_round(&current_messages) {
-                        current_messages = truncated;
-                        continue;
-                    }
-                    break;
-                }
-                Err(_) => break,
+        let attempt = match self.model.clone() {
+            Some(model) => {
+                let structured = options.structured;
+                retry_dropping_oldest_rounds(strip_media_for_summarization(messages), |current| {
+                    let prompt = Self::resolve_summary_prompt(&serialize_conversation(current), &options);
+                    let model = model.clone();
+                    async move { Self::execute_summary_call(model, &prompt, structured).await }
+                })
+                .await
             }
+            None => None,
+        };
+        match attempt {
+            Some(result) => result,
+            None => (
+                generate_fallback_summary(messages, options.prior_summary, options.custom_instructions),
+                None,
+            ),
         }
-
-        (
-            generate_fallback_summary(messages, options.prior_summary, options.custom_instructions),
-            None,
-        )
     }
 
     async fn summarize_prefix_with_usage(
@@ -234,30 +250,25 @@ impl LlmCompactor {
         prefix: &[ChatMessage],
         instructions: Option<&str>,
     ) -> (String, Option<StructuralUsage>) {
-        const MAX_OVERFLOW_RETRIES: usize = 3;
-        let mut current_messages = strip_media_for_summarization(prefix);
-
-        for attempt in 0..=MAX_OVERFLOW_RETRIES {
-            let transcript = serialize_conversation(&current_messages);
-            let prompt = build_turn_prefix_prompt(&transcript, instructions);
-            let Some(model) = self.model.as_ref().cloned() else {
-                break;
-            };
-
-            match run_agent_completion(model, &prompt).await {
-                Ok((summary, usage)) => return (summary, Some(usage)),
-                Err(LlmCallError::ContextOverflow(_)) if attempt < MAX_OVERFLOW_RETRIES => {
-                    if let Some(truncated) = truncate_oldest_round(&current_messages) {
-                        current_messages = truncated;
-                        continue;
+        let attempt = match self.model.clone() {
+            Some(model) => {
+                retry_dropping_oldest_rounds(strip_media_for_summarization(prefix), |current| {
+                    let prompt = build_turn_prefix_prompt(&serialize_conversation(current), instructions);
+                    let model = model.clone();
+                    async move {
+                        run_agent_completion(model, &prompt)
+                            .await
+                            .map(|(summary, usage)| (summary, Some(usage)))
                     }
-                    break;
-                }
-                Err(_) => break,
+                })
+                .await
             }
+            None => None,
+        };
+        match attempt {
+            Some(result) => result,
+            None => (generate_fallback_summary(prefix, None, instructions), None),
         }
-
-        (generate_fallback_summary(prefix, None, instructions), None)
     }
 
     async fn summarize_head_turn_with_usage(

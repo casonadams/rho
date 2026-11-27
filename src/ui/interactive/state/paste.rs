@@ -13,10 +13,10 @@ pub struct MarkerSpan {
     pub id: usize,
 }
 
-pub fn find_marker_ending_at(text: &str, pos: usize) -> Option<MarkerSpan> {
+fn find_marker_where(text: &str, matches: impl Fn(usize, usize) -> bool) -> Option<MarkerSpan> {
     for cap in PASTE_MARKER_RE.captures_iter(text) {
         let full = cap.get(0)?;
-        if full.end() == pos {
+        if matches(full.start(), full.end()) {
             let id = cap.get(1)?.as_str().parse::<usize>().ok()?;
             return Some(MarkerSpan {
                 start: full.start(),
@@ -26,36 +26,18 @@ pub fn find_marker_ending_at(text: &str, pos: usize) -> Option<MarkerSpan> {
         }
     }
     None
+}
+
+pub fn find_marker_ending_at(text: &str, pos: usize) -> Option<MarkerSpan> {
+    find_marker_where(text, |_, end| end == pos)
 }
 
 pub fn find_marker_starting_at(text: &str, pos: usize) -> Option<MarkerSpan> {
-    for cap in PASTE_MARKER_RE.captures_iter(text) {
-        let full = cap.get(0)?;
-        if full.start() == pos {
-            let id = cap.get(1)?.as_str().parse::<usize>().ok()?;
-            return Some(MarkerSpan {
-                start: full.start(),
-                end: full.end(),
-                id,
-            });
-        }
-    }
-    None
+    find_marker_where(text, |start, _| start == pos)
 }
 
 pub fn find_marker_covering(text: &str, pos: usize) -> Option<MarkerSpan> {
-    for cap in PASTE_MARKER_RE.captures_iter(text) {
-        let full = cap.get(0)?;
-        if full.start() < pos && pos < full.end() {
-            let id = cap.get(1)?.as_str().parse::<usize>().ok()?;
-            return Some(MarkerSpan {
-                start: full.start(),
-                end: full.end(),
-                id,
-            });
-        }
-    }
-    None
+    find_marker_where(text, |start, end| start < pos && pos < end)
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]

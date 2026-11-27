@@ -355,7 +355,7 @@ fn complete_help_args(argument: &str, cursor: usize) -> Vec<Completion> {
         return Vec::new();
     }
     let query = argument.trim_start_matches('/');
-    rank_by_name(BUILTIN_COMMANDS, query, |spec| spec.name)
+    rank_candidates(BUILTIN_COMMANDS, query, |spec| spec.name.to_string(), |spec| spec.name)
         .into_iter()
         .map(|spec| Completion {
             value: format!("/help {}", spec.name),
@@ -365,24 +365,29 @@ fn complete_help_args(argument: &str, cursor: usize) -> Vec<Completion> {
         .collect()
 }
 
-fn rank_by_name<'a, T>(items: &'a [T], query: &str, name: impl Fn(&T) -> &str) -> Vec<&'a T> {
+fn rank_candidates<'a, T, K: Ord>(
+    items: &'a [T],
+    query: &str,
+    text: impl Fn(&T) -> String,
+    key: impl Fn(&T) -> K,
+) -> Vec<&'a T> {
     let mut scored: Vec<(i64, &T)> = items
         .iter()
         .filter_map(|item| {
             if query.is_empty() {
                 Some((0, item))
             } else {
-                fuzzy_score(query, name(item)).map(|score| (score, item))
+                fuzzy_score(query, &text(item)).map(|score| (score, item))
             }
         })
         .collect();
-    scored.sort_by(|(a_score, a), (b_score, b)| b_score.cmp(a_score).then_with(|| name(a).cmp(name(b))));
+    scored.sort_by_key(|(score, item)| (Reverse(*score), key(item)));
     scored.into_iter().map(|(_, item)| item).collect()
 }
 
 fn complete_mcp(servers: &[McpServerItem], rest: &str, cursor: usize) -> Vec<Completion> {
     let Some((sub, argument)) = rest.split_once(' ') else {
-        return rank_by_name(MCP_SUBCOMMANDS, rest, |(name, _)| name)
+        return rank_candidates(MCP_SUBCOMMANDS, rest, |(name, _)| name.to_string(), |(name, _)| *name)
             .into_iter()
             .map(|(name, desc)| Completion {
                 value: format!("/mcp {name} "),
@@ -400,7 +405,7 @@ fn complete_mcp(servers: &[McpServerItem], rest: &str, cursor: usize) -> Vec<Com
         return Vec::new();
     }
     let candidates: Vec<McpServerItem> = servers.iter().filter(|s| s.oauth || !oauth_only).cloned().collect();
-    rank_by_name(&candidates, argument, |s| &s.name)
+    rank_candidates(&candidates, argument, |s| s.name.clone(), |s| s.name.clone())
         .into_iter()
         .map(|s| Completion {
             value: format!("/mcp {sub} {}", s.name),
@@ -411,21 +416,9 @@ fn complete_mcp(servers: &[McpServerItem], rest: &str, cursor: usize) -> Vec<Com
 }
 
 fn complete_skills(skills: &[SkillItem], argument: &str, cursor: usize) -> Vec<Completion> {
-    let mut scored: Vec<(i64, &SkillItem)> = skills
-        .iter()
-        .filter_map(|s| {
-            if argument.is_empty() {
-                Some((0, s))
-            } else {
-                fuzzy_score(argument, &s.name).map(|score| (score, s))
-            }
-        })
-        .collect();
-    scored.sort_by_key(|(score, s)| (Reverse(*score), s.name.clone()));
-
-    scored
+    rank_candidates(skills, argument, |s| s.name.clone(), |s| s.name.clone())
         .into_iter()
-        .map(|(_, s)| Completion {
+        .map(|s| Completion {
             value: format!("/skill {}", s.name),
             description: Some(format!("{} [{}]", s.description, s.origin)),
             replacement: 0..cursor,
@@ -436,44 +429,23 @@ fn complete_skills(skills: &[SkillItem], argument: &str, cursor: usize) -> Vec<C
 fn complete_models(models: &[ModelItem], argument: &str, cursor: usize) -> Vec<Completion> {
     // Insert the listing's `provider/model` spec, not the bare id: a bare `deepseek-v4.1-flash`
     // would be routed to DeepSeek by name inference instead of the Ollama Cloud provider that listed it.
-    let mut scored: Vec<(i64, String, &ModelItem)> = models
-        .iter()
-        .filter_map(|m| {
-            let canonical = m.canonical_id();
-            if argument.is_empty() {
-                return Some((0, canonical, m));
-            }
-            fuzzy_score(argument, &canonical).map(|score| (score, canonical, m))
-        })
-        .collect();
-    scored.sort_by_key(|(score, canonical, _)| (Reverse(*score), canonical.clone()));
-
-    scored
+    rank_candidates(models, argument, ModelItem::canonical_id, ModelItem::canonical_id)
         .into_iter()
-        .map(|(_, canonical, m)| Completion {
-            value: format!("/model {canonical}"),
-            description: Some(format!("{} · {}", m.provider, m.description)),
-            replacement: 0..cursor,
+        .map(|m| {
+            let canonical = m.canonical_id();
+            Completion {
+                value: format!("/model {canonical}"),
+                description: Some(format!("{} · {}", m.provider, m.description)),
+                replacement: 0..cursor,
+            }
         })
         .collect()
 }
 
 fn complete_provider(providers: &[ProviderItem], target: TargetArgs<'_>) -> Vec<Completion> {
-    let mut scored: Vec<(i64, &ProviderItem)> = providers
-        .iter()
-        .filter_map(|p| {
-            if target.argument.is_empty() {
-                Some((0, p))
-            } else {
-                fuzzy_score(target.argument, &p.name).map(|score| (score, p))
-            }
-        })
-        .collect();
-    scored.sort_by_key(|(score, p)| (Reverse(*score), p.name.clone()));
-
-    scored
+    rank_candidates(providers, target.argument, |p| p.name.clone(), |p| p.name.clone())
         .into_iter()
-        .map(|(_, p)| Completion {
+        .map(|p| Completion {
             value: format!("{} {}", target.cmd, p.name),
             description: Some(p.auth_mode.clone()),
             replacement: 0..target.cursor,
@@ -482,21 +454,9 @@ fn complete_provider(providers: &[ProviderItem], target: TargetArgs<'_>) -> Vec<
 }
 
 fn complete_thinking(argument: &str, cursor: usize) -> Vec<Completion> {
-    let mut scored: Vec<(i64, ThinkingLevel)> = ThinkingLevel::ALL
+    rank_candidates(&ThinkingLevel::ALL, argument, |l| l.as_str().to_string(), |l| *l)
         .into_iter()
-        .filter_map(|level| {
-            if argument.is_empty() {
-                Some((0, level))
-            } else {
-                fuzzy_score(argument, level.as_str()).map(|score| (score, level))
-            }
-        })
-        .collect();
-    scored.sort_by_key(|&(score, level)| (Reverse(score), level));
-
-    scored
-        .into_iter()
-        .map(|(_, level)| Completion {
+        .map(|level| Completion {
             value: format!("/thinking {}", level.as_str()),
             description: Some(level.description().to_string()),
             replacement: 0..cursor,

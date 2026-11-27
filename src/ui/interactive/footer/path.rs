@@ -1,5 +1,7 @@
 use super::super::{GitPrInfo, GitStatusCounts};
+use super::segments::status_bar_uses_segment;
 use crate::ui::best_effort;
+use rho_harness_core::config::{StatusBarConfig, StatusBarSegmentId};
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard, OnceLock, PoisonError};
 use std::time::{Duration, Instant};
@@ -297,6 +299,21 @@ pub fn cached_git_pr(cwd: &Path, branch: Option<&str>) -> Option<GitPrInfo> {
         });
     }
     None
+}
+
+/// PR and git status for the enabled footer segments, read through the cached lookups above.
+pub fn cached_footer_git(
+    cfg: &StatusBarConfig,
+    cwd: &Path,
+    branch: Option<&str>,
+) -> (Option<GitPrInfo>, Option<GitStatusCounts>) {
+    let pr = status_bar_uses_segment(cfg, StatusBarSegmentId::Pr)
+        .then(|| cached_git_pr(cwd, branch))
+        .flatten();
+    let git_status = status_bar_uses_segment(cfg, StatusBarSegmentId::Git)
+        .then(|| cached_git_status_counts(cwd))
+        .flatten();
+    (pr, git_status)
 }
 
 const GIT_STATUS_TTL: Duration = Duration::from_secs(5);

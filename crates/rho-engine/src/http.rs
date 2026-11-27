@@ -119,7 +119,7 @@ fn backend_message(body: &str) -> String {
             }
         })
         .unwrap_or_else(|| {
-            let s: String = body.chars().take(300).collect();
+            let s = crate::provider::error::body_excerpt(body);
             if s.trim().is_empty() {
                 "unknown error".to_string()
             } else {

@@ -57,17 +57,12 @@ async fn handle_mid_turn_fork<B: TerminalBackend>(
     let Some(engine) = ctx.engine else {
         return Ok(());
     };
-    let forked = engine
+    let forked_id = engine
         .session_manager
         .fork_session(&ctx.session.config.sessions_dir, turn_or_node_id.as_deref())
-        .await?;
-    let forked_id = forked.session_id.clone();
-    drop(forked);
-    let cwd = std::env::current_dir().unwrap_or_else(|_| engine.base_dir.clone());
-    let msg = match crate::repl::live::mux::spawn_forked_session(target, &forked_id, &cwd) {
-        Ok(label) => format!("Forked session {forked_id} in {label}"),
-        Err(err) => err,
-    };
+        .await?
+        .session_id;
+    let msg = crate::repl::live::mux::fork_status_message(&forked_id, Some(target), &engine.base_dir);
     ctx.controller.set_system_message(msg);
     Ok(())
 }
