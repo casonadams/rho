@@ -2,8 +2,7 @@
 //! reports something new, delivers it to the agent's mailbox like a finished background job.
 
 use super::{Diagnostic, Initiator, LspManager, Pass, Report, check, render_report};
-use crate::mailbox::{Envelope, Kind, Mailbox, Mailboxes, Party};
-use crate::tools::jobs::job_notice;
+use crate::mailbox::{Mailbox, NoticeTarget, framed_notice};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
@@ -47,8 +46,7 @@ pub(super) fn follow_up(
     };
     let wait = Wait {
         manager: Arc::clone(manager),
-        mail: inbox.registry().clone(),
-        owner: inbox.id().to_string(),
+        owner: inbox.notices(),
         path: path.to_path_buf(),
         text: text.to_string(),
         shown: shown.answered.then(|| shown.found.clone()),
@@ -62,9 +60,7 @@ pub(super) fn follow_up(
 
 struct Wait {
     manager: Arc<LspManager>,
-    /// The mailbox is addressed by id so the wait does not keep it open.
-    mail: Mailboxes,
-    owner: String,
+    owner: NoticeTarget,
     path: PathBuf,
     text: String,
     shown: Option<Vec<Diagnostic>>,
@@ -93,9 +89,12 @@ impl Wait {
             "Language server diagnostics for {} arrived after the edit",
             self.manager.relative(&self.path)
         );
-        let notice = job_notice(&heading, Some(&render_report(&report)));
-        let _ = self
-            .mail
-            .send(Envelope::new(Party::System, self.owner, Kind::Event, notice));
+        let notice = framed_notice(&heading, Some(&render_report(&report)));
+        if let Err(error) = self.owner.send(notice) {
+            tracing::debug!(
+                "late diagnostics for {} were not delivered: {error}",
+                self.path.display()
+            );
+        }
     }
 }

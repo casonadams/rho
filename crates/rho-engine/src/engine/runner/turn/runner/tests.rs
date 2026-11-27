@@ -139,8 +139,8 @@ async fn test_wait_for_background_jobs_flow() {
     let emitter = acking_emitter();
 
     assert!(!wait_for_background_jobs(&runner, &mut ctx, &emitter).await.unwrap());
-    let registry = runner.inbox.as_ref().map(|inbox| inbox.registry().clone());
-    let job = crate::tools::jobs::JobManager::global().start(&owner, registry, "bg-1".into(), "echo 1".into());
+    let notices = runner.inbox.as_ref().map(crate::mailbox::Mailbox::notices);
+    let job = crate::tools::jobs::JobManager::global().start(notices, "bg-1".into(), "echo 1".into());
     tokio::spawn(async move {
         job.finish(
             crate::tools::jobs::JobStatus::Completed {
@@ -165,11 +165,14 @@ async fn test_wait_for_background_jobs_flow() {
 async fn a_job_ending_without_a_notice_ends_the_wait_at_once() {
     let _queue = BACKGROUND_QUEUE_TEST_LOCK.lock().await;
     let (runner, _temp, mut buf, mut tracker) = test_agent_env(Arc::new(MockAdapter::default()));
-    let owner = runner.session_file().session_id.clone();
     let mut ctx = RunnerStepContext::from_test_buffers(&mut buf, &mut tracker);
     let emitter = acking_emitter();
     let jobs = crate::tools::jobs::JobManager::global();
-    let job = jobs.start(&owner, None, "silent-5e3".into(), "sleep".into());
+    let job = jobs.start(
+        runner.inbox.as_ref().map(crate::mailbox::Mailbox::notices),
+        "silent-5e3".into(),
+        "sleep".into(),
+    );
     tokio::spawn(async move {
         tokio::task::yield_now().await;
         job.finish(
@@ -195,18 +198,21 @@ async fn a_job_ending_without_a_notice_ends_the_wait_at_once() {
 async fn a_turn_that_waits_instead_of_answering_declines_the_questions_it_read() {
     let _queue = BACKGROUND_QUEUE_TEST_LOCK.lock().await;
     let (runner, _temp, mut buf, mut tracker) = test_agent_env(Arc::new(MockAdapter::default()));
-    let owner = runner.session_file().session_id.clone();
     let mut ctx = RunnerStepContext::from_test_buffers(&mut buf, &mut tracker);
     let emitter = acking_emitter();
     let parent = runner.inbox.clone().unwrap();
     let child = parent.registry().open("asker-6a1", Some(parent.id()));
     let request = child.ask_parent("which module?").unwrap();
     let _ = parent.take();
-    let job = crate::tools::jobs::JobManager::global().start(&owner, None, "asker-job-6a1".into(), "subagent".into());
+    let job = crate::tools::jobs::JobManager::global().start(
+        Some(parent.notices()),
+        "asker-job-6a1".into(),
+        "subagent".into(),
+    );
     let asker = tokio::spawn(async move {
         let reply = child.reply(&request).await;
         job.finish(crate::tools::jobs::JobStatus::Failed { error: "paused".into() }, None);
-        reply.from
+        reply.unwrap().from
     });
 
     let delivered = wait_for_background_jobs(&runner, &mut ctx, &emitter).await.unwrap();
@@ -232,7 +238,7 @@ async fn a_turn_that_ends_without_answering_declines_the_question_it_read() {
     let reply = tokio::time::timeout(std::time::Duration::from_secs(1), child.reply(&request))
         .await
         .expect("the finished turn declined the question");
-    assert_eq!(reply.from, crate::mailbox::Party::System);
+    assert_eq!(reply.unwrap().from, crate::mailbox::Party::System);
 }
 
 #[tokio::test(start_paused = true)]

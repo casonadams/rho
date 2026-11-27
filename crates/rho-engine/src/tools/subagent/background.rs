@@ -4,9 +4,8 @@
 use super::conversation::ConversationSettings;
 use super::runtime::{RoundSlot, SubagentRuntime};
 use crate::engine::runner::turn::types::CancellationSignal;
-use crate::mailbox::Mailbox;
-use crate::tools::bash::runner::neutralize_notice_tags;
-use crate::tools::jobs::{JobManager, JobStatus, job_notice};
+use crate::mailbox::{Mailbox, framed_notice, neutralize_notice_tags};
+use crate::tools::jobs::{JobManager, JobStatus};
 use crate::tools::types::ToolResult;
 use rho_harness_core::args::SubagentRole;
 use rho_harness_core::presentation::{Presenter, SUBAGENT_STARTED_MARKER, ToolStreamPort, ToolStreamSink};
@@ -141,7 +140,7 @@ fn clipped(text: &str) -> String {
 
 fn completion_notice(task_id: &str, result: &ToolResult) -> String {
     let outcome = if result.is_error { "failed" } else { "finished" };
-    job_notice(
+    framed_notice(
         &format!("Background subagent task '{task_id}' {outcome}"),
         Some(&clipped(result.content.trim())),
     )
@@ -254,8 +253,7 @@ impl Backgrounding {
     /// save its transcript, and aborts it only if it has not finished after `STOP_GRACE`.
     fn detach(&self, mut handle: JoinHandle<ToolResult>, task: &BackgroundTask<'_>, stop: CancellationSignal) {
         let job = self.jobs.start(
-            task.owner,
-            Some(self.runtime.mailboxes().clone()),
+            Some(self.runtime.mailboxes().notices_for(task.owner)),
             task.id.to_string(),
             task.label.clone(),
         );

@@ -2,6 +2,7 @@
 //! delegating agent receives; it is refused while a message or background work is outstanding.
 
 use crate::engine::runner::SteeringQueueProvider;
+use crate::engine::runner::turn::types::message_waiting;
 use crate::mailbox::Mailbox;
 use crate::tools::engine_tool::{EngineTool, TurnToolContext};
 use crate::tools::jobs::JobManager;
@@ -51,7 +52,7 @@ impl CompleteTaskTool {
 
     fn outstanding(&self) -> Option<&'static str> {
         let inbox = self.inbox.as_ref()?;
-        if inbox.pending() > 0 || self.steering.as_ref().is_some_and(|s| s.has_steering()) {
+        if message_waiting(inbox, self.steering.as_deref()) {
             return Some(MESSAGE_WAITING);
         }
         self.jobs.has_running(inbox.id()).then_some(WORK_RUNNING)
@@ -195,7 +196,7 @@ mod tests {
             .unwrap();
         let messaged = complete(&tool, "done").await;
         assert_eq!(inbox.take().len(), 1, "the message stays for delivery");
-        let _job = jobs.start("task", Some(boxes.clone()), "j1".into(), "cargo test".into());
+        let _job = jobs.start(Some(inbox.notices()), "j1".into(), "cargo test".into());
         let working = complete(&tool, "done").await;
 
         for (refused, reason) in [

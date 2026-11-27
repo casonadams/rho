@@ -283,10 +283,21 @@ impl AskParentTool {
         }
     }
 
-    /// The parent's reply to `question`, or `None` when it declined or the round is stopping.
+    /// The parent's reply to `question`, or `None` when the question could not be put, the parent
+    /// declined, or the round is stopping.
     async fn ask(&self, inbox: &Mailbox, question: &str) -> Option<Envelope> {
-        let request = inbox.ask_parent(&reply_hint(inbox.id(), question)).ok()?;
-        let Some(reply) = unless_cancelled(self.cancellation.as_ref(), inbox.reply(&request)).await else {
+        let request = match inbox.ask_parent(&reply_hint(inbox.id(), question)) {
+            Ok(request) => request,
+            Err(error) => {
+                tracing::warn!(
+                    "subagent {} could not ask its parent, pausing instead: {error}",
+                    inbox.id()
+                );
+                return None;
+            }
+        };
+        let reply = unless_cancelled(self.cancellation.as_ref(), inbox.reply(&request)).await;
+        let Some(Some(reply)) = reply else {
             inbox.withdraw(&request);
             return None;
         };

@@ -14,6 +14,11 @@ use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use tokio::sync::Notify;
 
+mod notice;
+
+pub use notice::NoticeTarget;
+pub(crate) use notice::{framed_notice, neutralize_notice_tags};
+
 /// Messages a mailbox holds before further sends are refused.
 pub const MAILBOX_CAPACITY: usize = 32;
 
@@ -83,6 +88,21 @@ impl Envelope {
         reply
     }
 
+    /// A system notice for agent `to`: a report it reads, like a finished background job's.
+    #[must_use]
+    pub fn notice(to: impl Into<String>, body: impl Into<String>) -> Self {
+        Self::new(Party::System, to, Kind::Event, body)
+    }
+
+    #[must_use]
+    pub fn is_notice(&self) -> bool {
+        self.from == Party::System && self.kind == Kind::Event
+    }
+
+    fn answers(&self, request: &str) -> bool {
+        self.kind == Kind::Reply && self.correlation.as_deref() == Some(request)
+    }
+
     /// How the message is shown to a model; `top_level` says no agent delegated to the reader. System
     /// notices carry their own framing, and the user speaks plainly to the top-level agent.
     #[must_use]
@@ -99,8 +119,7 @@ impl Envelope {
     }
 
     /// How the message is introduced to the model, by who sent it relative to the reader.
-    #[must_use]
-    pub fn heading(&self) -> String {
+    fn heading(&self) -> String {
         let sender = match (&self.from, self.relation) {
             (Party::System, _) => return "System message".to_string(),
             (Party::User, _) => "the user".to_string(),
@@ -132,6 +151,8 @@ pub enum SendError {
     /// An agent may message its parent, its children, and its siblings, and nobody else.
     NotAllowed,
     Full,
+    /// A top-level agent has nobody to ask.
+    NoParent,
 }
 
 impl std::fmt::Display for SendError {
@@ -143,6 +164,7 @@ impl std::fmt::Display for SendError {
                 f,
                 "the recipient already has {MAILBOX_CAPACITY} unread messages; wait for it to read them"
             ),
+            Self::NoParent => f.write_str("no agent delegated to this one"),
         }
     }
 }
@@ -225,7 +247,7 @@ impl Mailboxes {
         registry.next_generation += 1;
         let generation = registry.next_generation;
         let wake = Arc::new(Notify::new());
-        registry.slots.insert(
+        let replaced = registry.slots.insert(
             id.to_string(),
             Slot {
                 generation,
@@ -235,6 +257,9 @@ impl Mailboxes {
                 awaiting: None,
             },
         );
+        if let Some(replaced) = replaced {
+            replaced.wake.notify_waiters();
+        }
         Mailbox(Arc::new(Handle {
             registry: self.clone(),
             id: id.to_string(),
@@ -243,9 +268,15 @@ impl Mailboxes {
         }))
     }
 
-    #[must_use]
-    pub fn is_open(&self, id: &str) -> bool {
+    #[cfg(test)]
+    pub(crate) fn is_open(&self, id: &str) -> bool {
         self.lock().slots.contains_key(id)
+    }
+
+    /// Where agent `agent`'s notices go, whether or not its mailbox is open yet.
+    #[must_use]
+    pub fn notices_for(&self, agent: &str) -> NoticeTarget {
+        NoticeTarget::new(self.clone(), agent)
     }
 
     pub fn send(&self, envelope: Envelope) -> Result<(), SendError> {
@@ -291,22 +322,19 @@ impl Mailbox {
         &self.0.registry
     }
 
-    fn with_slot<R>(&self, f: impl FnOnce(&mut Slot) -> R) -> Option<R> {
-        let mut registry = self.0.registry.lock();
-        self.own(&mut registry).map(f)
+    /// Where this agent's notices go; holding it does not keep the mailbox open.
+    #[must_use]
+    pub fn notices(&self) -> NoticeTarget {
+        self.0.registry.notices_for(&self.0.id)
     }
 
-    /// This handle's slot in `registry`, unless the mailbox was closed or replaced.
-    fn own<'a>(&self, registry: &'a mut Registry) -> Option<&'a mut Slot> {
-        registry
-            .slots
-            .get_mut(&self.0.id)
-            .filter(|slot| slot.generation == self.0.generation)
+    fn with_slot<R>(&self, f: impl FnOnce(&mut Slot) -> R) -> Option<R> {
+        let mut registry = self.0.registry.lock();
+        self.0.own(&mut registry).map(f)
     }
 
     /// The agent that delegated to this one, if any.
-    #[must_use]
-    pub fn parent(&self) -> Option<String> {
+    fn parent(&self) -> Option<String> {
         self.with_slot(|slot| slot.parent.clone()).flatten()
     }
 
@@ -324,18 +352,23 @@ impl Mailbox {
             .unwrap_or_default()
     }
 
-    /// The waiting system notices, oldest first; messages from users and agents stay queued.
+    /// Takes every waiting message as this agent's model is shown them.
     #[must_use]
-    pub fn take_notices(&self) -> Vec<Envelope> {
-        self.with_slot(|slot| {
-            let all: Vec<Envelope> = slot.queue.drain(..).collect();
-            let (notices, rest): (Vec<_>, Vec<_>) = all
-                .into_iter()
-                .partition(|m| m.from == Party::System && m.kind == Kind::Event);
-            slot.queue = rest.into();
-            notices
-        })
-        .unwrap_or_default()
+    pub fn read(&self) -> Vec<String> {
+        self.for_model(&self.take())
+    }
+
+    /// Takes the waiting system notices as the model is shown them; other messages stay queued.
+    #[must_use]
+    pub fn read_notices(&self) -> Vec<String> {
+        let notices = self
+            .with_slot(|slot| {
+                let (notices, rest): (Vec<_>, Vec<_>) = slot.queue.drain(..).partition(Envelope::is_notice);
+                slot.queue = rest.into();
+                notices
+            })
+            .unwrap_or_default();
+        self.for_model(&notices)
     }
 
     #[must_use]
@@ -343,28 +376,41 @@ impl Mailbox {
         self.with_slot(|slot| slot.queue.len()).unwrap_or(0)
     }
 
-    /// Returns once at least one message is waiting.
+    /// Returns once at least one message is waiting; never returns once the mailbox is closed.
     pub async fn wait(&self) {
-        self.until(|slot| (!slot.queue.is_empty()).then_some(())).await;
+        if self
+            .until(|slot| (!slot.queue.is_empty()).then_some(()))
+            .await
+            .is_none()
+        {
+            std::future::pending::<()>().await;
+        }
     }
 
-    /// Returns what `ready` finds in this agent's slot, re-checking whenever a message arrives; never
-    /// returns once the mailbox is closed.
-    async fn until<T>(&self, mut ready: impl FnMut(&mut Slot) -> Option<T>) -> T {
-        crate::wake::until(&self.0.wake, || self.with_slot(&mut ready).flatten()).await
+    /// Returns what `ready` finds in this agent's slot, re-checking whenever a message arrives, or
+    /// `None` once the mailbox is closed or replaced.
+    async fn until<T>(&self, mut ready: impl FnMut(&mut Slot) -> Option<T>) -> Option<T> {
+        crate::wake::until(&self.0.wake, || match self.with_slot(&mut ready) {
+            None => Some(None),
+            Some(found) => found.map(Some),
+        })
+        .await
     }
 
     /// Asks this agent's parent `question`, returning the request to wait on with [`Self::reply`].
     pub fn ask_parent(&self, question: &str) -> Result<String, SendError> {
         let mut registry = self.0.registry.lock();
         let parent = self
+            .0
             .own(&mut registry)
-            .and_then(|slot| slot.parent.clone())
-            .ok_or(SendError::NoMailbox)?;
+            .ok_or(SendError::NoMailbox)?
+            .parent
+            .clone()
+            .ok_or(SendError::NoParent)?;
         let request = Envelope::new(Party::Agent(self.id().to_string()), parent, Kind::Request, question);
         let id = request.id.clone();
         registry.deliver(request)?;
-        if let Some(slot) = self.own(&mut registry) {
+        if let Some(slot) = self.0.own(&mut registry) {
             slot.awaiting = Some(id.clone());
             slot.wake.notify_waiters();
         }
@@ -377,13 +423,10 @@ impl Mailbox {
     }
 
     /// Waits for the reply to `request`; other messages stay queued for the next model call. A reply
-    /// from [`Party::System`] means the parent declined to answer.
-    pub async fn reply(&self, request: &str) -> Envelope {
+    /// from [`Party::System`] means the parent declined to answer; `None` means the mailbox closed.
+    pub async fn reply(&self, request: &str) -> Option<Envelope> {
         self.until(|slot| {
-            let at = slot
-                .queue
-                .iter()
-                .position(|m| m.kind == Kind::Reply && m.correlation.as_deref() == Some(request))?;
+            let at = slot.queue.iter().position(|m| m.answers(request))?;
             slot.queue.remove(at)
         })
         .await
@@ -391,14 +434,16 @@ impl Mailbox {
 
     /// Returns once this agent is waiting on the reply to a question it asked.
     pub async fn asked(&self) {
-        self.until(|slot| slot.awaiting.is_some().then_some(())).await;
+        if self.until(|slot| slot.awaiting.is_some().then_some(())).await.is_none() {
+            std::future::pending::<()>().await;
+        }
     }
 
     /// Declines the questions this agent's subagents asked that it has read but not answered: it is
     /// blocking or ending its turn instead, so each asker stops waiting and pauses with its question.
     pub fn decline_unanswered(&self) {
         let mut registry = self.0.registry.lock();
-        let Some(unread) = self.own(&mut registry).map(|slot| {
+        let Some(unread) = self.0.own(&mut registry).map(|slot| {
             let requests = slot.queue.iter().filter(|m| m.kind == Kind::Request);
             requests.map(|m| m.id.clone()).collect::<Vec<_>>()
         }) else {
@@ -448,20 +493,25 @@ impl Drop for Answering {
 }
 
 impl Handle {
-    fn shutdown(&self) -> Vec<Envelope> {
-        let mut registry = self.registry.lock();
-        let ours = registry
-            .slots
-            .get(&self.id)
-            .is_some_and(|slot| slot.generation == self.generation);
-        if !ours {
-            return Vec::new();
-        }
+    /// This handle's slot in `registry`, unless the mailbox was closed or replaced.
+    fn own<'a>(&self, registry: &'a mut Registry) -> Option<&'a mut Slot> {
         registry
             .slots
-            .remove(&self.id)
-            .map(|slot| slot.queue.into_iter().collect())
-            .unwrap_or_default()
+            .get_mut(&self.id)
+            .filter(|slot| slot.generation == self.generation)
+    }
+
+    /// Removes this handle's slot, waking anyone waiting on it, and returns its unread messages.
+    fn shutdown(&self) -> Vec<Envelope> {
+        let mut registry = self.registry.lock();
+        if self.own(&mut registry).is_none() {
+            return Vec::new();
+        }
+        let Some(slot) = registry.slots.remove(&self.id) else {
+            return Vec::new();
+        };
+        slot.wake.notify_waiters();
+        slot.queue.into()
     }
 }
 
@@ -636,7 +686,7 @@ mod tests {
         assert!(!waiting.is_finished(), "a notice is not the reply");
         assert_eq!(boxes.tell(agent("root"), "child", "the parser"), Ok(Delivery::Reply));
 
-        let reply = waiting.await.unwrap();
+        let reply = waiting.await.unwrap().unwrap();
         assert_eq!(reply.correlation.as_deref(), Some(request.as_str()));
         assert_eq!(
             child.for_model(&[reply]),
@@ -694,7 +744,7 @@ mod tests {
             root.take().is_empty(),
             "the answered question is withdrawn from the parent"
         );
-        assert_eq!(child.reply(&request).await.from, Party::User);
+        assert_eq!(child.reply(&request).await.unwrap().from, Party::User);
         assert!(child.take().is_empty(), "no decline follows the answer");
     }
 
@@ -721,8 +771,31 @@ mod tests {
     fn only_an_agent_with_a_parent_can_ask() {
         let boxes = Mailboxes::default();
         let root = boxes.open("root", None);
-        assert_eq!(root.ask_parent("anyone?"), Err(SendError::NoMailbox));
+        assert_eq!(root.ask_parent("anyone?"), Err(SendError::NoParent));
         assert_eq!(boxes.tell(Party::User, "root", "hi"), Ok(Delivery::Queued));
+    }
+
+    #[tokio::test]
+    async fn waiting_for_a_reply_ends_when_the_mailbox_closes_or_is_replaced() {
+        let boxes = Mailboxes::default();
+        let _root = boxes.open("root", None);
+        for close in [
+            Box::new(|child: Mailbox| drop(child.close())) as Box<dyn Fn(Mailbox)>,
+            Box::new(|child: Mailbox| drop(child.registry().open(child.id(), Some("root")))),
+        ] {
+            let child = boxes.open("child", Some("root"));
+            let request = child.ask_parent("which module?").unwrap();
+            let waiting = tokio::spawn({
+                let (child, request) = (child.clone(), request.clone());
+                async move { child.reply(&request).await }
+            });
+            tokio::task::yield_now().await;
+
+            close(child);
+
+            let reply = tokio::time::timeout(Duration::from_secs(1), waiting).await;
+            assert!(reply.expect("the waiter woke").unwrap().is_none());
+        }
     }
 
     #[test]

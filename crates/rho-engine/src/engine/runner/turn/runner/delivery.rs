@@ -12,7 +12,7 @@ pub(super) async fn deliver_messages(
 ) -> Result<bool, AppError> {
     let mut messages: Vec<String> = Vec::new();
     if let Some(inbox) = &runner.inbox {
-        messages.extend(inbox.for_model(&inbox.take()));
+        messages.extend(inbox.read());
     }
     if let Some(provider) = &runner.steering {
         messages.extend(provider.poll_steering().await);

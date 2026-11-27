@@ -1,5 +1,5 @@
 use crate::engine::runner::SteeringQueueProvider;
-use crate::engine::runner::turn::types::{CancellationSignal, unless_cancelled};
+use crate::engine::runner::turn::types::{CancellationSignal, message_waiting, unless_cancelled};
 use crate::mailbox::Mailbox;
 use crate::tools::engine_tool::{EngineTool, TurnToolContext, TypedTool};
 use crate::tools::jobs::{BackgroundJobInfo, JobManager};
@@ -47,7 +47,7 @@ impl Turn {
     }
 
     fn message_waiting(&self) -> bool {
-        self.inbox.pending() > 0 || self.steering.as_ref().is_some_and(|s| s.has_steering())
+        message_waiting(&self.inbox, self.steering.as_deref())
     }
 }
 
@@ -61,9 +61,9 @@ impl WaitTool {
             ));
         }
         let running = self.jobs.has_running(turn.inbox.id());
-        let notices = turn.inbox.take_notices();
+        let notices = turn.inbox.read_notices();
         if !notices.is_empty() {
-            return Some(ToolResult::success(turn.inbox.for_model(&notices).join("\n\n")));
+            return Some(ToolResult::success(notices.join("\n\n")));
         }
         if turn.message_waiting() {
             return Some(ToolResult::success(
