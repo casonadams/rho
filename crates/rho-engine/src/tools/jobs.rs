@@ -8,6 +8,11 @@ use tokio::sync::watch;
 
 pub const MAX_FINISHED_JOBS: usize = 32;
 
+crate::id::string_id!(
+    /// Names one background job; a subagent's job is named by its task id.
+    JobId
+);
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum JobStatus {
     Running,
@@ -17,7 +22,7 @@ pub enum JobStatus {
 
 #[derive(Debug, Clone)]
 pub struct BackgroundJobInfo {
-    pub id: String,
+    pub id: JobId,
     /// The session whose turns wait for this job and receive its notice; `None` for a job nobody owns.
     pub owner: Option<AgentId>,
     pub command: String,
@@ -29,8 +34,8 @@ pub struct BackgroundJobInfo {
 
 #[derive(Default)]
 struct Registry {
-    jobs: HashMap<String, BackgroundJobInfo>,
-    finished: VecDeque<String>,
+    jobs: HashMap<JobId, BackgroundJobInfo>,
+    finished: VecDeque<JobId>,
 }
 
 #[derive(Clone)]
@@ -53,7 +58,7 @@ impl Default for JobManager {
 /// aborted task) marks the job failed so no turn waits on it forever.
 pub struct JobCompletion {
     jobs: JobManager,
-    id: String,
+    id: JobId,
     /// Where the owner's notice goes; `None` for a job nobody is told about.
     owner: Option<NoticeTarget>,
     cancel: CancellationSignal,
@@ -61,7 +66,7 @@ pub struct JobCompletion {
 }
 
 impl JobCompletion {
-    pub(crate) fn id(&self) -> &str {
+    pub(crate) fn id(&self) -> &JobId {
         &self.id
     }
 
@@ -130,11 +135,11 @@ impl JobManager {
 
     /// Registers a running job for the session `owner`. The returned signal fires when the job must stop.
     #[cfg(test)]
-    pub(crate) fn register(&self, owner: &AgentId, id: String, command: String) -> CancellationSignal {
+    pub(crate) fn register(&self, owner: &AgentId, id: JobId, command: String) -> CancellationSignal {
         self.track(Some(owner.clone()), id, command)
     }
 
-    fn track(&self, owner: Option<AgentId>, id: String, command: String) -> CancellationSignal {
+    fn track(&self, owner: Option<AgentId>, id: JobId, command: String) -> CancellationSignal {
         let cancel = CancellationSignal::default();
         let mut registry = self.lock();
         registry.finished.retain(|finished| *finished != id);
@@ -155,7 +160,7 @@ impl JobManager {
 
     /// Registers a running job for the agent `owner` (none for a job nobody waits on) and returns the
     /// handle that must finish it; its notice goes to `owner`.
-    pub(crate) fn start(&self, owner: Option<NoticeTarget>, id: String, command: String) -> JobCompletion {
+    pub(crate) fn start(&self, owner: Option<NoticeTarget>, id: JobId, command: String) -> JobCompletion {
         let cancel = self.track(owner.as_ref().map(|target| target.agent().clone()), id.clone(), command);
         JobCompletion {
             jobs: self.clone(),
@@ -166,20 +171,20 @@ impl JobManager {
         }
     }
 
-    fn attach_log(&self, id: &str, path: PathBuf) {
+    fn attach_log(&self, id: &JobId, path: PathBuf) {
         if let Some(job) = self.lock().jobs.get_mut(id) {
             job.log_path = Some(path);
         }
     }
 
     #[cfg(test)]
-    pub(crate) fn update_status(&self, id: &str, status: JobStatus) {
+    pub(crate) fn update_status(&self, id: &JobId, status: JobStatus) {
         self.record(id, status, |_| true);
     }
 
     /// Records `status` for job `id` if `is_run` accepts its current record, so a finished run never
     /// overwrites a later run registered under the same id.
-    fn record(&self, id: &str, status: JobStatus, is_run: impl Fn(&BackgroundJobInfo) -> bool) {
+    fn record(&self, id: &JobId, status: JobStatus, is_run: impl Fn(&BackgroundJobInfo) -> bool) {
         let mut registry = self.lock();
         let Registry { jobs, finished } = &mut *registry;
         let mut ended = false;
@@ -187,7 +192,7 @@ impl JobManager {
             ended = job.status == JobStatus::Running && status != JobStatus::Running;
             job.status = status;
             if ended {
-                finished.push_back(id.to_string());
+                finished.push_back(id.clone());
             }
         }
         evict_finished(&mut registry);
@@ -197,7 +202,7 @@ impl JobManager {
         }
     }
 
-    pub fn get(&self, id: &str) -> Option<BackgroundJobInfo> {
+    pub fn get(&self, id: &JobId) -> Option<BackgroundJobInfo> {
         self.lock().jobs.get(id).cloned()
     }
 
@@ -235,6 +240,10 @@ mod tests {
         AgentId::from(name)
     }
 
+    fn job(name: &str) -> JobId {
+        JobId::from(name)
+    }
+
     fn done(exit_code: i32, output: &str) -> JobStatus {
         JobStatus::Completed {
             exit_code,
@@ -245,13 +254,13 @@ mod tests {
     #[test]
     fn test_job_manager_lifecycle() {
         let mgr = JobManager::default();
-        mgr.register(&id("me"), "j1".into(), "echo 1".into());
-        assert_eq!(mgr.get("j1").unwrap().status, JobStatus::Running);
+        mgr.register(&id("me"), job("j1"), "echo 1".into());
+        assert_eq!(mgr.get(&job("j1")).unwrap().status, JobStatus::Running);
         assert!(mgr.has_running(&id("me")));
         assert_eq!(mgr.running(&id("me")).len(), 1);
 
-        mgr.update_status("j1", done(0, "ok"));
-        assert_eq!(mgr.get("j1").unwrap().status, done(0, "ok"));
+        mgr.update_status(&job("j1"), done(0, "ok"));
+        assert_eq!(mgr.get(&job("j1")).unwrap().status, done(0, "ok"));
         assert!(!mgr.has_running(&id("me")));
         assert!(mgr.running(&id("me")).is_empty());
     }
@@ -259,20 +268,20 @@ mod tests {
     #[tokio::test]
     async fn a_job_whose_task_dies_before_reporting_stops_blocking_its_session() {
         let mgr = JobManager::default();
-        let job = mgr.start(
+        let completion = mgr.start(
             Some(crate::mailbox::Mailboxes::default().notices_for(&id("panicking-owner"))),
-            "p1".into(),
+            job("p1"),
             "cmd".into(),
         );
         let task = tokio::spawn(async move {
-            let _job = job;
+            let _job = completion;
             panic!("task died");
         });
         assert!(task.await.unwrap_err().is_panic());
 
         assert!(!mgr.has_running(&id("panicking-owner")));
         assert!(matches!(
-            mgr.get("p1").unwrap().status,
+            mgr.get(&job("p1")).unwrap().status,
             JobStatus::Failed { error } if error.contains("stopped unexpectedly")
         ));
     }
@@ -282,12 +291,12 @@ mod tests {
         let boxes = Mailboxes::default();
         let inbox = boxes.open(&id("o"), None);
         let mgr = JobManager::default();
-        mgr.start(Some(inbox.notices()), "kept".into(), "cmd".into())
+        mgr.start(Some(inbox.notices()), job("kept"), "cmd".into())
             .finish(done(0, "ok"), Some("kept notice".into()));
-        let stopped = mgr.start(Some(inbox.notices()), "stopped".into(), "cmd".into());
+        let stopped = mgr.start(Some(inbox.notices()), job("stopped"), "cmd".into());
         mgr.cancel_owner(&id("o"));
         stopped.finish(done(0, "ok"), Some("stale notice".into()));
-        mgr.start(Some(boxes.notices_for(&id("gone"))), "orphan".into(), "cmd".into())
+        mgr.start(Some(boxes.notices_for(&id("gone"))), job("orphan"), "cmd".into())
             .finish(done(0, "ok"), Some("nobody listens".into()));
 
         let notices = inbox.take();
@@ -304,21 +313,21 @@ mod tests {
     fn an_earlier_run_finishing_late_leaves_the_rerun_under_its_id_running() {
         let mgr = JobManager::default();
         let boxes = Mailboxes::default();
-        let first = mgr.start(Some(boxes.notices_for(&id("o"))), "task-1".into(), "subagent".into());
-        let _second = mgr.start(Some(boxes.notices_for(&id("o"))), "task-1".into(), "subagent".into());
+        let first = mgr.start(Some(boxes.notices_for(&id("o"))), job("task-1"), "subagent".into());
+        let _second = mgr.start(Some(boxes.notices_for(&id("o"))), job("task-1"), "subagent".into());
 
         first.finish(done(0, "stale"), None);
 
-        assert_eq!(mgr.get("task-1").unwrap().status, JobStatus::Running);
+        assert_eq!(mgr.get(&job("task-1")).unwrap().status, JobStatus::Running);
         assert!(mgr.has_running(&id("o")));
     }
 
     #[test]
     fn running_jobs_only_count_for_their_own_session() {
         let mgr = JobManager::default();
-        mgr.register(&id("session-a"), "a1".into(), "sleep".into());
-        mgr.register(&id("session-a"), "a2".into(), "sleep".into());
-        mgr.register(&id("session-b"), "b1".into(), "sleep".into());
+        mgr.register(&id("session-a"), job("a1"), "sleep".into());
+        mgr.register(&id("session-a"), job("a2"), "sleep".into());
+        mgr.register(&id("session-b"), job("b1"), "sleep".into());
 
         assert_eq!(
             (mgr.running(&id("session-a")).len(), mgr.running(&id("session-b")).len()),
@@ -326,7 +335,7 @@ mod tests {
         );
         assert!(!mgr.has_running(&id("session-c")));
 
-        mgr.update_status("b1", done(0, "ok"));
+        mgr.update_status(&job("b1"), done(0, "ok"));
         assert!(!mgr.has_running(&id("session-b")));
         assert!(mgr.has_running(&id("session-a")));
     }
@@ -334,10 +343,10 @@ mod tests {
     #[test]
     fn cancelling_a_session_signals_only_its_running_jobs() {
         let mgr = JobManager::default();
-        let a_running = mgr.register(&id("session-a"), "a1".into(), "sleep".into());
-        let a_finished = mgr.register(&id("session-a"), "a2".into(), "true".into());
-        let b_running = mgr.register(&id("session-b"), "b1".into(), "sleep".into());
-        mgr.update_status("a2", done(0, "ok"));
+        let a_running = mgr.register(&id("session-a"), job("a1"), "sleep".into());
+        let a_finished = mgr.register(&id("session-a"), job("a2"), "true".into());
+        let b_running = mgr.register(&id("session-b"), job("b1"), "sleep".into());
+        mgr.update_status(&job("a2"), done(0, "ok"));
 
         mgr.cancel_owner(&id("session-a"));
 
@@ -349,15 +358,15 @@ mod tests {
     #[test]
     fn a_reregistered_job_runs_again_and_is_not_evicted_as_finished() {
         let mgr = JobManager::default();
-        mgr.register(&id("me"), "task".into(), "subagent".into());
-        mgr.update_status("task", done(0, "first round"));
-        mgr.register(&id("me"), "task".into(), "subagent".into());
+        mgr.register(&id("me"), job("task"), "subagent".into());
+        mgr.update_status(&job("task"), done(0, "first round"));
+        mgr.register(&id("me"), job("task"), "subagent".into());
         for i in 0..MAX_FINISHED_JOBS {
-            let job_id = format!("job-{i}");
+            let job_id = job(&format!("job-{i}"));
             mgr.register(&id("me"), job_id.clone(), "cmd".into());
             mgr.update_status(&job_id, done(0, "ok"));
         }
-        assert_eq!(mgr.get("task").unwrap().status, JobStatus::Running);
+        assert_eq!(mgr.get(&job("task")).unwrap().status, JobStatus::Running);
         assert!(mgr.has_running(&id("me")));
     }
 
@@ -367,15 +376,15 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let first_log = dir.path().join("first.log");
         std::fs::write(&first_log, "output").unwrap();
-        mgr.register(&id("me"), "job-0".into(), "cmd".into());
-        mgr.attach_log("job-0", first_log.clone());
-        mgr.update_status("job-0", done(0, "ok"));
+        mgr.register(&id("me"), job("job-0"), "cmd".into());
+        mgr.attach_log(&job("job-0"), first_log.clone());
+        mgr.update_status(&job("job-0"), done(0, "ok"));
         for i in 1..=MAX_FINISHED_JOBS {
-            let job_id = format!("job-{i}");
+            let job_id = job(&format!("job-{i}"));
             mgr.register(&id("me"), job_id.clone(), "cmd".into());
             mgr.update_status(&job_id, done(0, "ok"));
         }
-        assert!(mgr.get("job-0").is_none());
+        assert!(mgr.get(&job("job-0")).is_none());
         assert!(!first_log.exists());
         assert_eq!(mgr.lock().jobs.len(), MAX_FINISHED_JOBS);
     }

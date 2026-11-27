@@ -5,7 +5,7 @@ use super::conversation::ConversationSettings;
 use super::runtime::{RoundSlot, SubagentRuntime};
 use crate::engine::runner::turn::types::CancellationSignal;
 use crate::mailbox::{AgentId, Mailbox, framed_notice, neutralize_notice_tags};
-use crate::tools::jobs::JobStatus;
+use crate::tools::jobs::{JobId, JobStatus};
 use crate::tools::types::ToolResult;
 use rho_harness_core::args::SubagentRole;
 use rho_harness_core::presentation::{Presenter, SUBAGENT_STARTED_MARKER, ToolStreamPort, ToolStreamSink};
@@ -186,7 +186,7 @@ impl Backgrounding {
     pub(crate) fn still_running(&self, task_id: &str) -> Option<String> {
         self.runtime
             .jobs()
-            .get(task_id)
+            .get(&JobId::from(task_id))
             .filter(|job| job.status == JobStatus::Running)
             .map(|_| format!("subagent task '{task_id}' is still running in the background; its result arrives as a follow-up message when it finishes"))
     }
@@ -260,7 +260,7 @@ impl Backgrounding {
     fn detach(&self, mut handle: JoinHandle<ToolResult>, task: &BackgroundTask<'_>, stop: CancellationSignal) {
         let job = self
             .runtime
-            .start_job(task.owner, task.id.to_string(), task.label.clone());
+            .start_job(task.owner, JobId::from(task.id.as_str()), task.label.clone());
         let cancellation = task.cancellation.clone();
         tokio::spawn(async move {
             let result = tokio::select! {
@@ -277,7 +277,7 @@ impl Backgrounding {
                 }
             };
             let turn_stopped = cancellation.as_ref().is_some_and(CancellationSignal::is_cancelled);
-            let notice = (!turn_stopped).then(|| completion_notice(job.id(), &result));
+            let notice = (!turn_stopped).then(|| completion_notice(job.id().as_str(), &result));
             let content = neutralize_notice_tags(&result.content);
             let status = if result.is_error {
                 JobStatus::Failed { error: content }

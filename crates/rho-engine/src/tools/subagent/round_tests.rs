@@ -182,7 +182,10 @@ async fn a_round_without_its_own_mailbox_owns_its_background_jobs_under_its_pare
 
     let round = tokio::spawn(async move { runner.run_round(Vec::new(), round::RoundInput::Prompt("look")).await });
     tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-    let job = parent.jobs().get("bg-job").expect("the job is tracked by the engine");
+    let job = parent
+        .jobs()
+        .get(&"bg-job".into())
+        .expect("the job is tracked by the engine");
     assert!(!round.is_finished(), "the round waits for the job it started");
     assert!(
         job.owner

@@ -8,7 +8,7 @@
 //! missed wake-up never loses a message. The background work an agent owns is tracked with the
 //! mailboxes, so the agent reaches it through its own mailbox.
 
-use crate::tools::jobs::{BackgroundJobInfo, JobCompletion, JobManager};
+use crate::tools::jobs::{BackgroundJobInfo, JobCompletion, JobId, JobManager};
 use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use tokio::sync::Notify;
@@ -23,34 +23,10 @@ pub use question::{Answering, Delivery};
 /// Messages a mailbox holds before further sends are refused.
 pub const MAILBOX_CAPACITY: usize = 32;
 
-/// Names one agent: a top-level agent by its session id, a subagent by its task id.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct AgentId(Arc<str>);
-
-impl AgentId {
-    #[must_use]
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-}
-
-impl std::fmt::Display for AgentId {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&self.0)
-    }
-}
-
-impl From<&str> for AgentId {
-    fn from(id: &str) -> Self {
-        Self(Arc::from(id))
-    }
-}
-
-impl From<String> for AgentId {
-    fn from(id: String) -> Self {
-        Self(Arc::from(id))
-    }
-}
+crate::id::string_id!(
+    /// Names one agent: a top-level agent by its session id, a subagent by its task id.
+    AgentId
+);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Party {
@@ -265,7 +241,7 @@ impl Mailboxes {
     }
 
     /// Starts tracking background work agent `owner` owns; its notice goes to `owner`.
-    pub(crate) fn start_job(&self, owner: &AgentId, id: String, command: String) -> JobCompletion {
+    pub(crate) fn start_job(&self, owner: &AgentId, id: JobId, command: String) -> JobCompletion {
         self.jobs.start(Some(self.notices_for(owner)), id, command)
     }
 
@@ -348,7 +324,7 @@ impl Mailbox {
     }
 
     /// Starts tracking background work this agent owns; its notice comes to this mailbox.
-    pub fn start_job(&self, id: String, command: String) -> JobCompletion {
+    pub fn start_job(&self, id: JobId, command: String) -> JobCompletion {
         self.0.registry.start_job(self.id(), id, command)
     }
 

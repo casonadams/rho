@@ -182,7 +182,7 @@ async fn a_bound_tool_owns_its_background_jobs_and_they_stop_when_the_session_is
         .strip_prefix("[background job ")
         .and_then(|rest| rest.split(';').next())
         .expect("the result names the job")
-        .to_string();
+        .into();
     let jobs = inbox.jobs();
     assert_eq!(jobs.get(&job_id).unwrap().owner.as_ref(), Some(&owner));
     assert!(jobs.has_running(&owner));

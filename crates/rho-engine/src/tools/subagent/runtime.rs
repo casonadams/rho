@@ -5,7 +5,7 @@
 use super::conversation::ConversationSettings;
 use crate::engine::runner::turn::types::CancellationSignal;
 use crate::mailbox::{AgentId, Delivery, Mailbox, Mailboxes, Party, SendError};
-use crate::tools::jobs::{JobCompletion, JobManager};
+use crate::tools::jobs::{JobCompletion, JobId, JobManager};
 use rho_harness_core::a2ui::{SemanticTone, SubagentSurfaceRow, subagent_surface_messages};
 use rho_harness_core::args::SubagentRole;
 use rho_harness_core::presentation::Presenter;
@@ -129,7 +129,7 @@ impl SubagentRuntime {
     }
 
     /// Starts tracking background work agent `owner` owns; its notice goes to `owner`.
-    pub(crate) fn start_job(&self, owner: &AgentId, id: String, label: String) -> JobCompletion {
+    pub(crate) fn start_job(&self, owner: &AgentId, id: JobId, label: String) -> JobCompletion {
         self.mailboxes.start_job(owner, id, label)
     }
 

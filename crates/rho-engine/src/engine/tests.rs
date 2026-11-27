@@ -688,7 +688,7 @@ async fn an_interrupt_stops_this_sessions_background_jobs_but_not_another_sessio
     let engine = mock_engine_in(dir.path(), None);
     let id = AgentId::from(engine.session_manager.session_id.as_str());
     let jobs = engine.inbox().jobs().clone();
-    let own = jobs.register(&id, format!("{id}-job"), "sleep".into());
+    let own = jobs.register(&id, format!("{id}-job").into(), "sleep".into());
     let other = jobs.register(&"interrupt-other".into(), "interrupt-other-job".into(), "sleep".into());
 
     engine.record_cancellation("operator interrupt").await.unwrap();
@@ -734,7 +734,10 @@ async fn rebuilding_the_same_session_keeps_its_background_work() {
     let mut engine = mock_engine_in(dir.path(), Some(session.clone()));
     let mut rebuilt = mock_engine_in(dir.path(), Some(session));
     rebuilt.subagent_runtime = engine.subagent_runtime.clone();
-    let job = engine.inbox().jobs().register(&id, format!("{id}-job"), "sleep".into());
+    let job = engine
+        .inbox()
+        .jobs()
+        .register(&id, format!("{id}-job").into(), "sleep".into());
     engine.inbox().notices().send("kept notice").unwrap();
 
     engine.switch_to(rebuilt);

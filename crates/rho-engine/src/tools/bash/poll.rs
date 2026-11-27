@@ -97,7 +97,7 @@ mod tests {
         );
 
         jobs.update_status(
-            "poll-job",
+            &"poll-job".into(),
             crate::tools::jobs::JobStatus::Completed {
                 exit_code: 0,
                 output: String::new(),
