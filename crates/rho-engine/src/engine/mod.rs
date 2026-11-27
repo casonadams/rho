@@ -110,9 +110,13 @@ impl AgentEngine {
         &self.agent_monitor
     }
 
-    /// Sends `text` from the user to the running round of subagent task `task_id`; `false` when that
-    /// round has already ended.
-    pub fn message_running_subagent(&self, task_id: &str, text: &str) -> bool {
+    /// Sends `text` from the user to the running round of subagent task `task_id`;
+    /// [`SendError::NoMailbox`](crate::mailbox::SendError::NoMailbox) when that round has already ended.
+    pub fn message_running_subagent(
+        &self,
+        task_id: &str,
+        text: &str,
+    ) -> std::result::Result<(), crate::mailbox::SendError> {
         self.subagent_runtime.message_from_user(task_id, text)
     }
 

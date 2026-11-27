@@ -3,6 +3,7 @@
 
 use super::{RawSubagentArgs, RunnerSpec, SubagentRole, SubagentRunner, SubagentTool, round};
 use super::{background, conversation, inspect, types, workspace};
+use crate::mailbox::SendError;
 use crate::tools::types::ToolResult;
 use rho_harness_core::agents::AgentMetadata;
 use rho_harness_core::workflow::ModelRole;
@@ -97,8 +98,10 @@ impl SubagentTool {
                 ));
             }
             let message = round::build_subagent_prompt(&args.prompt, self.compose_context(args).as_deref());
-            if let Some(queued) = self.background.steer(task_id, &message) {
-                return Ok(ToolResult::success(queued));
+            match self.background.steer(task_id, &message) {
+                Ok(queued) => return Ok(ToolResult::success(queued)),
+                Err(SendError::NoMailbox) => {}
+                Err(error) => return Err(format!("could not message subagent task '{task_id}': {error}")),
             }
         }
         if let Some(running) = self.background.still_running(task_id) {

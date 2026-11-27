@@ -63,9 +63,7 @@ impl WaitTool {
         let running = self.jobs.has_running(turn.inbox.id());
         let notices = turn.inbox.take_notices();
         if !notices.is_empty() {
-            let parent = turn.inbox.parent();
-            let bodies: Vec<String> = notices.iter().map(|n| n.for_model(parent.as_deref())).collect();
-            return Some(ToolResult::success(bodies.join("\n\n")));
+            return Some(ToolResult::success(turn.inbox.for_model(&notices).join("\n\n")));
         }
         if turn.message_waiting() {
             return Some(ToolResult::success(

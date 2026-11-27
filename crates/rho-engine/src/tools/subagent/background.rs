@@ -1,6 +1,6 @@
 use super::conversation::ConversationSettings;
 use crate::engine::runner::turn::types::CancellationSignal;
-use crate::mailbox::{Envelope, Kind, Mailbox, Mailboxes, Party};
+use crate::mailbox::{Envelope, Kind, Mailbox, Mailboxes, Party, SendError};
 use crate::tools::bash::runner::neutralize_notice_tags;
 use crate::tools::jobs::{JobManager, JobStatus, job_notice};
 use crate::tools::types::ToolResult;
@@ -47,11 +47,10 @@ impl SubagentRuntime {
         root_inbox(&self.root, &self.mailboxes, owner)
     }
 
-    /// Queues a message the user typed for task `task_id`'s running round; `false` if none is running.
-    pub fn message_from_user(&self, task_id: &str, text: &str) -> bool {
+    /// Queues a message the user typed for task `task_id`'s running round.
+    pub fn message_from_user(&self, task_id: &str, text: &str) -> Result<(), SendError> {
         self.mailboxes
             .send(Envelope::new(Party::User, task_id, Kind::Command, text))
-            .is_ok()
     }
 
     /// Asks task `task_id`'s running round to stop and save what it has; `false` if none is running.
@@ -391,16 +390,19 @@ impl Backgrounding {
         self.open.settings(task_id)
     }
 
-    /// Queues `message` from the delegating agent for task `task_id` if one of its rounds is running,
-    /// returning the confirmation.
-    pub(crate) fn steer(&self, task_id: &str, message: &str) -> Option<String> {
-        let parent = self.open.mailbox(task_id)?.parent()?;
+    /// Queues `message` from the delegating agent for task `task_id`'s running round, returning the
+    /// confirmation; [`SendError::NoMailbox`] when no round of it runs.
+    pub(crate) fn steer(&self, task_id: &str, message: &str) -> Result<String, SendError> {
+        let parent = self
+            .open
+            .mailbox(task_id)
+            .and_then(|mailbox| mailbox.parent())
+            .ok_or(SendError::NoMailbox)?;
         self.mailboxes
-            .send(Envelope::new(Party::Agent(parent), task_id, Kind::Command, message))
-            .ok()
-            .map(|()| {
-                format!("Message queued for running subagent task '{task_id}'; it reads it before its next model call.")
-            })
+            .send(Envelope::new(Party::Agent(parent), task_id, Kind::Command, message))?;
+        Ok(format!(
+            "Message queued for running subagent task '{task_id}'; it reads it before its next model call."
+        ))
     }
 
     /// A message for task `task_id` while its round still runs in the background, otherwise `None`.

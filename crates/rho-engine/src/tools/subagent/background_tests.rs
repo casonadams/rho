@@ -166,8 +166,8 @@ async fn tools_rebuilt_for_the_session_reach_and_count_rounds_the_old_tool_start
             .await;
     }
 
-    assert!(after.steer("r-0", "new instructions").is_some());
-    assert!(unrelated.steer("r-0", "new instructions").is_none());
+    assert!(after.steer("r-0", "new instructions").is_ok());
+    assert_eq!(unrelated.steer("r-0", "new instructions"), Err(SendError::NoMailbox));
     let refused = after
         .start(task("r-extra", None), &port, |_| async { ToolResult::success("never") })
         .await;
@@ -270,7 +270,11 @@ async fn a_background_round_ending_after_cancellation_reports_nothing() {
 #[tokio::test(start_paused = true)]
 async fn messages_reach_a_running_round_and_unread_ones_are_reported_with_its_result() {
     let background = Backgrounding::new(JobManager::new(), Duration::from_secs(60));
-    assert!(background.steer("t-5", "too early").is_none(), "no round is running");
+    assert_eq!(
+        background.steer("t-5", "too early"),
+        Err(SendError::NoMailbox),
+        "no round is running"
+    );
     let (read_tx, read_rx) = tokio::sync::oneshot::channel();
     let release = Arc::new(tokio::sync::Notify::new());
     let gate = release.clone();
@@ -296,7 +300,7 @@ async fn messages_reach_a_running_round_and_unread_ones_are_reported_with_its_re
         "{queued}"
     );
     assert_eq!(read_rx.await.unwrap(), ["focus on src/hot.rs"]);
-    assert!(background.steer("t-5", "also check tests").is_some());
+    assert!(background.steer("t-5", "also check tests").is_ok());
     release.notify_one();
 
     let (_, notice) = next_notice(&background).await;
@@ -304,11 +308,26 @@ async fn messages_reach_a_running_round_and_unread_ones_are_reported_with_its_re
         notice.contains("done\n\nNot delivered (the subagent finished before reading them):\n- also check tests"),
         "{notice}"
     );
-    assert!(
-        background.steer("t-5", "late").is_none(),
+    assert_eq!(
+        background.steer("t-5", "late"),
+        Err(SendError::NoMailbox),
         "a finished round accepts nothing"
     );
     assert!(background.running_settings("t-5").is_none());
+}
+
+#[tokio::test(start_paused = true)]
+async fn steering_a_round_whose_mailbox_is_full_reports_why_it_was_refused() {
+    let background = Backgrounding::new(JobManager::new(), Duration::ZERO);
+    let port = ToolStreamPort::default();
+    background
+        .start(task("full", None), &port, |_| std::future::pending())
+        .await;
+    for i in 0..crate::mailbox::MAILBOX_CAPACITY {
+        background.steer("full", &format!("note {i}")).unwrap();
+    }
+
+    assert_eq!(background.steer("full", "one more"), Err(SendError::Full));
 }
 
 #[tokio::test(start_paused = true)]
@@ -401,7 +420,7 @@ async fn a_background_round_that_ignores_the_stop_is_aborted_after_a_grace_perio
     tokio::time::sleep(Duration::from_secs(7200)).await;
     assert!(!finished.load(Ordering::Relaxed), "the round was stopped");
     assert!(no_notice(&background));
-    assert!(background.steer("t-8", "anyone?").is_none());
+    assert_eq!(background.steer("t-8", "anyone?"), Err(SendError::NoMailbox));
     assert_eq!(
         jobs.get("t-8").unwrap().status,
         JobStatus::Failed {
@@ -417,7 +436,7 @@ async fn an_aborted_round_closes_its_inbox() {
     let call = background.start(task("t-6", None), &port, |_| std::future::pending());
     assert!(tokio::time::timeout(Duration::from_secs(1), call).await.is_err());
     tokio::task::yield_now().await;
-    assert!(background.steer("t-6", "anyone?").is_none());
+    assert_eq!(background.steer("t-6", "anyone?"), Err(SendError::NoMailbox));
 }
 
 #[tokio::test(start_paused = true)]

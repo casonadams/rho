@@ -261,8 +261,7 @@ fn map_input_result(res: IdleInputResult) -> IdleStepOutcome {
 /// The follow-up that hands the agent the messages waiting in its mailbox (finished background work,
 /// messages from its subagents), or `None` when a turn already delivered them.
 fn mail_follow_up(inbox: &rho_engine::mailbox::Mailbox) -> Option<String> {
-    let parent = inbox.parent();
-    let messages: Vec<String> = inbox.take().iter().map(|m| m.for_model(parent.as_deref())).collect();
+    let messages = inbox.for_model(&inbox.take());
     (!messages.is_empty()).then(|| messages.join("\n\n"))
 }
 

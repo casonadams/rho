@@ -200,12 +200,21 @@ pub fn route<B: TerminalBackend>(
         controller.set_system_message("This agent's round was not saved, so it cannot be messaged");
         return Routed::Handled;
     };
-    if summary.status == AgentStatus::Running && engine.message_running_subagent(&task_id, text) {
-        controller.set_system_message(format!(
-            "Sent to {}; it reads it before its next model call",
-            summary.label
-        ));
-        return Routed::Handled;
+    if summary.status == AgentStatus::Running {
+        match engine.message_running_subagent(&task_id, text) {
+            Ok(()) => {
+                controller.set_system_message(format!(
+                    "Sent to {}; it reads it before its next model call",
+                    summary.label
+                ));
+                return Routed::Handled;
+            }
+            Err(rho_engine::mailbox::SendError::NoMailbox) => {}
+            Err(error) => {
+                controller.set_system_message(format!("Not sent to {}: {error}", summary.label));
+                return Routed::Handled;
+            }
+        }
     }
     controller.set_system_message(format!("Asking the main agent to continue {}", summary.label));
     Routed::ContinueThroughMain(continue_prompt(&task_id, &summary.label, text))

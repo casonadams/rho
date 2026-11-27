@@ -11,8 +11,7 @@ pub(super) async fn deliver_messages(
 ) -> Result<bool, AppError> {
     let mut messages: Vec<String> = Vec::new();
     if let Some(inbox) = &runner.inbox {
-        let parent = inbox.parent();
-        messages.extend(inbox.take().iter().map(|m| m.for_model(parent.as_deref())));
+        messages.extend(inbox.for_model(&inbox.take()));
     }
     if let Some(provider) = &runner.steering {
         messages.extend(provider.poll_steering().await);

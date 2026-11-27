@@ -1,4 +1,6 @@
-//! Per-agent mailboxes: one typed envelope and one bounded queue per agent, addressed by agent id.
+//! Per-agent mailboxes: every agent, at any depth, is an actor with one bounded queue of typed
+//! envelopes, addressed by agent id. Where an agent sits in the delegation tree decides who it may
+//! message and how its messages are introduced to the reader ([`Relation`]).
 //!
 //! Steering, messages to a running subagent, replies to questions, and background notices all travel
 //! as [`Envelope`]s. An agent reads its [`Mailbox`] at a safe point (before its next model call); a
@@ -32,6 +34,17 @@ pub enum Kind {
     Reply,
 }
 
+/// Where an agent sender sits relative to the recipient in the delegation tree.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Relation {
+    /// The sender delegated to the recipient.
+    Parent,
+    /// The recipient delegated to the sender.
+    Child,
+    /// Both were delegated to by the same agent, or both are top-level agents.
+    Sibling,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Envelope {
     pub id: String,
@@ -44,6 +57,8 @@ pub struct Envelope {
     pub correlation: Option<String>,
     /// How many replies deep this message is.
     pub hops: u8,
+    /// How an agent sender relates to the recipient, set when the message is sent.
+    relation: Option<Relation>,
 }
 
 impl Envelope {
@@ -57,6 +72,7 @@ impl Envelope {
             body: body.into(),
             correlation: None,
             hops: 0,
+            relation: None,
         }
     }
 
@@ -72,25 +88,30 @@ impl Envelope {
         Some(reply)
     }
 
-    /// How the message is shown to the model; `parent` is the reader's delegating agent, if any.
-    /// System notices carry their own framing, and the user speaks plainly to the top-level agent.
+    /// How the message is shown to a model; `top_level` says no agent delegated to the reader. System
+    /// notices carry their own framing, and the user speaks plainly to the top-level agent.
     #[must_use]
-    pub fn for_model(&self, parent: Option<&str>) -> String {
-        let plain = matches!((&self.from, parent), (Party::System, _) | (Party::User, None));
+    pub fn for_model(&self, top_level: bool) -> String {
+        let plain = match self.from {
+            Party::System => true,
+            Party::User => top_level,
+            Party::Agent(_) => false,
+        };
         if plain && self.kind != Kind::Request {
             return self.body.clone();
         }
-        format!("{}:\n{}", self.heading(parent), self.body.trim())
+        format!("{}:\n{}", self.heading(), self.body.trim())
     }
 
-    /// How the message is introduced to the model; `parent` is the reader's delegating agent, if any.
+    /// How the message is introduced to the model, by who sent it relative to the reader.
     #[must_use]
-    pub fn heading(&self, parent: Option<&str>) -> String {
-        let source = match &self.from {
-            Party::User => "Message from the user".to_string(),
-            Party::System => "System message".to_string(),
-            Party::Agent(id) if Some(id.as_str()) == parent => "Message from the delegating agent".to_string(),
-            Party::Agent(id) => format!("Message from agent {id}"),
+    pub fn heading(&self) -> String {
+        let source = match (&self.from, self.relation) {
+            (Party::User, _) => "Message from the user".to_string(),
+            (Party::System, _) => "System message".to_string(),
+            (Party::Agent(_), Some(Relation::Parent)) => "Message from the delegating agent".to_string(),
+            (Party::Agent(id), Some(Relation::Child)) => format!("Message from subagent {id}"),
+            (Party::Agent(id), Some(Relation::Sibling) | None) => format!("Message from agent {id}"),
         };
         match self.kind {
             Kind::Request => format!("{source} (a reply is expected)"),
@@ -109,6 +130,22 @@ pub enum SendError {
     TooManyHops,
 }
 
+impl std::fmt::Display for SendError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::NoMailbox => f.write_str("the recipient is not running"),
+            Self::NotAllowed => f.write_str("an agent may message only its parent, its subagents, and its siblings"),
+            Self::Full => write!(
+                f,
+                "the recipient already has {MAILBOX_CAPACITY} unread messages; wait for it to read them"
+            ),
+            Self::TooManyHops => write!(f, "the reply chain is longer than {MAX_HOPS} replies"),
+        }
+    }
+}
+
+impl std::error::Error for SendError {}
+
 struct Slot {
     generation: u64,
     parent: Option<String>,
@@ -122,13 +159,19 @@ struct Registry {
     slots: HashMap<String, Slot>,
 }
 
-/// Whether agent `from` may message agent `to`, given who `to`'s parent is.
-fn permitted(registry: &Registry, from: &str, to: &str, to_parent: Option<&str>) -> bool {
-    let Some(sender) = registry.slots.get(from) else {
-        return false;
-    };
-    let sender_parent = sender.parent.as_deref();
-    from != to && (to_parent == Some(from) || sender_parent == Some(to) || sender_parent == to_parent)
+/// How agent `from` relates to agent `to`, given who `to`'s parent is; `None` when `from` may not
+/// message `to`.
+fn relation(registry: &Registry, from: &str, to: &str, to_parent: Option<&str>) -> Option<Relation> {
+    let sender_parent = registry.slots.get(from)?.parent.as_deref();
+    if from == to {
+        None
+    } else if to_parent == Some(from) {
+        Some(Relation::Parent)
+    } else if sender_parent == Some(to) {
+        Some(Relation::Child)
+    } else {
+        (sender_parent == to_parent).then_some(Relation::Sibling)
+    }
 }
 
 /// The mailboxes of every running agent of an engine.
@@ -168,16 +211,15 @@ impl Mailboxes {
         self.lock().slots.contains_key(id)
     }
 
-    pub fn send(&self, envelope: Envelope) -> Result<(), SendError> {
+    pub fn send(&self, mut envelope: Envelope) -> Result<(), SendError> {
         if envelope.hops > MAX_HOPS {
             return Err(SendError::TooManyHops);
         }
         let mut registry = self.lock();
         let target = registry.slots.get(&envelope.to).ok_or(SendError::NoMailbox)?;
-        if let Party::Agent(from) = &envelope.from
-            && !permitted(&registry, from, &envelope.to, target.parent.as_deref())
-        {
-            return Err(SendError::NotAllowed);
+        if let Party::Agent(from) = &envelope.from {
+            envelope.relation =
+                Some(relation(&registry, from, &envelope.to, target.parent.as_deref()).ok_or(SendError::NotAllowed)?);
         }
         let slot = registry.slots.get_mut(&envelope.to).ok_or(SendError::NoMailbox)?;
         if slot.queue.len() >= MAILBOX_CAPACITY {
@@ -225,6 +267,13 @@ impl Mailbox {
     #[must_use]
     pub fn parent(&self) -> Option<String> {
         self.with_slot(|slot| slot.parent.clone()).flatten()
+    }
+
+    /// `envelopes` as this agent's model is shown them.
+    #[must_use]
+    pub fn for_model(&self, envelopes: &[Envelope]) -> Vec<String> {
+        let top_level = self.parent().is_none();
+        envelopes.iter().map(|e| e.for_model(top_level)).collect()
     }
 
     /// Every message waiting, oldest first.
@@ -502,38 +551,61 @@ mod tests {
 
     #[test]
     fn the_model_sees_notices_and_the_users_words_to_the_top_agent_unframed() {
-        let from = |party, kind| Envelope::new(party, "a", kind, "body");
-        assert_eq!(from(Party::System, Kind::Event).for_model(None), "body");
-        assert_eq!(from(Party::User, Kind::Command).for_model(None), "body");
+        let boxes = Mailboxes::default();
+        let top = boxes.open("boss", None);
+        let child = boxes.open("a", Some("boss"));
+        for (party, kind) in [(Party::System, Kind::Event), (Party::User, Kind::Command)] {
+            boxes.send(Envelope::new(party.clone(), "boss", kind, "body")).unwrap();
+            boxes.send(Envelope::new(party, "a", kind, "body")).unwrap();
+        }
+        boxes.send(command(agent("boss"), "a", "body")).unwrap();
+
+        assert_eq!(top.for_model(&top.take()), ["body", "body"]);
         assert_eq!(
-            from(Party::User, Kind::Command).for_model(Some("boss")),
-            "Message from the user:\nbody"
-        );
-        assert_eq!(
-            from(agent("boss"), Kind::Command).for_model(Some("boss")),
-            "Message from the delegating agent:\nbody"
+            child.for_model(&child.take()),
+            [
+                "body",
+                "Message from the user:\nbody",
+                "Message from the delegating agent:\nbody"
+            ]
         );
     }
 
     #[test]
-    fn headings_say_who_sent_the_message_relative_to_the_reader() {
-        let from = |party, kind| Envelope::new(party, "a", kind, "x");
+    fn headings_say_how_the_sender_relates_to_the_reader() {
+        let boxes = Mailboxes::default();
+        let _boss = boxes.open("boss", None);
+        let a = boxes.open("a", Some("boss"));
+        let _b = boxes.open("b", Some("boss"));
+        let _a1 = boxes.open("a1", Some("a"));
         let cases = [
-            (from(Party::User, Kind::Command), "Message from the user"),
-            (from(Party::System, Kind::Event), "System message"),
-            (from(agent("boss"), Kind::Command), "Message from the delegating agent"),
-            (from(agent("peer"), Kind::Command), "Message from agent peer"),
+            (command(Party::User, "a", "x"), "Message from the user"),
+            (Envelope::new(Party::System, "a", Kind::Event, "x"), "System message"),
+            (command(agent("boss"), "a", "x"), "Message from the delegating agent"),
+            (command(agent("b"), "a", "x"), "Message from agent b"),
+            (command(agent("a1"), "a", "x"), "Message from subagent a1"),
             (
-                from(agent("boss"), Kind::Request),
+                Envelope::new(agent("boss"), "a", Kind::Request, "x"),
                 "Message from the delegating agent (a reply is expected)",
             ),
         ];
-        for (envelope, expected) in cases {
-            assert_eq!(envelope.heading(Some("boss")), expected);
+        for (envelope, _) in &cases {
+            boxes.send(envelope.clone()).unwrap();
         }
+
+        let headings: Vec<String> = a.take().iter().map(Envelope::heading).collect();
+
+        let expected: Vec<&str> = cases.iter().map(|(_, heading)| *heading).collect();
+        assert_eq!(headings, expected);
+        assert_eq!(command(agent("boss"), "a", "x").heading(), "Message from agent boss");
+    }
+
+    #[test]
+    fn send_errors_explain_the_refusal() {
         assert_eq!(
-            from(agent("boss"), Kind::Command).heading(None),
-            "Message from agent boss"
+            SendError::Full.to_string(),
+            format!("the recipient already has {MAILBOX_CAPACITY} unread messages; wait for it to read them")
         );
+        assert_eq!(SendError::NoMailbox.to_string(), "the recipient is not running");
     }
 }
