@@ -11,6 +11,7 @@ mod share;
 mod sweep;
 
 use crate::digest::sha256_hex;
+use crate::locking::lock;
 use chrono::{DateTime, Utc};
 pub use clone::CloneKind;
 pub use lease::{WorktreeLease, settle_abandoned};
@@ -120,12 +121,7 @@ impl WorktreeStore {
     }
 
     async fn repo_dir(&self, root: &Path) -> Result<(PathBuf, PathBuf), String> {
-        let cached = self
-            .repos
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .get(root)
-            .cloned();
+        let cached = lock(&self.repos).get(root).cloned();
         if let Some(found) = cached {
             return Ok(found);
         }
@@ -134,10 +130,7 @@ impl WorktreeStore {
             .ok_or_else(|| format!("{} is not in a git repository", root.display()))?
             .common_dir;
         let found = (self.dir.join(repo_key(&common)), common);
-        self.repos
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .insert(root.to_path_buf(), found.clone());
+        lock(&self.repos).insert(root.to_path_buf(), found.clone());
         Ok(found)
     }
 

@@ -2,9 +2,10 @@
 
 use super::config::ServerConfig;
 use super::rpc::{BoxedReader, BoxedWriter};
+use crate::locking::lock;
 use std::path::Path;
 use std::process::Stdio;
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::{Arc, Mutex};
 use tokio::io::{AsyncBufReadExt, BufReader};
 
 const STDERR_TAIL_BYTES: usize = 4096;
@@ -15,7 +16,7 @@ pub struct StderrTail(Arc<Mutex<String>>);
 
 impl StderrTail {
     pub fn push_line(&self, line: &str) {
-        let mut tail = self.0.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut tail = lock(&self.0);
         tail.push_str(line);
         tail.push('\n');
         if tail.len() > STDERR_TAIL_BYTES {
@@ -29,7 +30,7 @@ impl StderrTail {
 
     /// The last `lines` non-blank lines, joined with ` / `.
     pub fn last_lines(&self, lines: usize) -> String {
-        let tail = self.0.lock().unwrap_or_else(PoisonError::into_inner);
+        let tail = lock(&self.0);
         let kept: Vec<&str> = tail.lines().map(str::trim).filter(|l| !l.is_empty()).collect();
         kept[kept.len().saturating_sub(lines)..].join(" / ")
     }

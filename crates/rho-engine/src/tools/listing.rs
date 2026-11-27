@@ -2,6 +2,7 @@
 //! (`rg`, `fd`). Rows are kept in sort order, grouped under a shared header,
 //! and every row stays reachable through `offset`.
 
+use crate::locking::lock;
 use std::cmp::Ordering;
 use std::sync::{Mutex, PoisonError};
 
@@ -38,7 +39,7 @@ impl<T, F: Fn(&T, &T) -> Ordering> SortedCollector<T, F> {
     }
 
     pub fn extend(&self, batch: impl IntoIterator<Item = T>) {
-        let mut items = self.items.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut items = lock(&self.items);
         items.extend(batch);
         if items.len() > self.cap * 2 {
             items.sort_by(&self.cmp);

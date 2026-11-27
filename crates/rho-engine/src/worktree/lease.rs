@@ -1,5 +1,6 @@
 use super::Worktree;
-use std::sync::{Mutex, PoisonError};
+use crate::locking::lock;
+use std::sync::Mutex;
 use tokio::task::JoinHandle;
 
 /// Background settles started by dropped leases, so shutdown and tests can wait for them.
@@ -45,13 +46,13 @@ impl Drop for WorktreeLease {
         let task = runtime.spawn(async move {
             let _ = worktree.settle().await;
         });
-        ABANDONED.lock().unwrap_or_else(PoisonError::into_inner).push(task);
+        lock(&ABANDONED).push(task);
     }
 }
 
 /// Waits for worktrees abandoned by aborted rounds to be committed or removed.
 pub async fn settle_abandoned() {
-    let tasks: Vec<JoinHandle<()>> = std::mem::take(&mut *ABANDONED.lock().unwrap_or_else(PoisonError::into_inner));
+    let tasks: Vec<JoinHandle<()>> = std::mem::take(&mut *lock(&ABANDONED));
     for task in tasks {
         let _ = task.await;
     }

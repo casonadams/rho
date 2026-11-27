@@ -3,12 +3,13 @@
 use super::rpc::{BoxedReader, BoxedWriter, Connection, ServerMessages};
 pub use super::state::{ClientState, Diagnostic};
 use super::watch::FileChange;
+use crate::locking::lock;
 use crate::paths::canonical_or_parent;
 use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::Ordering;
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::time::Instant;
 
@@ -200,7 +201,7 @@ impl LspClient {
     }
 
     pub(super) fn touch(&self) {
-        *self.last_used.lock().unwrap_or_else(PoisonError::into_inner) = Instant::now();
+        *lock(&self.last_used) = Instant::now();
     }
 
     /// How long ago this server finished starting.
@@ -210,7 +211,7 @@ impl LspClient {
 
     /// How long since anything last used this server.
     pub fn idle_for(&self) -> Duration {
-        self.last_used.lock().unwrap_or_else(PoisonError::into_inner).elapsed()
+        lock(&self.last_used).elapsed()
     }
 
     /// Asks the server to shut down and exit, then kills whatever is left of its process.
@@ -226,7 +227,7 @@ impl LspClient {
                 tokio::time::sleep(Duration::from_millis(10)).await;
             }
         }
-        drop(self.process.lock().unwrap_or_else(PoisonError::into_inner).take());
+        drop(lock(&self.process).take());
     }
 
     pub fn encoding(&self) -> PositionEncoding {

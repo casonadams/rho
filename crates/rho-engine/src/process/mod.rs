@@ -11,7 +11,7 @@ pub use shutdown::{install_panic_hook, shutdown_children};
 pub use streaming::{StreamingCommand, configure_shell_command};
 
 use std::collections::HashMap;
-use std::sync::{LazyLock, Mutex, MutexGuard, PoisonError};
+use std::sync::{LazyLock, Mutex, MutexGuard};
 use tokio::process::Command;
 
 static TRACKED: LazyLock<Registry> = LazyLock::new(Registry::default);
@@ -122,7 +122,7 @@ impl Registry {
     /// The panic hook kills tracked processes after a panic that may have poisoned the lock, so
     /// poisoning is ignored: the map is always left consistent by its short critical sections.
     fn lock(&self) -> MutexGuard<'_, HashMap<u32, Scope>> {
-        self.pids.lock().unwrap_or_else(PoisonError::into_inner)
+        crate::locking::lock(&self.pids)
     }
 
     fn track(&self, pid: u32, scope: Scope) {

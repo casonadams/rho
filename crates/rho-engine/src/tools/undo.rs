@@ -2,6 +2,7 @@
 //! each tool records a file's contents before and after its change, and `undo` restores the earlier
 //! contents while the file still holds what the tool wrote.
 
+use crate::locking::lock;
 use crate::tools::atomic::atomic_write;
 use crate::tools::edit::preview::changed_regions;
 use crate::tools::engine_tool::TypedTool;
@@ -11,7 +12,7 @@ use rho_harness_core::error::AppError;
 use rho_harness_core::workspace::{Workspace, clean_path_arg};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard};
 
 pub const MAX_REVISIONS_PER_FILE: usize = 20;
 /// Total bytes of file contents the history keeps across all files; the oldest revisions go first.
@@ -67,7 +68,7 @@ struct State {
 
 impl EditHistory {
     fn state(&self) -> MutexGuard<'_, State> {
-        self.0.lock().unwrap_or_else(PoisonError::into_inner)
+        lock(&self.0)
     }
 
     pub fn record(&self, path: &Path, before: Option<Vec<u8>>, after: &[u8]) {

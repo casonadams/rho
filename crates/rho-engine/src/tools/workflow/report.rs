@@ -1,8 +1,9 @@
+use crate::locking::lock;
 use rho_harness_core::a2a::TaskState;
 use serde_json::{Map, Value, json};
 use std::io::Write as _;
 use std::path::{Path, PathBuf};
-use std::sync::{Mutex, PoisonError};
+use std::sync::Mutex;
 
 const MAX_OUTPUT_JSON_CHARS: usize = 6_000;
 const MAX_LISTED_TASKS: usize = 20;
@@ -108,7 +109,7 @@ impl RunLog {
         if let (Some(target), Value::Object(extra)) = (line.as_object_mut(), fields) {
             target.extend(extra);
         }
-        let mut guard = self.file.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut guard = lock(&self.file);
         let Some(file) = guard.as_mut() else {
             return;
         };
@@ -119,10 +120,7 @@ impl RunLog {
     }
 
     pub(crate) fn warn(&self, message: String) {
-        self.warnings
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .push(message);
+        lock(&self.warnings).push(message);
     }
 
     pub(crate) fn record(&self, path: &str, status: StepStatus, detail: impl Into<String>) {
@@ -131,29 +129,23 @@ impl RunLog {
             "step_finished",
             json!({ "step": path, "status": status.as_str(), "detail": detail }),
         );
-        self.records
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .push(StepRecord {
-                path: path.to_string(),
-                status,
-                detail,
-            });
+        lock(&self.records).push(StepRecord {
+            path: path.to_string(),
+            status,
+            detail,
+        });
     }
 
     pub(crate) fn records(&self) -> Vec<StepRecord> {
-        self.records.lock().unwrap_or_else(PoisonError::into_inner).clone()
+        lock(&self.records).clone()
     }
 
     pub(crate) fn task(&self, path: &str, id: &str, state: TaskState) {
-        self.tasks
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .push(AgentTask {
-                path: path.to_string(),
-                id: id.to_string(),
-                state,
-            });
+        lock(&self.tasks).push(AgentTask {
+            path: path.to_string(),
+            id: id.to_string(),
+            state,
+        });
     }
 
     pub(crate) fn agent_files(
@@ -162,15 +154,12 @@ impl RunLog {
         round: &crate::tools::subagent::round::Round,
         ran: std::ops::Range<std::time::Instant>,
     ) {
-        self.files
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .add(step, round, ran);
+        lock(&self.files).add(step, round, ran);
     }
 
     /// Saved agent tasks, unfinished ones first, then the most recent completed ones.
     fn task_section(&self) -> String {
-        let tasks = self.tasks.lock().unwrap_or_else(PoisonError::into_inner).clone();
+        let tasks = lock(&self.tasks).clone();
         if tasks.is_empty() {
             return String::new();
         }
@@ -211,9 +200,9 @@ impl RunLog {
         if let Some(outputs) = outputs.filter(|o| o.as_object().is_some_and(|m| !m.is_empty())) {
             out.push_str(&outputs_section(outputs));
         }
-        out.push_str(&self.files.lock().unwrap_or_else(PoisonError::into_inner).section());
+        out.push_str(&lock(&self.files).section());
         out.push_str(&self.task_section());
-        for warning in self.warnings.lock().unwrap_or_else(PoisonError::into_inner).iter() {
+        for warning in lock(&self.warnings).iter() {
             out.push_str(&format!("\nWarning: {warning}\n"));
         }
         out.push_str(&format!("\nRun log: {}", self.path.display()));

@@ -2,6 +2,7 @@ use super::entry::{
     FileHit, LineMatch, RG_COLLECTION_CEILING, RgTotals, file_order, format_files, format_lines, line_order,
 };
 use super::sink::BlockSink;
+use crate::locking::lock;
 use crate::tools::listing::{PageRequest, SortedCollector};
 use crate::tools::traversal::{run_parallel_walk, walker_builder};
 use crate::tools::types::ToolResult;
@@ -86,7 +87,7 @@ fn search_file(searcher: &mut grep_searcher::Searcher, matcher: &RegexMatcher, p
     let result = searcher.search_path(matcher, path, &mut sink);
     let relative = crate::tools::traversal::resolve_relative_path(path, ctx.roots.0, ctx.roots.1, ctx.roots.2);
     if let Err(error) = result {
-        let mut failures = ctx.failures.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut failures = lock(ctx.failures);
         failures.record(&relative, &error);
     }
     let count = sink.count;

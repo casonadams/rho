@@ -1,9 +1,10 @@
 //! JSON-RPC 2.0 over the LSP base protocol (`Content-Length` framed messages).
 
+use crate::locking::lock;
 use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, BufReader};
 use tokio::sync::{mpsc, oneshot};
@@ -222,7 +223,7 @@ impl Connection {
     }
 
     fn pending_map(&self) -> MutexGuard<'_, Pending> {
-        self.pending.lock().unwrap_or_else(PoisonError::into_inner)
+        lock(&self.pending)
     }
 
     fn dispatch(&self, message: Value, handler: &dyn ServerMessages) {

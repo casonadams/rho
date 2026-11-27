@@ -1,3 +1,4 @@
+use crate::locking::lock;
 use crate::tools::engine_tool::{EngineTool, TurnToolContext, TypedTool};
 use crate::tools::types::ToolResult;
 use rho_harness_core::a2ui::todo_surface_messages;
@@ -5,7 +6,7 @@ use rho_harness_core::args::{TodoArgs, TodoItem};
 use rho_harness_core::error::AppError;
 use rho_harness_core::presentation::Presenter;
 use rho_harness_core::todo::{TODO_TOOL, latest_todos, render_todos, validate_todos};
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::{Arc, Mutex};
 
 /// Each turn binds a copy holding the latest list in that agent's conversation, so every agent
 /// keeps its own list and it survives resume and compaction.
@@ -22,7 +23,7 @@ impl TypedTool for TodoTool {
     const NAME: &'static str = TODO_TOOL;
 
     async fn run(&self, args: TodoArgs) -> Result<ToolResult, AppError> {
-        let mut todos = self.todos.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut todos = lock(&self.todos);
         if let Some(next) = args.todos {
             if let Err(error) = validate_todos(&next) {
                 return Ok(ToolResult::error(error));

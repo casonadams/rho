@@ -1,8 +1,9 @@
 use super::{WORKTREE_LOCK, Worktree, WorktreeStore, git, meta_files, read_meta, repo_key};
+use crate::locking::lock;
 use chrono::{DateTime, Utc};
 use std::collections::{BTreeSet, HashSet};
 use std::path::{Path, PathBuf};
-use std::sync::{Mutex, PoisonError};
+use std::sync::Mutex;
 use std::time::Duration;
 
 /// Unmerged agent work is deleted this long after its worktree was created.
@@ -81,9 +82,7 @@ async fn remove_checkout(common_dir: &Path, path: &Path) {
 impl WorktreeStore {
     /// Sweeps the repository at `common_dir` once per process; `None` if already swept.
     pub(crate) async fn sweep_once(&self, common_dir: &Path) -> Option<SweepReport> {
-        let first = SWEPT
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
+        let first = lock(&SWEPT)
             .get_or_insert_with(HashSet::new)
             .insert(common_dir.to_path_buf());
         if !first {
