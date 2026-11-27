@@ -188,7 +188,7 @@ fn structured_output_body(tool: &ToolLine, width: usize, view: CardView, theme: 
         };
     }
     if shows_file_change(tool) {
-        return file_change_preview(tool, view.expanded, width, theme);
+        return file_change_preview(tool, view, width, theme);
     }
     if shows_output_body(tool, view) {
         return structured_generic_output(tool, width, view.expanded, theme);
@@ -281,7 +281,7 @@ mod tests {
     #[test]
     fn running_structured_card_shows_dot_icon_instead_of_check() {
         let tool = ToolLine::new("bash", json!({"command": "cargo test"})).with_duration_ms(1500);
-        let rendered = strip_ansi(&render_running_tool_block(&tool, 60, false, &structured_theme()));
+        let rendered = strip_ansi(&render_running_tool_block(&tool, 0, 60, false, &structured_theme()));
         assert!(rendered.contains("\u{25cf} Bash"), "got:\n{rendered}");
         assert!(!rendered.contains('\u{2713}'), "got:\n{rendered}");
         assert!(rendered.contains("1.500s"), "got:\n{rendered}");

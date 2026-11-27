@@ -1,6 +1,6 @@
 use super::diff::replace_tabs;
 use super::file_change;
-use super::formatters::{EditDiffRequest, format_edit_diff, format_read_expanded, format_write_preview};
+use super::formatters::{EditDiffRequest, WritePreview, format_edit_diff, format_read_expanded, format_write_preview};
 use crate::ui::interactive::truncate_to_visual_lines;
 use crate::ui::theme::{BlockStyle, Theme};
 use rho_harness_core::presentation::summary::{
@@ -266,19 +266,24 @@ pub(crate) fn shows_file_change(tool: &ToolLine) -> bool {
 }
 
 /// The diff of a successful edit or the content preview of a successful write.
-pub(crate) fn file_change_preview(tool: &ToolLine, expanded: bool, width: usize, theme: &Theme) -> Option<String> {
+pub(crate) fn file_change_preview(tool: &ToolLine, view: CardView, width: usize, theme: &Theme) -> Option<String> {
     if tool.name == "write" {
-        let inner_width = theme.tool_block(false, false, width).inner_width();
-        return format_write_preview(&tool.arguments, theme, expanded, inner_width);
+        let preview = WritePreview {
+            args: &tool.arguments,
+            dropped_lines: view.dropped_lines,
+            expanded: view.expanded,
+            width: theme.tool_block(false, false, width).inner_width(),
+        };
+        return format_write_preview(preview, theme);
     }
-    edit_diff(tool, expanded, width, theme)
+    edit_diff(tool, view.expanded, width, theme)
 }
 
-fn append_edit_or_write(content: &mut String, tool: &ToolLine, width: usize, expanded: bool, theme: &Theme) -> bool {
+fn append_edit_or_write(content: &mut String, tool: &ToolLine, width: usize, view: CardView, theme: &Theme) -> bool {
     if !shows_file_change(tool) {
         return false;
     }
-    if let Some(preview) = file_change_preview(tool, expanded, width, theme) {
+    if let Some(preview) = file_change_preview(tool, view, width, theme) {
         push_section(content, &preview);
     }
     true
@@ -298,7 +303,7 @@ pub(crate) fn append_tool_details(content: &mut String, tool: &ToolLine, width: 
         if view.show_read_expanded {
             append_read_expanded(content, tool, theme);
         }
-    } else if !append_edit_or_write(content, tool, width, view.expanded, theme) && shows_output_body(tool, view) {
+    } else if !append_edit_or_write(content, tool, width, view, theme) && shows_output_body(tool, view) {
         append_generic_output(content, tool, width, view.expanded, theme);
     }
     if tool.is_error && tool.name == "edit" {
@@ -329,6 +334,8 @@ pub(crate) struct CardView {
     pub status: CardStatus,
     pub expanded: bool,
     pub show_read_expanded: bool,
+    /// Lines a running card's streamed content has dropped from its front.
+    pub dropped_lines: usize,
 }
 
 pub(crate) fn shows_output_body(tool: &ToolLine, view: CardView) -> bool {
@@ -346,16 +353,25 @@ pub fn render_tool_block(
         status: CardStatus::Finished,
         expanded,
         show_read_expanded,
+        dropped_lines: 0,
     };
     render_card(tool, view, width, theme)
 }
 
 /// The live card of a running tool: the committed card with `duration_ms` counting up.
-pub(crate) fn render_running_tool_block(tool: &ToolLine, width: usize, expanded: bool, theme: &Theme) -> String {
+/// `dropped_lines` counts the lines its streamed output no longer holds.
+pub(crate) fn render_running_tool_block(
+    tool: &ToolLine,
+    dropped_lines: usize,
+    width: usize,
+    expanded: bool,
+    theme: &Theme,
+) -> String {
     let view = CardView {
         status: CardStatus::Running,
         expanded,
         show_read_expanded: expanded,
+        dropped_lines,
     };
     render_card(tool, view, width, theme)
 }

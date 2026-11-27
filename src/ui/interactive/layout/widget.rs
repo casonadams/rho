@@ -45,7 +45,13 @@ pub fn render_running_tool_widget(input: RunningToolWidgetInput<'_>) -> Vec<Stri
         return Vec::new();
     }
     let width = input.width.max(20);
-    let block = render_running_tool_block(&running_tool_line(input.tool), width, input.tools_expanded, input.theme);
+    let block = render_running_tool_block(
+        &running_tool_line(input.tool),
+        input.tool.dropped_lines,
+        width,
+        input.tools_expanded,
+        input.theme,
+    );
     let mut lines = if input.theme.block_style == BlockStyle::Border {
         Vec::new()
     } else {

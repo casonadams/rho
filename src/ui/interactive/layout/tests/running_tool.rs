@@ -22,6 +22,20 @@ fn render_tool_widget(tool: &RunningTool, expanded: bool) -> String {
 }
 
 #[test]
+fn a_streamed_write_past_the_buffer_keeps_its_file_line_numbers() {
+    let mut tool = RunningTool::new("write", serde_json::json!({"path": "big.txt"}));
+    let lines = 20_000;
+    for n in 1..=lines {
+        tool.append_chunk(&format!("line {n}\n"));
+    }
+    assert!(tool.dropped_lines > 0);
+
+    let card = crate::ui::block::strip_ansi(&render_tool_widget(&tool, false));
+    assert!(card.contains(&format!("{lines} total")), "{card}");
+    assert!(card.contains(&format!("{lines} \u{2502} line {lines}")), "{card}");
+}
+
+#[test]
 fn running_tool_widget_large_output_collapsed() {
     let tool = tool_with_n_lines(120);
     let full = render_tool_widget(&tool, false);

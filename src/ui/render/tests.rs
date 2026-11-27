@@ -1,7 +1,7 @@
 use super::card::{CardStatus, CardView, fetch_content_kind, format_bash_args_header};
 use super::diff::format_gutter_prefix;
 use super::formatters::{
-    EditDiffRequest, format_edit_diff, format_read_expanded, format_relative_time, format_session_status,
+    EditDiffRequest, WritePreview, format_edit_diff, format_read_expanded, format_relative_time, format_session_status,
     format_write_preview,
 };
 use super::notices::{NoticeKind, format_notice};
@@ -90,7 +90,7 @@ fn test_format_write_preview_syntax_highlighting() {
         "path": "test.py",
         "content": "def main():\n    print('hello')"
     });
-    let preview = format_write_preview(&args, &theme, false, 60).unwrap();
+    let preview = write_preview(&args, &theme, false, 60).unwrap();
     assert!(!preview.contains("```diff") && !preview.contains("```") && !preview.contains("+ def main():"));
     assert_contains_all(&preview, &["def", "main", "print", "hello", "  1 │ ", "  2 │ "]);
 }
@@ -186,13 +186,13 @@ fn test_format_write_preview_expansion_and_collapse() {
         "path": "test.txt",
         "content": long_content
     });
-    let collapsed = crate::ui::block::strip_ansi(&format_write_preview(&long_args, &theme, false, 60).unwrap());
+    let collapsed = crate::ui::block::strip_ansi(&write_preview(&long_args, &theme, false, 60).unwrap());
     let first = collapsed.lines().next().unwrap();
     assert_eq!(first, "... (2 earlier lines, 12 total, Ctrl+O to expand)");
     assert!(collapsed.contains("  3 │ line 3") && collapsed.contains(" 12 │ line 12"));
     assert!(!collapsed.contains("line 2\n"), "{collapsed}");
 
-    let expanded = crate::ui::block::strip_ansi(&format_write_preview(&long_args, &theme, true, 60).unwrap());
+    let expanded = crate::ui::block::strip_ansi(&write_preview(&long_args, &theme, true, 60).unwrap());
     assert!(!expanded.contains("earlier lines"), "{expanded}");
     assert!(expanded.contains("  1 │ line 1\n") && expanded.contains(" 12 │ line 12"));
 }
@@ -205,7 +205,7 @@ fn collapsed_write_preview_grows_to_ten_rows_and_never_shrinks() {
         .map(|n| {
             let text = (0..n).map(|_| long_line).collect::<Vec<_>>().join("\n");
             let args = serde_json::json!({"path": "a.rs", "text": text});
-            let preview = format_write_preview(&args, &theme, false, 40).unwrap();
+            let preview = write_preview(&args, &theme, false, 40).unwrap();
             let plain = crate::ui::block::strip_ansi(&preview);
             assert!(
                 plain.lines().all(|l| crate::ui::block::visible_width(l) <= 40),
@@ -341,7 +341,7 @@ fn test_line_number_gutter_parity_across_read_edit_write() {
     let theme = Theme::default();
 
     let write_args = serde_json::json!({ "path": "example.rs", "content": "fn test() {}" });
-    let write_out = format_write_preview(&write_args, &theme, false, 60).unwrap();
+    let write_out = write_preview(&write_args, &theme, false, 60).unwrap();
 
     let edit_args = serde_json::json!({
         "path": "example.rs",
@@ -656,6 +656,7 @@ fn finished_view() -> CardView {
         status: CardStatus::Finished,
         expanded: false,
         show_read_expanded: false,
+        dropped_lines: 0,
     }
 }
 
@@ -1008,6 +1009,16 @@ fn renderer_notice_is_emitted_as_a_transcript_notice() {
     assert!(crate::ui::block::strip_ansi(&text).contains("warning Could not switch model: boom"));
 }
 
+fn write_preview(args: &serde_json::Value, theme: &Theme, expanded: bool, width: usize) -> Option<String> {
+    let request = WritePreview {
+        args,
+        dropped_lines: 0,
+        expanded,
+        width,
+    };
+    format_write_preview(request, theme)
+}
+
 fn numbered(prefix: &str, count: usize) -> String {
     (1..=count)
         .map(|n| format!("{prefix}{n}"))
@@ -1102,7 +1113,7 @@ fn tabs_expand_to_four_spaces_in_diffs_and_write_previews() {
     let diff = crate::ui::block::strip_ansi(&edit_diff(&args, &theme).unwrap());
     assert!(!diff.contains('\t') && diff.contains("-     x"), "{diff:?}");
     let write = serde_json::json!({"path": "a.txt", "content": "\tindented"});
-    let preview = crate::ui::block::strip_ansi(&format_write_preview(&write, &theme, true, 60).unwrap());
+    let preview = crate::ui::block::strip_ansi(&write_preview(&write, &theme, true, 60).unwrap());
     assert!(preview.contains("\u{2502}     indented"), "{preview:?}");
 }
 

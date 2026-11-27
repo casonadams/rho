@@ -47,16 +47,18 @@ pub(crate) fn format_edit_diff(request: EditDiffRequest<'_>, theme: &Theme) -> O
     if request.expanded {
         return Some(out);
     }
-    Some(collapse_to_tail(&out, request.width, theme))
+    Some(collapse_to_tail(&out, 0, request.width, theme))
 }
 
 /// The newest `PREVIEW_LINES` rows of `rendered`, each clipped to `width`, under a notice
-/// counting the rows above them: the collapsed edit and write cards stop growing at that height.
-fn collapse_to_tail(rendered: &str, width: usize, theme: &Theme) -> String {
+/// counting the rows above them, `dropped` of which `rendered` no longer holds: the collapsed
+/// edit and write cards stop growing at that height.
+fn collapse_to_tail(rendered: &str, dropped: usize, width: usize, theme: &Theme) -> String {
     let rows: Vec<&str> = rendered.lines().collect();
-    let hidden = rows.len().saturating_sub(PREVIEW_LINES);
-    let mut out = earlier_lines_notice(hidden, Some(rows.len()), width, theme.dimmed);
-    for row in &rows[hidden..] {
+    let shown_from = rows.len().saturating_sub(PREVIEW_LINES);
+    let total = dropped + rows.len();
+    let mut out = earlier_lines_notice(dropped + shown_from, Some(total), width, theme.dimmed);
+    for row in &rows[shown_from..] {
         let _ = writeln!(out, "{}", crate::ui::interactive::footer::truncate_to_width(row, width));
     }
     out
@@ -75,13 +77,14 @@ pub(crate) fn earlier_lines_notice(hidden: usize, total: Option<usize>, width: u
     format!("{dim}{notice}{dim:#}\n")
 }
 
-fn format_preview_lines(lines: &[&str], lang: Option<&str>, theme: &Theme) -> String {
+/// Numbers `lines` as the file lines after the first `dropped`.
+fn format_preview_lines(lines: &[&str], dropped: usize, lang: Option<&str>, theme: &Theme) -> String {
     let mut out = String::new();
-    let gutter_width = lines.len().to_string().len().max(3);
+    let gutter_width = (dropped + lines.len()).to_string().len().max(3);
     let mut highlighter = crate::ui::markdown::CodeHighlighter::new(lang);
     for (idx, line) in lines.iter().enumerate() {
         let highlighted = highlighter.highlight_line(&super::diff::replace_tabs(line), theme);
-        let gutter = super::diff::format_gutter_prefix(idx + 1, gutter_width, theme.dimmed);
+        let gutter = super::diff::format_gutter_prefix(dropped + idx + 1, gutter_width, theme.dimmed);
         let _ = writeln!(out, "{gutter}{highlighted}");
     }
     out
@@ -190,24 +193,33 @@ fn parse_read_line(line: &str) -> Option<(usize, &str)> {
     Some((num, rest))
 }
 
+pub(crate) struct WritePreview<'a> {
+    pub args: &'a serde_json::Value,
+    /// Lines of the content before the text in `args`, which a running card has dropped.
+    pub dropped_lines: usize,
+    pub expanded: bool,
+    pub width: usize,
+}
+
 /// The collapsed preview grows with the file up to `PREVIEW_LINES` rows, then adds a status row; it never shrinks.
-pub(crate) fn format_write_preview(
-    args: &serde_json::Value,
-    theme: &Theme,
-    expanded: bool,
-    width: usize,
-) -> Option<String> {
+pub(crate) fn format_write_preview(request: WritePreview<'_>, theme: &Theme) -> Option<String> {
+    let WritePreview {
+        args,
+        dropped_lines,
+        expanded,
+        width,
+    } = request;
     let content = rho_harness_core::args::write_text(args)?;
     if content.trim().is_empty() {
         return None;
     }
     let lang = super::card::detect_language_from_args(args);
     let lines: Vec<&str> = content.lines().collect();
-    let preview = format_preview_lines(&lines, lang, theme);
+    let preview = format_preview_lines(&lines, dropped_lines, lang, theme);
     if expanded {
         return Some(preview);
     }
-    Some(collapse_to_tail(&preview, width, theme))
+    Some(collapse_to_tail(&preview, dropped_lines, width, theme))
 }
 
 const PREVIEW_LINES: usize = 10;

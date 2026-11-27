@@ -9,6 +9,9 @@ pub struct RunningTool {
     pub arguments: serde_json::Value,
     pub started: Instant,
     pub output: String,
+    /// Lines `trim_tail` has dropped from the front of `output`, so the card can keep numbering
+    /// a streamed `write` by its file lines.
+    pub dropped_lines: usize,
     /// The state of the file a `write` or `edit` changes, taken before it runs, so the card reads the
     /// same while it runs as when it finishes.
     pub file_change: Option<rho_harness_core::presentation::FileChange>,
@@ -49,6 +52,7 @@ impl RunningTool {
             arguments,
             started: Instant::now(),
             output: String::new(),
+            dropped_lines: 0,
             file_change: None,
             pending_ansi: String::new(),
         };
@@ -98,6 +102,7 @@ impl RunningTool {
                 boundary = newline_idx;
             }
         }
+        self.dropped_lines += self.output[..boundary].matches('\n').count();
         self.output = self.output[boundary..].to_string();
     }
 
