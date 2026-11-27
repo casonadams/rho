@@ -4,7 +4,7 @@
 //! Outputs that already contain ANSI escape codes (such as colored `cargo test` stdout) are
 //! returned unchanged so native tool colors are preserved.
 
-use crate::ui::markdown::CodeHighlighter;
+use crate::ui::markdown::{highlight_code_line, highlight_fenced_blocks, highlight_text};
 use crate::ui::theme::Theme;
 
 fn is_json_payload(trimmed: &str) -> bool {
@@ -17,18 +17,11 @@ fn is_unified_diff(text: &str) -> bool {
         .any(|l| l.starts_with("diff --git ") || l.starts_with("@@ ") || l.starts_with("+++ "))
 }
 
-fn highlight_with_lang(text: &str, lang: &str, theme: &Theme) -> String {
-    let mut highlighter = CodeHighlighter::new(Some(lang), theme);
-    text.lines()
-        .map(|line| highlighter.highlight_line(line, theme))
-        .collect::<Vec<_>>()
-        .join("\n")
-}
-
 fn highlight_diff_line(line: &str, theme: &Theme) -> String {
     let (ok, err, accent, dim) = (theme.tool_ok, theme.tool_err, theme.highlight, theme.dimmed);
+    let heading = accent.bold();
     if line.starts_with("diff --git ") || line.starts_with("+++ ") || line.starts_with("--- ") {
-        format!("\x1b[1m{accent}{line}{accent:#}\x1b[0m")
+        format!("{heading}{line}{heading:#}")
     } else if line.starts_with("@@ ") {
         format!("{dim}{accent}{line}{accent:#}{dim:#}")
     } else if line.starts_with('+') {
@@ -61,6 +54,7 @@ fn parse_rg_row(line: &str) -> Option<(&str, char, &str)> {
 
 fn highlight_rg_output(text: &str, theme: &Theme) -> String {
     let (accent, warn, dim) = (theme.highlight, theme.warning, theme.dimmed);
+    let heading = accent.bold();
     let mut current_lang: Option<String> = None;
     let mut out = Vec::new();
     for line in text.lines() {
@@ -71,7 +65,7 @@ fn highlight_rg_output(text: &str, theme: &Theme) -> String {
                 format!("{dim}{num}-{dim:#}")
             };
             let code_s = match current_lang.as_deref() {
-                Some(ext) => crate::ui::markdown::highlight_code_line(code, Some(ext), theme),
+                Some(ext) => highlight_code_line(code, Some(ext), theme),
                 None => code.to_string(),
             };
             out.push(format!("{num_s}{code_s}"));
@@ -80,7 +74,7 @@ fn highlight_rg_output(text: &str, theme: &Theme) -> String {
                 .extension()
                 .and_then(|e| e.to_str())
                 .map(str::to_string);
-            out.push(format!("\x1b[1m{accent}{line}{accent:#}\x1b[0m"));
+            out.push(format!("{heading}{line}{heading:#}"));
         } else {
             out.push(format!("{dim}{line}{dim:#}"));
         }
@@ -90,10 +84,11 @@ fn highlight_rg_output(text: &str, theme: &Theme) -> String {
 
 fn highlight_fd_output(text: &str, theme: &Theme) -> String {
     let (accent, dim) = (theme.highlight, theme.dimmed);
+    let heading = accent.bold();
     text.lines()
         .map(|line| {
             if !line.starts_with(' ') && line.ends_with('/') {
-                format!("\x1b[1m{accent}{line}{accent:#}\x1b[0m")
+                format!("{heading}{line}{heading:#}")
             } else if line.ends_with('/') {
                 format!("{accent}{line}{accent:#}")
             } else if line.starts_with('[') {
@@ -104,29 +99,6 @@ fn highlight_fd_output(text: &str, theme: &Theme) -> String {
         })
         .collect::<Vec<_>>()
         .join("\n")
-}
-
-fn highlight_fenced_blocks(text: &str, theme: &Theme) -> String {
-    let dim = theme.dimmed;
-    let mut active: Option<CodeHighlighter> = None;
-    let mut out = Vec::new();
-    for line in text.lines() {
-        let trimmed = line.trim_start();
-        if let Some(rest) = trimmed.strip_prefix("```") {
-            if active.is_some() {
-                active = None;
-            } else {
-                let lang = rest.split_whitespace().next().filter(|s| !s.is_empty());
-                active = Some(CodeHighlighter::new(lang, theme));
-            }
-            out.push(format!("{dim}{line}{dim:#}"));
-        } else if let Some(hl) = active.as_mut() {
-            out.push(hl.highlight_line(line, theme));
-        } else {
-            out.push(line.to_string());
-        }
-    }
-    out.join("\n")
 }
 
 fn highlight_diagnostic_line(line: &str, theme: &Theme) -> String {
@@ -161,7 +133,7 @@ pub fn highlight_tool_output(tool_name: &str, text: &str, theme: &Theme) -> Stri
         return highlight_fd_output(text, theme);
     }
     if is_json_payload(trimmed) {
-        return highlight_with_lang(text, "json", theme);
+        return highlight_text(text, Some("json"), theme);
     }
     if is_unified_diff(text) {
         return highlight_diff_output(text, theme);

@@ -283,7 +283,7 @@ fn render_ansi_code_line(line: &str) -> String {
 }
 
 impl CodeHighlighter {
-    pub fn new(lang: Option<&str>, _theme: &Theme) -> Self {
+    pub fn new(lang: Option<&str>) -> Self {
         let syntax = resolve_syntax(lang);
         Self {
             lang: lang.map(str::to_string),
@@ -331,7 +331,38 @@ impl CodeHighlighter {
 }
 
 pub fn highlight_code_line(line: &str, lang: Option<&str>, theme: &Theme) -> String {
-    CodeHighlighter::new(lang, theme).highlight_line(line, theme)
+    CodeHighlighter::new(lang).highlight_line(line, theme)
+}
+
+/// Highlights each line of `text` as `lang`, carrying parser state across lines.
+pub fn highlight_text(text: &str, lang: Option<&str>, theme: &Theme) -> String {
+    let mut highlighter = CodeHighlighter::new(lang);
+    text.lines()
+        .map(|line| highlighter.highlight_line(line, theme))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// Highlights the lines between ``` fences by the fence's language and dims the fences; lines
+/// outside a fence are left as they are.
+pub fn highlight_fenced_blocks(text: &str, theme: &Theme) -> String {
+    let dim = theme.dimmed;
+    let mut active: Option<CodeHighlighter> = None;
+    let mut out = Vec::new();
+    for line in text.lines() {
+        if let Some(info) = line.trim_start().strip_prefix("```") {
+            active = match active {
+                Some(_) => None,
+                None => Some(CodeHighlighter::new(info.split_whitespace().next())),
+            };
+            out.push(format!("{dim}{line}{dim:#}"));
+        } else if let Some(highlighter) = active.as_mut() {
+            out.push(highlighter.highlight_line(line, theme));
+        } else {
+            out.push(line.to_string());
+        }
+    }
+    out.join("\n")
 }
 
 pub fn warmup_syntax_highlighter() {
@@ -373,6 +404,26 @@ mod tests {
     }
 
     #[test]
+    fn fenced_blocks_highlight_only_inside_fences_and_dim_the_fences() {
+        let theme = Theme::default();
+        let text = "before let\n```rust\nlet x = 1;\n```\nafter let";
+        let out = highlight_fenced_blocks(text, &theme);
+        let lines: Vec<&str> = out.lines().collect();
+        assert_eq!(lines[0], "before let");
+        assert_eq!(lines[1], format!("{}```rust{:#}", theme.dimmed, theme.dimmed));
+        assert!(lines[2].contains("\x1b[35mlet\x1b[0m"), "got: {:?}", lines[2]);
+        assert_eq!(lines[4], "after let");
+    }
+
+    #[test]
+    fn highlight_text_carries_state_across_lines() {
+        let theme = Theme::default();
+        let out = highlight_text("/* open\nstill comment */", Some("rust"), &theme);
+        let dimmed = format!("{}", theme.dimmed);
+        assert!(out.lines().all(|line| line.contains(&dimmed)), "got: {out:?}");
+    }
+
+    #[test]
     fn plain_text_emits_no_ansi_escapes() {
         let theme = Theme::default();
         let highlighted = highlight_code_line("just plain text", None, &theme);
@@ -399,7 +450,7 @@ mod tests {
     #[test]
     fn single_line_comment_does_not_leak_to_next_line() {
         let theme = Theme::default();
-        let mut hl = CodeHighlighter::new(Some("rust"), &theme);
+        let mut hl = CodeHighlighter::new(Some("rust"));
         let first = hl.highlight_line("// comment", &theme);
         let second = hl.highlight_line("let x = 1;", &theme);
         assert!(first.contains(&format!("{}", theme.dimmed)), "first: {first:?}");
@@ -409,7 +460,7 @@ mod tests {
     #[test]
     fn markdown_uses_theme_styles_and_transparent_body() {
         let theme = Theme::default();
-        let mut hl = CodeHighlighter::new(Some("md"), &theme);
+        let mut hl = CodeHighlighter::new(Some("md"));
 
         let heading = hl.highlight_line("# Heading", &theme);
         assert_eq!(
@@ -441,7 +492,7 @@ mod tests {
     #[test]
     fn markdown_inline_code_and_fences_use_theme_code_style_without_bright_ansi() {
         let theme = Theme::default();
-        let mut hl = CodeHighlighter::new(Some("md"), &theme);
+        let mut hl = CodeHighlighter::new(Some("md"));
         let inline = hl.highlight_line("Run `cargo test` now", &theme);
         assert!(inline.contains("`cargo test`"), "inline: {inline:?}");
         assert!(inline.contains(&format!("{}", theme.code_inline)), "inline: {inline:?}");

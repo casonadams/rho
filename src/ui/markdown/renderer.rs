@@ -132,7 +132,7 @@ impl MarkdownRenderer {
     }
 
     fn process_empty_line(&mut self, out: &mut String, line: &str, theme: &Theme) {
-        if let Some(highlighter) = self.sync_code_highlighter(theme) {
+        if let Some(highlighter) = self.sync_code_highlighter() {
             let highlighted = highlighter.highlight_line(line, theme);
             self.spacing.prepare_content(out);
             out.push_str(&highlighted);
@@ -166,26 +166,26 @@ impl MarkdownRenderer {
 
     fn render_dispatch(&mut self, line: &str, theme: &Theme) -> String {
         if !line.trim().starts_with("```")
-            && let Some(highlighter) = self.sync_code_highlighter(theme)
+            && let Some(highlighter) = self.sync_code_highlighter()
         {
             return highlighter.highlight_line(line, theme);
         }
         let rendered = render_line(line, &mut self.code_fence, theme, self.width);
-        self.sync_code_highlighter(theme);
+        self.sync_code_highlighter();
         rendered
     }
 
     /// Drops the cached highlighter when no fence is open and re-resolves it
     /// whenever the fence language changes, so syntect parse state persists
     /// across the lines of one block.
-    fn sync_code_highlighter(&mut self, theme: &Theme) -> Option<&mut CodeHighlighter> {
+    fn sync_code_highlighter(&mut self) -> Option<&mut CodeHighlighter> {
         if !self.code_fence.in_code_block {
             self.code_highlighter = None;
             return None;
         }
         let lang = self.code_fence.code_lang.as_deref();
         if !self.code_highlighter.as_ref().is_some_and(|h| h.lang() == lang) {
-            self.code_highlighter = Some(CodeHighlighter::new(lang, theme));
+            self.code_highlighter = Some(CodeHighlighter::new(lang));
         }
         self.code_highlighter.as_mut()
     }

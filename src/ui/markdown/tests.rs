@@ -77,10 +77,10 @@ fn multiline_comment_state_carries_across_streamed_code_lines() {
         &theme,
     );
 
-    let mut carried = CodeHighlighter::new(Some("rust"), &theme);
+    let mut carried = CodeHighlighter::new(Some("rust"));
     carried.highlight_line("/* unterminated comment", &theme);
     let carried_second = carried.highlight_line("still inside", &theme);
-    let per_line = CodeHighlighter::new(Some("rust"), &theme).highlight_line("still inside", &theme);
+    let per_line = CodeHighlighter::new(Some("rust")).highlight_line("still inside", &theme);
 
     assert_ne!(
         carried_second, per_line,
@@ -100,7 +100,7 @@ fn fence_language_change_re_resolves_the_highlighter() {
 
     let out = md.render_token("```rust\nlet x = 1;\n```\n```python\nprint('x')\n```\n", &theme);
 
-    let python_line = CodeHighlighter::new(Some("python"), &theme).highlight_line("print('x')", &theme);
+    let python_line = CodeHighlighter::new(Some("python")).highlight_line("print('x')", &theme);
     assert!(out.contains(&python_line), "streamed output: {out:?}");
 }
 

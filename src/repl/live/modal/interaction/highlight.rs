@@ -1,6 +1,6 @@
 //! Syntax highlighting and semantic styling for permission / Guard modals and question modals.
 
-use crate::ui::markdown::CodeHighlighter;
+use crate::ui::markdown::{highlight_fenced_blocks, highlight_text};
 use crate::ui::theme::Theme;
 
 fn detect_code_lang(tool: &str, code: &str) -> Option<&'static str> {
@@ -27,17 +27,16 @@ fn detect_code_lang(tool: &str, code: &str) -> Option<&'static str> {
 
 fn style_header_line(line: &str, theme: &Theme) -> String {
     let dim = theme.dimmed;
-    let accent = theme.highlight;
-    let warn = theme.warning;
-    let err = theme.tool_err;
+    let (accent, warn, err) = (theme.highlight.bold(), theme.warning.bold(), theme.tool_err.bold());
+    let risk_text = theme.tool_err;
     if let Some(tool) = line.strip_prefix("Tool: ") {
-        format!("{dim}Tool:{dim:#} \x1b[1m{accent}{tool}{accent:#}\x1b[0m")
+        format!("{dim}Tool:{dim:#} {accent}{tool}{accent:#}")
     } else if let Some(action) = line.strip_prefix("Action: ") {
-        format!("\x1b[1m{accent}Action:{accent:#}\x1b[0m {action}")
+        format!("{accent}Action:{accent:#} {action}")
     } else if let Some(notice) = line.strip_prefix("Notice: ") {
-        format!("\x1b[1m{warn}Notice:{warn:#}\x1b[0m {notice}")
+        format!("{warn}Notice:{warn:#} {notice}")
     } else if let Some(risk) = line.strip_prefix("Risk: ") {
-        format!("\x1b[1m{err}Risk:{err:#}\x1b[0m {err}{risk}{err:#}")
+        format!("{err}Risk:{err:#} {risk_text}{risk}{risk_text:#}")
     } else {
         line.to_string()
     }
@@ -49,36 +48,7 @@ fn highlight_code_block(code: &str, lang: Option<&str>, theme: &Theme) -> String
     let Some(lang) = lang else {
         return format!("{trimmed}\n");
     };
-    let mut highlighter = CodeHighlighter::new(Some(lang), theme);
-    let mut out = String::new();
-    for line in trimmed.lines() {
-        out.push_str(&highlighter.highlight_line(line, theme));
-        out.push('\n');
-    }
-    out
-}
-
-fn highlight_fenced_modal_body(body: &str, theme: &Theme) -> String {
-    let dim = theme.dimmed;
-    let mut active: Option<CodeHighlighter> = None;
-    let mut out = Vec::new();
-    for line in body.lines() {
-        let trimmed = line.trim_start();
-        if let Some(rest) = trimmed.strip_prefix("```") {
-            if active.is_some() {
-                active = None;
-            } else {
-                let lang = rest.split_whitespace().next().filter(|s| !s.is_empty());
-                active = Some(CodeHighlighter::new(lang, theme));
-            }
-            out.push(format!("{dim}{line}{dim:#}"));
-        } else if let Some(hl) = active.as_mut() {
-            out.push(hl.highlight_line(line, theme));
-        } else {
-            out.push(line.to_string());
-        }
-    }
-    out.join("\n")
+    format!("{}\n", highlight_text(trimmed, Some(lang), theme))
 }
 
 /// Enhances `Permission Required` (including `[Guard]`) modals and any interactive modal containing
@@ -88,7 +58,7 @@ pub(super) fn style_permission_body(title: &str, body: String, theme: &Theme) ->
     }
     if !title.starts_with("Permission Required") {
         return if body.contains("```") {
-            highlight_fenced_modal_body(&body, theme)
+            highlight_fenced_blocks(&body, theme)
         } else {
             body
         };

@@ -134,8 +134,8 @@ impl<'a> DeltaRenderCtx<'a> {
         Self {
             theme,
             palette: palette_for_theme(theme),
-            old_hl: CodeHighlighter::new(lang, theme),
-            new_hl: CodeHighlighter::new(lang, theme),
+            old_hl: CodeHighlighter::new(lang),
+            new_hl: CodeHighlighter::new(lang),
             start_line,
             gutter_width,
             limit,

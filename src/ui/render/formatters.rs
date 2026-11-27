@@ -61,7 +61,7 @@ fn format_preview_lines(
     let mut out = String::new();
     let d = theme.dimmed;
     let gutter_width = lines.len().to_string().len().max(3);
-    let mut highlighter = crate::ui::markdown::CodeHighlighter::new(lang, theme);
+    let mut highlighter = crate::ui::markdown::CodeHighlighter::new(lang);
     for (idx, line) in lines.iter().enumerate() {
         let no_tabs = super::diff::replace_tabs(line);
         let highlighted = highlighter.highlight_line(&no_tabs, theme);
@@ -167,7 +167,7 @@ pub(crate) fn format_read_expanded(raw: &str, args: &serde_json::Value, theme: &
         return None;
     }
     let lang = super::card::detect_language_from_args(args);
-    let mut highlighter = crate::ui::markdown::CodeHighlighter::new(lang, theme);
+    let mut highlighter = crate::ui::markdown::CodeHighlighter::new(lang);
     let lines: Vec<&str> = clean.lines().collect();
     let offset = args.get("offset").and_then(|v| v.as_u64()).unwrap_or(1) as usize;
 
