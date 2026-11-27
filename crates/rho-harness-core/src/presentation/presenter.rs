@@ -25,6 +25,11 @@ pub trait Presenter: Send + Sync {
     fn finish_tool_line(&self, line: ToolLine);
     fn flush(&self);
     fn has_interactive_ui(&self) -> bool;
+    /// Opens or updates the card of a call whose arguments are still streaming; a real
+    /// `start_tool_run` for the call does not follow.
+    fn preview_tool_run(&self, name: &str, arguments: &Value) {
+        self.start_tool_run(name, arguments);
+    }
     fn start_spinner(&self, message: &str) -> ActivityToken;
     fn start_tool_spinner(&self, name: &str, arguments: &Value) -> ActivityToken;
     fn start_tool_run(&self, name: &str, arguments: &Value);

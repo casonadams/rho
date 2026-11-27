@@ -6,6 +6,7 @@ use super::*;
 use crate::engine::runner::turn::types::CancellationSignal;
 use crate::provider::adapter::{MockAdapter, ModelAdapter, ModelCompletionRequest, ModelStreamEvent};
 use crate::test_support::TestDir;
+use crate::tools::engine_tool::{EngineTool, TurnToolContext};
 use crate::tools::{GenericTool, ToolResult};
 use rho_harness_core::model::{ChatMessage, ToolCall, ToolFunction};
 use rho_harness_core::presentation::ToolStreamPort;
@@ -199,6 +200,128 @@ async fn the_agent_view_gets_the_reply_and_reasoning_from_the_model_stream() {
             rho_harness_core::agents::AgentEvent::Text("The file is fine.".into()),
         ]
     );
+}
+
+#[tokio::test]
+async fn a_subagents_write_card_is_open_in_its_record_with_the_streamed_content_while_the_write_runs() {
+    let delta = |json: &str| ModelStreamEvent::ToolInputDelta {
+        id: "call-0".into(),
+        name: "write".into(),
+        json: json.into(),
+    };
+    let args = json!({ "path": "a.txt", "text": "hello" });
+    let adapter = MockAdapter::from_turns([
+        vec![
+            delta(""),
+            delta(r#"{"path": "a.txt", "text": "hel"#),
+            delta(r#"lo"}"#),
+            ModelStreamEvent::ToolCall(ToolCall::new("call-0", ToolFunction::new("write", args.clone()))),
+        ],
+        text_turn("done"),
+    ]);
+    let monitor = rho_harness_core::agents::AgentMonitor::default();
+    let seen = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let write = {
+        let (monitor, seen) = (monitor.clone(), seen.clone());
+        Arc::new(GenericTool::new(
+            "write",
+            "records the agent's record",
+            json!({}),
+            move |_| {
+                let id = monitor.summaries()[0].id;
+                *seen.lock().unwrap() = monitor.record(id).unwrap().events;
+                async { Ok(ToolResult::success("ok")) }
+            },
+        ))
+    };
+    let ctx = TurnToolContext {
+        monitor: Some(monitor.clone()),
+        ..Default::default()
+    };
+    let tool = SubagentTool::new(Some(Arc::new(adapter)), vec![write])
+        .bind_turn(&ctx)
+        .unwrap();
+
+    tool.execute(json!({ "role": "general", "prompt": "write it" }))
+        .await
+        .unwrap();
+
+    let seen = seen.lock().unwrap();
+    let Some(rho_harness_core::agents::AgentEvent::ToolCall { name, output, .. }) = seen.last() else {
+        panic!("the write has a card while it runs: {seen:?}");
+    };
+    assert_eq!((name.as_str(), output.as_str()), ("write", "hello"));
+}
+
+/// A tool that streams its output through the turn's port, as `bash` does, then reports what its
+/// agent's record and the delegating agent's port had received by then.
+struct StreamingTool {
+    port: ToolStreamPort,
+    monitor: rho_harness_core::agents::AgentMonitor,
+    seen: Arc<std::sync::Mutex<Vec<rho_harness_core::agents::AgentEvent>>>,
+}
+
+#[async_trait::async_trait]
+impl EngineTool for StreamingTool {
+    fn name(&self) -> &str {
+        "bash"
+    }
+
+    fn description(&self) -> &str {
+        "streams output"
+    }
+
+    fn parameters(&self) -> serde_json::Value {
+        json!({})
+    }
+
+    async fn execute(&self, _args: serde_json::Value) -> Result<ToolResult, rho_harness_core::error::AppError> {
+        self.port.stream_chunk("one\n");
+        self.port.stream_chunk("two\n");
+        let id = self.monitor.summaries()[0].id;
+        *self.seen.lock().unwrap() = self.monitor.record(id).unwrap().events;
+        Ok(ToolResult::success("ok"))
+    }
+
+    fn bind_turn(&self, ctx: &TurnToolContext) -> Option<Arc<dyn EngineTool>> {
+        Some(Arc::new(Self {
+            port: ctx.progress.clone(),
+            monitor: self.monitor.clone(),
+            seen: self.seen.clone(),
+        }))
+    }
+}
+
+#[tokio::test]
+async fn a_subagents_tool_output_streams_into_its_own_card_not_the_delegating_agents_port() {
+    let adapter = MockAdapter::from_turns([tool_call_turn(&[("bash", "ls")]), text_turn("done")]);
+    let monitor = rho_harness_core::agents::AgentMonitor::default();
+    let seen = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let streaming = StreamingTool {
+        port: ToolStreamPort::default(),
+        monitor: monitor.clone(),
+        seen: seen.clone(),
+    };
+    let parent_port = Arc::new(CollectedProgress::default());
+    let ctx = TurnToolContext {
+        progress: ToolStreamPort::new(Some(parent_port.clone())),
+        monitor: Some(monitor.clone()),
+        ..Default::default()
+    };
+    let tool = SubagentTool::new(Some(Arc::new(adapter)), vec![Arc::new(streaming)])
+        .bind_turn(&ctx)
+        .unwrap();
+
+    tool.execute(json!({ "role": "general", "prompt": "go" }))
+        .await
+        .unwrap();
+
+    let seen = seen.lock().unwrap();
+    let Some(rho_harness_core::agents::AgentEvent::ToolCall { name, output, .. }) = seen.last() else {
+        panic!("the tool has a card while it runs: {seen:?}");
+    };
+    assert_eq!((name.as_str(), output.as_str()), ("bash", "one\ntwo\n"));
+    assert_eq!(*parent_port.0.lock().unwrap(), vec!["subagent turn 1/100: bash\n"]);
 }
 
 #[tokio::test]

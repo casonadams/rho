@@ -10,6 +10,7 @@ pub mod builtin_tools;
 pub mod edit;
 pub mod engine_tool;
 pub mod fd;
+pub mod file_change;
 pub mod jobs;
 pub mod listing;
 pub mod lsp;

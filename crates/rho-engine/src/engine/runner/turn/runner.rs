@@ -140,7 +140,6 @@ pub struct AgentRunner {
     repeat_tracker: RepeatedCallTracker,
     lifecycle: Option<Arc<LifecycleHook>>,
     permission: Option<Arc<crate::permission::PermissionHook>>,
-    stream_port: Option<ToolStreamPort>,
     steering: Option<Arc<dyn SteeringQueueProvider>>,
     inbox: Option<crate::mailbox::Mailbox>,
     cancellation: Option<CancellationSignal>,
@@ -209,7 +208,6 @@ impl AgentRunner {
             repeat_tracker: RepeatedCallTracker::new(working_dir.clone()),
             lifecycle: None,
             permission: None,
-            stream_port: None,
             steering: None,
             inbox: None,
             cancellation: None,
@@ -279,11 +277,6 @@ impl AgentRunner {
         self
     }
 
-    pub fn stream_port(mut self, stream_port: ToolStreamPort) -> Self {
-        self.stream_port = Some(stream_port);
-        self
-    }
-
     pub fn steering(mut self, steering: Option<Arc<dyn SteeringQueueProvider>>) -> Self {
         self.steering = steering;
         self
@@ -344,7 +337,7 @@ impl AgentRunner {
             permission: self.permission.clone(),
             lifecycle: self.lifecycle.clone(),
             cancellation: self.cancellation.clone(),
-            progress: self.stream_port.clone().unwrap_or_default(),
+            progress: ToolStreamPort::new(Some(self.sink.clone())),
             parent_history: history.into(),
             monitor: self.monitor.clone(),
             project: self.project.clone(),

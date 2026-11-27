@@ -473,6 +473,15 @@ fn assert_tail_truncation(output: &str) {
 }
 
 #[test]
+fn a_write_card_starts_with_the_file_it_is_writing_as_its_output() {
+    let long = "line\n".repeat(5000);
+    let write = RunningTool::new("write", "a.txt", serde_json::json!({"path": "a.txt", "text": long}));
+    assert!(write.output.ends_with("line\n") && write.output.len() <= RunningTool::MAX_RUNNING_OUTPUT_BYTES);
+    let bash = RunningTool::new("bash", "ls", serde_json::json!({"command": "ls", "text": "x"}));
+    assert!(bash.output.is_empty());
+}
+
+#[test]
 fn running_tool_rolling_tail_truncation_under_massive_chunks() {
     let mut tool = RunningTool::new("bash", "seq 1 10000", serde_json::json!({"command": "seq 1 10000"}));
     for i in 1..=5000 {

@@ -15,6 +15,7 @@ pub use accumulator::{OutputAccumulator, OutputSnapshot};
 pub use direnv::DirenvOptions;
 pub use rho_harness_core::args::BashArgs;
 use rho_harness_core::error::AppError;
+use rho_harness_core::presentation::ToolStreamPort;
 pub use runner::{DEFAULT_BASH_TIMEOUT_SEC, run_command_streaming, run_command_streaming_with_direnv};
 pub use sanitize::{sanitize_binary_output, split_at_incomplete_ansi};
 pub use shell::resolve_shell_command;
@@ -30,6 +31,8 @@ pub struct BashTool {
     /// The agent whose mailbox hears about commands this tool moves to the background.
     owner: Option<crate::mailbox::Mailbox>,
     direnv: DirenvOptions,
+    /// Where the output of a running command goes as it is produced.
+    progress: ToolStreamPort,
 }
 
 impl BashTool {
@@ -39,6 +42,7 @@ impl BashTool {
             log_dir: accumulator::default_log_dir(),
             owner: None,
             direnv: DirenvOptions::default(),
+            progress: ToolStreamPort::default(),
         }
     }
 
@@ -106,16 +110,18 @@ impl TypedTool for BashTool {
         if let Some(refusal) = poll::refusal(self.owner.as_ref(), &args) {
             return Ok(refusal);
         }
-        self.execute(args).await
+        let port = self.progress.clone();
+        self.execute_streaming(args, move |chunk| port.stream_chunk(chunk))
+            .await
     }
 
     fn bind_to_turn(&self, ctx: &TurnToolContext) -> Option<Arc<dyn EngineTool>> {
-        let owner = ctx.inbox.clone()?;
         Some(Arc::new(Self {
             base_dir: self.base_dir.clone(),
             log_dir: self.log_dir.clone(),
-            owner: Some(owner),
+            owner: ctx.inbox.clone(),
             direnv: self.direnv,
+            progress: ctx.progress.clone(),
         }))
     }
 }

@@ -10,12 +10,15 @@ use crate::ui::interactive::{PendingUiDrain, RunningTool, ToolStartRequest, Tran
 use std::io;
 
 /// What the shown agent looks like now: its settled transcript, the reply it is still writing,
-/// and the tool it is running.
+/// and the tool it is running with the output streamed to it so far.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ViewFrame {
     pub items: Vec<TranscriptItem>,
     pub streaming: Option<String>,
     pub running_tool: Option<ToolStartRequest>,
+    pub running_output: String,
+    /// How many bytes streamed to the running tool precede `running_output`, which keeps the latest.
+    pub running_output_start: usize,
 }
 
 pub(crate) struct AgentView {
@@ -23,6 +26,8 @@ pub(crate) struct AgentView {
     parked: Parked,
     /// The raw reply text already streamed to the terminal.
     streamed: String,
+    /// How much of the running tool's output the card already shows.
+    tool_streamed: usize,
     /// The monitor version the shown frame was last synced at.
     synced_version: Option<u64>,
 }
@@ -80,6 +85,7 @@ impl<B: TerminalBackend> TerminalController<B> {
             agent,
             parked,
             streamed: String::new(),
+            tool_streamed: 0,
             synced_version: None,
         });
         self.state.footer_mut().viewing = Some(title);
@@ -110,6 +116,12 @@ impl<B: TerminalBackend> TerminalController<B> {
             .map(|request| RunningTool::new(request.name, request.args_summary, request.arguments));
         self.state.footer_mut().running_tool = running.as_ref().map(|tool| tool.name.clone());
         self.state.set_active_tool(running);
+        if let Some(tool) = self.state.active_tool_mut() {
+            tool.append_chunk(&frame.running_output);
+        }
+        if let Some(view) = self.view.as_mut() {
+            view.tool_streamed = frame.running_output_start + frame.running_output.len();
+        }
         self.replay_transcript()
     }
 
@@ -134,7 +146,7 @@ impl<B: TerminalBackend> TerminalController<B> {
             changed = true;
         }
         changed |= self.stream_view_text(frame.streaming)?;
-        changed |= self.set_view_tool(frame.running_tool)?;
+        changed |= self.set_view_tool(frame.running_tool, &frame.running_output, frame.running_output_start)?;
         Ok(changed)
     }
 
@@ -173,15 +185,30 @@ impl<B: TerminalBackend> TerminalController<B> {
         Ok(true)
     }
 
-    fn set_view_tool(&mut self, request: Option<ToolStartRequest>) -> io::Result<bool> {
-        if same_tool(self.state.active_tool(), request.as_ref()) {
-            return Ok(false);
+    /// Shows the running tool's card: restarted when the tool changed or its output was rewritten,
+    /// otherwise grown by the output streamed since the last sync. `output` is the latest output and
+    /// `before` how many streamed bytes precede it; `tool_streamed` counts every byte shown so far.
+    fn set_view_tool(&mut self, request: Option<ToolStartRequest>, output: &str, before: usize) -> io::Result<bool> {
+        let shown = self.view.as_ref().map_or(0, |view| view.tool_streamed);
+        let new_output = shown.checked_sub(before).and_then(|from| output.get(from..));
+        let same = same_tool(self.state.active_tool(), request.as_ref());
+        let delta = match new_output {
+            Some(delta) if same => delta,
+            _ => {
+                match request {
+                    Some(request) => self.start_tool(request)?,
+                    None => self.end_tool()?,
+                }
+                output
+            }
+        };
+        if let Some(view) = self.view.as_mut() {
+            view.tool_streamed = before + output.len();
         }
-        match request {
-            Some(request) => self.start_tool(request)?,
-            None => self.end_tool()?,
+        if !delta.is_empty() {
+            self.append_tool_chunk(delta)?;
         }
-        Ok(true)
+        Ok(!same || new_output.is_none() || !delta.is_empty())
     }
 
     /// Keeps the main agent's output while another agent is shown.

@@ -58,6 +58,8 @@ pub struct TerminalSinkState {
     pub tool_preview: Option<String>,
     /// When the first preview fragment of the call arrived, so its duration includes the model writing it.
     pub tool_preview_started: Option<Instant>,
+    /// The secret-redaction carry of the output a running tool streams to its card.
+    pub tool_output_carry: String,
 }
 
 pub struct ToolFinishDetails<'a> {

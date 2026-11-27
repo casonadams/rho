@@ -133,13 +133,12 @@ fn handle_completion_stream_item(
     sink: &Arc<TerminalApprovalSink>,
     state: &mut TurnStreamState,
 ) {
+    state.streaming_tool.observe_boundary(&item, sink);
     match item {
         MultiTurnStreamItem::FinalResponse(resp) => {
-            state.streaming_tool.reset();
             state.final_response = Some(resp);
         }
         MultiTurnStreamItem::CompletionCall(call) => {
-            state.streaming_tool.reset();
             record_completion_call(&call, usage, run_tracker, state);
         }
         MultiTurnStreamItem::ToolCall { .. } => {
@@ -148,8 +147,6 @@ fn handle_completion_stream_item(
         }
         MultiTurnStreamItem::ModelTurnRetried(retry) => {
             state.total_tool_calls = state.total_tool_calls.saturating_sub(retry.discarded_tool_calls);
-            state.streaming_tool.reset();
-            sink.cancel_tool_preview();
             sink.finish_spinner();
             sink.flush_display();
             sink.presenter.print_notice(&format_model_retry(&retry));
@@ -158,7 +155,6 @@ fn handle_completion_stream_item(
             sink.resume_model_spinner();
         }
         MultiTurnStreamItem::ToolExecutionCommitted => {
-            state.streaming_tool.reset();
             state.first_token_at = None;
             state.model_call_start = Some(Instant::now());
         }

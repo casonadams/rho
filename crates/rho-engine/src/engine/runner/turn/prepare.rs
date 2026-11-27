@@ -7,7 +7,6 @@ use crate::engine::runner::history::continuation_history;
 use crate::engine::runner::sink::{TerminalApprovalSink, TerminalSinkConfig};
 use rho_harness_core::error::{AppError, Result};
 use rho_harness_core::model::ChatMessage;
-use rho_harness_core::presentation::ToolStreamPort;
 use rho_harness_core::presentation::presenter::Presenter;
 use rho_harness_core::provider::ProviderId;
 use rho_harness_core::session::SessionEventKind;
@@ -32,7 +31,6 @@ pub(super) struct TurnRunnerParams<'a> {
     pub thinking_level: Option<ThinkingLevel>,
     pub checkpoint: Option<&'a [ChatMessage]>,
     pub history: &'a [ChatMessage],
-    pub stream_port: ToolStreamPort,
 }
 
 pub(super) struct PreparedTurn {
@@ -309,7 +307,6 @@ impl AgentEngine {
             .prompt(params.prompt)
             .budget(params.budget)
             .thinking_level(params.thinking_level)
-            .stream_port(params.stream_port)
             .steering(request.steering.clone())
             .inbox(Some(self.inbox()))
             .monitor(Some(self.agent_monitor.clone()))
@@ -405,7 +402,6 @@ impl AgentEngine {
                     thinking_level: loop_state.thinking_level,
                     checkpoint: loop_state.checkpoint.as_deref(),
                     history: &loop_state.visible_history,
-                    stream_port: presenter.stream_port(),
                 },
                 sink.clone(),
                 request,

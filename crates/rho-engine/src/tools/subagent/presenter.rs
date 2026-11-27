@@ -1,21 +1,36 @@
 //! Shows a subagent's turn in its monitor record: the same `Presenter` calls the main agent's turn
 //! makes to the terminal become the agent's streamed text, thinking, and tool cards.
 
+use crate::tools::file_change::PendingFileChanges;
 use rho_harness_core::agents::{AgentEvent, AgentHandle, Streamed};
 use rho_harness_core::presentation::activity::activity_token;
+use rho_harness_core::presentation::stream::ToolStreamSink;
 use rho_harness_core::presentation::{
     ActivityToken, Presenter, SessionStatus, ToolLine, ToolStreamPort, WelcomeDisplay,
 };
 use serde_json::Value;
+use std::sync::Arc;
+
+/// Output streamed to a call's card while the model writes it, kept on the agent's record.
+struct CallOutput(AgentHandle);
+
+impl ToolStreamSink for CallOutput {
+    fn tool_chunk(&self, chunk: String) {
+        self.0.call_output(&chunk);
+    }
+}
 
 pub(crate) struct AgentPresenter {
     tracker: Option<AgentHandle>,
-    progress: ToolStreamPort,
+    file_changes: PendingFileChanges,
 }
 
 impl AgentPresenter {
-    pub(crate) fn new(tracker: Option<AgentHandle>, progress: ToolStreamPort) -> Self {
-        Self { tracker, progress }
+    pub(crate) fn new(tracker: Option<AgentHandle>) -> Self {
+        Self {
+            tracker,
+            file_changes: PendingFileChanges::default(),
+        }
     }
 
     fn event(&self, event: AgentEvent) {
@@ -50,7 +65,8 @@ impl Presenter for AgentPresenter {
         self.stream(Streamed::Thinking, token);
     }
 
-    fn finish_tool_line(&self, line: ToolLine) {
+    fn finish_tool_line(&self, mut line: ToolLine) {
+        self.file_changes.attach(&mut line);
         self.event(AgentEvent::Tool(line));
     }
 
@@ -69,14 +85,23 @@ impl Presenter for AgentPresenter {
     }
 
     fn start_tool_run(&self, name: &str, arguments: &Value) {
-        self.event(AgentEvent::ToolCall {
-            name: name.to_string(),
-            args: arguments.to_string(),
-        });
+        self.file_changes.note(name, arguments);
+        self.event(AgentEvent::tool_call(name, arguments.clone()));
+    }
+
+    fn preview_tool_run(&self, name: &str, arguments: &Value) {
+        self.file_changes.note(name, arguments);
+        if let Some(tracker) = &self.tracker {
+            tracker.preview_call(name, arguments.clone());
+        }
     }
 
     fn stream_port(&self) -> ToolStreamPort {
-        self.progress.clone()
+        let sink = self
+            .tracker
+            .clone()
+            .map(|tracker| Arc::new(CallOutput(tracker)) as Arc<dyn ToolStreamSink>);
+        ToolStreamPort::new(sink)
     }
 }
 
@@ -84,12 +109,13 @@ impl Presenter for AgentPresenter {
 mod tests {
     use super::*;
     use rho_harness_core::agents::AgentMonitor;
+    use std::sync::Arc;
 
     #[test]
     fn the_turns_output_becomes_the_agents_record() {
         let monitor = AgentMonitor::default();
         let handle = monitor.start("g", "a", "m", 3);
-        let presenter = AgentPresenter::new(Some(handle.clone()), ToolStreamPort::default());
+        let presenter = AgentPresenter::new(Some(handle.clone()));
         let args = serde_json::json!({ "path": "a.rs" });
 
         presenter.print_user_block("look at a.rs");
@@ -109,5 +135,65 @@ mod tests {
         assert_eq!(events[1], AgentEvent::Thinking("hmm".into()));
         assert_eq!(events[2], AgentEvent::Text("Reading".into()));
         assert!(matches!(&events[3], AgentEvent::Tool(line) if line.output == "fn a() {}"));
+    }
+
+    #[test]
+    fn a_write_streams_into_the_agents_record_and_is_replaced_by_its_finished_line() {
+        let monitor = AgentMonitor::default();
+        let handle = monitor.start("g", "a", "m", 3);
+        let presenter: Arc<dyn Presenter> = Arc::new(AgentPresenter::new(Some(handle.clone())));
+        let dir = crate::test_support::TestDir::new();
+        let session = rho_harness_core::session::SessionManager::new(&dir, None).unwrap();
+        let config = crate::engine::runner::sink::TerminalSinkConfig {
+            model_label: "test-model".to_string(),
+            run_tracker: crate::engine::metrics::RunTracker::default(),
+        };
+        let sink = crate::engine::runner::sink::TerminalApprovalSink::new(&presenter, config, session);
+        let args = serde_json::json!({ "path": "a.txt", "text": "hello world" });
+
+        sink.preview_tool("write", &serde_json::json!({}));
+        sink.preview_tool_chunk("hello");
+        sink.preview_tool("write", &serde_json::json!({ "path": "a.txt" }));
+        sink.preview_tool_chunk("hello wor");
+
+        let streaming = monitor.record(handle.id()).unwrap().events;
+        let mut shown = AgentEvent::tool_call("write", serde_json::json!({ "path": "a.txt" }));
+        if let AgentEvent::ToolCall { output, .. } = &mut shown {
+            output.push_str("hello wor");
+        }
+        assert_eq!(streaming, [shown]);
+
+        sink.tool_start("write", &args);
+        presenter.finish_tool_line(ToolLine::new("write", args.clone()));
+        let finished = monitor.record(handle.id()).unwrap().events;
+        assert!(
+            matches!(&finished[..], [AgentEvent::Tool(line)] if line.arguments == args),
+            "{finished:?}"
+        );
+    }
+
+    #[test]
+    fn a_finished_write_carries_the_state_its_file_had_when_it_started() {
+        let dir = crate::test_support::TestDir::new();
+        let file = dir.join("f.txt");
+        std::fs::write(&file, "old").unwrap();
+        let monitor = AgentMonitor::default();
+        let handle = monitor.start("g", "a", "m", 3);
+        let presenter = AgentPresenter::new(Some(handle.clone()));
+        let args = serde_json::json!({ "path": file.to_str().unwrap(), "text": "new" });
+
+        presenter.start_tool_run("write", &args);
+        std::fs::write(&file, "new").unwrap();
+        presenter.finish_tool_line(ToolLine::new("write", args));
+
+        let events = monitor.record(handle.id()).unwrap().events;
+        let [AgentEvent::Tool(line)] = &events[..] else {
+            panic!("expected the finished write: {events:?}");
+        };
+        assert!(
+            line.file_change
+                .as_ref()
+                .is_some_and(|change| change.overwrote_existing)
+        );
     }
 }

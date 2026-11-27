@@ -7,6 +7,8 @@ const MAX_EVENTS_PER_AGENT: usize = 500;
 const MAX_EVENT_CHARS: usize = 4_000;
 /// Assistant text is shown as rendered markdown, so it keeps more than tool output does.
 const MAX_TEXT_CHARS: usize = 16_000;
+/// What a running tool's card keeps of the output streamed to it; the oldest output goes first.
+const MAX_CALL_OUTPUT_BYTES: usize = 200_000;
 const MAX_RETAINED_AGENTS: usize = 200;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -37,13 +39,28 @@ pub enum AgentEvent {
     Task(String),
     Text(String),
     Thinking(String),
-    /// A tool call that has started and not finished yet.
+    /// A tool call that has started and not finished yet, with the output streamed to its card so far.
     ToolCall {
         name: String,
-        args: String,
+        args: serde_json::Value,
+        output: String,
+        /// Bytes of streamed output cut from the front of `output` to keep it bounded.
+        dropped: usize,
     },
     /// A finished tool call; it replaces the matching pending `ToolCall`.
     Tool(ToolLine),
+}
+
+impl AgentEvent {
+    /// A tool call that has just started, with nothing streamed to its card yet.
+    pub fn tool_call(name: impl Into<String>, args: serde_json::Value) -> Self {
+        Self::ToolCall {
+            name: name.into(),
+            args,
+            output: String::new(),
+            dropped: 0,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -165,12 +182,39 @@ impl TrackedAgent {
         self.push(AgentEvent::Text(final_text.to_string()));
     }
 
-    /// The earliest started call that `line` finishes: same tool, same arguments.
+    /// The earliest started call that `line` finishes: same tool and arguments, else the earliest of
+    /// the same tool, since a previewed call is started before its arguments are complete.
     fn pending_call(&self, line: &ToolLine) -> Option<usize> {
-        let args = line.arguments.to_string();
-        self.events
-            .iter()
-            .position(|e| matches!(e, AgentEvent::ToolCall { name, args: a } if *name == line.name && *a == args))
+        let pending = |exact: bool| {
+            self.events.iter().position(|e| {
+                matches!(e, AgentEvent::ToolCall { name, args, .. }
+                    if *name == line.name && (!exact || *args == line.arguments))
+            })
+        };
+        pending(true).or_else(|| pending(false))
+    }
+
+    /// Starts or updates the call `name` whose arguments are still streaming: it replaces an
+    /// unfinished call just before it, which is the earlier state of the same preview.
+    fn preview_call(&mut self, name: &str, args: serde_json::Value) {
+        let replaces = matches!(self.events.back(), Some(AgentEvent::ToolCall { name: last, .. }) if last == name);
+        if replaces {
+            self.events.pop_back();
+        }
+        self.push(AgentEvent::tool_call(name, args));
+    }
+
+    /// Adds output streamed to the card of the latest unfinished call.
+    fn call_output(&mut self, chunk: &str) {
+        let Some(AgentEvent::ToolCall { output, dropped, .. }) = self.events.back_mut() else {
+            return;
+        };
+        output.push_str(chunk);
+        if output.len() > 2 * MAX_CALL_OUTPUT_BYTES {
+            let cut = output.ceil_char_boundary(output.len() - MAX_CALL_OUTPUT_BYTES);
+            output.drain(..cut);
+            *dropped += cut;
+        }
     }
 }
 
@@ -279,6 +323,16 @@ impl AgentHandle {
         self.monitor.update(self.id, |agent| agent.push(event));
     }
 
+    /// Starts or updates the call `name` whose arguments are still streaming, replacing its earlier state.
+    pub fn preview_call(&self, name: &str, args: serde_json::Value) {
+        self.monitor.update(self.id, |agent| agent.preview_call(name, args));
+    }
+
+    /// Adds output streamed to the card of the latest unfinished call.
+    pub fn call_output(&self, chunk: &str) {
+        self.monitor.update(self.id, |agent| agent.call_output(chunk));
+    }
+
     /// Adds a streamed piece of the model's reply, or of its reasoning, to the view.
     pub fn stream(&self, kind: Streamed, delta: &str) {
         self.monitor.update(self.id, |agent| agent.stream(kind, delta));
@@ -347,14 +401,11 @@ fn clamp_event(event: AgentEvent) -> AgentEvent {
         AgentEvent::Task(text) => AgentEvent::Task(clamp_text(text, MAX_EVENT_CHARS)),
         AgentEvent::Text(text) => AgentEvent::Text(clamp_text(text, MAX_TEXT_CHARS)),
         AgentEvent::Thinking(text) => AgentEvent::Thinking(clamp_text(text, MAX_TEXT_CHARS)),
-        AgentEvent::ToolCall { name, args } => AgentEvent::ToolCall {
-            name,
-            args: clamp_text(args, MAX_EVENT_CHARS),
-        },
         AgentEvent::Tool(mut line) => {
             line.output = clamp_text(line.output, MAX_EVENT_CHARS);
             AgentEvent::Tool(line)
         }
+        call @ AgentEvent::ToolCall { .. } => call,
     }
 }
 
@@ -438,10 +489,7 @@ mod tests {
         let monitor = AgentMonitor::default();
         let handle = monitor.start("g", "a", "m", 1);
         handle.stream(Streamed::Text, "before");
-        handle.event(AgentEvent::ToolCall {
-            name: "rg".into(),
-            args: "{}".into(),
-        });
+        handle.event(AgentEvent::tool_call("rg", serde_json::json!({})));
         handle.stream(Streamed::Text, "after");
         assert_eq!(monitor.record(handle.id()).unwrap().events.len(), 3);
     }
@@ -478,6 +526,64 @@ mod tests {
     }
 
     #[test]
+    fn a_large_tool_call_keeps_its_arguments_and_is_replaced_by_its_finished_line() {
+        let monitor = AgentMonitor::default();
+        let handle = monitor.start("g", "a", "m", 1);
+        let args = serde_json::json!({ "path": "a.rs", "text": "x".repeat(MAX_EVENT_CHARS * 3) });
+        handle.event(AgentEvent::tool_call("write", args.clone()));
+        let pending = monitor.record(handle.id()).unwrap().events;
+        assert_eq!(pending, [AgentEvent::tool_call("write", args.clone())]);
+        handle.event(AgentEvent::Tool(line("write", args.clone(), "ok")));
+        assert_eq!(
+            monitor.record(handle.id()).unwrap().events,
+            [AgentEvent::Tool(line("write", args, "ok"))]
+        );
+    }
+
+    #[test]
+    fn a_previewed_call_is_updated_in_place_streams_output_and_is_finished_by_its_line() {
+        let monitor = AgentMonitor::default();
+        let handle = monitor.start("g", "a", "m", 1);
+        handle.preview_call("write", serde_json::json!({}));
+        handle.call_output("one\n");
+        handle.preview_call("write", serde_json::json!({ "path": "a.rs" }));
+        handle.call_output("one\ntwo\n");
+        let [AgentEvent::ToolCall { args, output, .. }] = &monitor.record(handle.id()).unwrap().events[..] else {
+            panic!("the preview is one call");
+        };
+        assert_eq!(
+            (args, output.as_str()),
+            (&serde_json::json!({ "path": "a.rs" }), "one\ntwo\n")
+        );
+
+        let full = serde_json::json!({ "path": "a.rs", "text": "one\ntwo\n" });
+        handle.event(AgentEvent::Tool(line("write", full.clone(), "ok")));
+        assert_eq!(
+            monitor.record(handle.id()).unwrap().events,
+            [AgentEvent::Tool(line("write", full, "ok"))]
+        );
+    }
+
+    #[test]
+    fn a_calls_streamed_output_keeps_the_latest_and_counts_what_it_cut() {
+        let monitor = AgentMonitor::default();
+        let handle = monitor.start("g", "a", "m", 1);
+        handle.preview_call("bash", serde_json::json!({}));
+        let piece = "héllo woréd\n".repeat(1000);
+        let pieces = 2 * MAX_CALL_OUTPUT_BYTES / piece.len() + 3;
+        for _ in 0..pieces {
+            handle.call_output(&piece);
+        }
+        let events = monitor.record(handle.id()).unwrap().events;
+        let [AgentEvent::ToolCall { output, dropped, .. }] = &events[..] else {
+            panic!("one running call");
+        };
+        assert!(*dropped > 0 && output.len() <= 2 * MAX_CALL_OUTPUT_BYTES);
+        assert_eq!(dropped + output.len(), pieces * piece.len());
+        assert!(output.ends_with(&piece));
+    }
+
+    #[test]
     fn a_finished_tool_replaces_its_pending_call_in_place() {
         let monitor = AgentMonitor::default();
         let handle = monitor.start("g", "a", "m", 1);
@@ -486,10 +592,7 @@ mod tests {
             serde_json::json!({ "path": "b.rs" }),
         );
         for args in [&a, &b] {
-            handle.event(AgentEvent::ToolCall {
-                name: "read".into(),
-                args: args.to_string(),
-            });
+            handle.event(AgentEvent::tool_call("read", args.clone()));
         }
         handle.event(AgentEvent::Tool(line("read", b.clone(), "B")));
         handle.event(AgentEvent::Text("after".into()));

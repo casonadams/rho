@@ -41,13 +41,15 @@ impl RunningTool {
         name != "wait"
     }
 
+    /// A card for a tool that has just started. A `write` shows the file it is writing as its
+    /// output, so its live card tails the content like command output.
     pub fn new(name: impl Into<String>, args_summary: impl Into<String>, arguments: serde_json::Value) -> Self {
         let name = name.into();
         let file_change = (name == "write")
             .then(|| crate::ui::render::file_change::capture(&name, &arguments))
             .flatten()
             .map(|(_, change)| change);
-        Self {
+        let mut tool = Self {
             name,
             args_summary: args_summary.into(),
             arguments,
@@ -55,7 +57,13 @@ impl RunningTool {
             output: String::new(),
             file_change,
             pending_ansi: String::new(),
+        };
+        if tool.name == "write"
+            && let Some(content) = rho_harness_core::args::write_text(&tool.arguments).map(str::to_string)
+        {
+            tool.append_chunk(&content);
         }
+        tool
     }
 
     pub fn append_chunk(&mut self, chunk: &str) {

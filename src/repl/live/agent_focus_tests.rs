@@ -24,10 +24,10 @@ fn running_agent(monitor: &AgentMonitor, label: &str) -> AgentHandle {
 fn a_running_agent_streams_its_reply_and_shows_its_running_tool_like_the_main_agent() {
     let monitor = AgentMonitor::default();
     let handle = running_agent(&monitor, "audit");
-    handle.event(AgentEvent::ToolCall {
-        name: "bash".into(),
-        args: serde_json::json!({ "command": "make test" }).to_string(),
-    });
+    handle.event(AgentEvent::tool_call(
+        "bash",
+        serde_json::json!({ "command": "make test" }),
+    ));
     let with_tool = frame(&monitor.record(handle.id()).unwrap());
     assert_eq!(
         with_tool.items,
@@ -62,10 +62,7 @@ fn a_running_agent_streams_its_reply_and_shows_its_running_tool_like_the_main_ag
 fn tools_without_a_live_card_and_unfinished_calls_follow_the_main_agents_rules() {
     let monitor = AgentMonitor::default();
     let handle = running_agent(&monitor, "scout");
-    handle.event(AgentEvent::ToolCall {
-        name: "rg".into(),
-        args: "{\"pattern\": \"x\"}".into(),
-    });
+    handle.event(AgentEvent::tool_call("rg", serde_json::json!({ "pattern": "x" })));
     assert_eq!(frame(&monitor.record(handle.id()).unwrap()).running_tool, None);
 
     handle.finish(AgentStatus::Cancelled);
@@ -74,6 +71,60 @@ fn tools_without_a_live_card_and_unfinished_calls_follow_the_main_agents_rules()
         stopped.items.last(),
         Some(&TranscriptItem::Notice("\u{2717} rg did not finish".into()))
     );
+}
+
+#[test]
+fn the_shown_agents_write_streams_into_its_card_as_the_model_writes_it() {
+    let monitor = AgentMonitor::default();
+    let handle = running_agent(&monitor, "writer");
+    let mut c = controller();
+    show_agent(&mut c, Some(&monitor), Some(handle.id())).unwrap();
+    let tail = |c: &TerminalController<NullBackend>| c.state().active_tool().map(|tool| tool.output.clone());
+
+    handle.preview_call("write", serde_json::json!({}));
+    handle.call_output("alpha\n");
+    assert!(refresh(&mut c, &monitor).unwrap());
+    assert_eq!(tail(&c).as_deref(), Some("alpha\n"));
+
+    handle.call_output("beta\n");
+    assert!(refresh(&mut c, &monitor).unwrap());
+    assert_eq!(tail(&c).as_deref(), Some("alpha\nbeta\n"));
+
+    handle.preview_call("write", serde_json::json!({ "path": "a.txt" }));
+    handle.call_output("alpha\n");
+    assert!(refresh(&mut c, &monitor).unwrap());
+    let tool = c.state().active_tool().expect("the write keeps its card");
+    assert_eq!((tool.args_summary.as_str(), tool.output.as_str()), ("a.txt", "alpha\n"));
+
+    let args = serde_json::json!({ "path": "a.txt", "text": "alpha\n" });
+    handle.event(AgentEvent::Tool(
+        rho_harness_core::presentation::ToolLine::new("write", args).with_duration_ms(5),
+    ));
+    refresh(&mut c, &monitor).unwrap();
+    assert!(c.state().active_tool().is_none());
+    assert_eq!(c.transcript().len(), 2);
+}
+
+#[test]
+fn a_long_outputs_card_keeps_tailing_after_the_record_starts_cutting_its_front() {
+    let monitor = AgentMonitor::default();
+    let handle = running_agent(&monitor, "builder");
+    let mut c = controller();
+    show_agent(&mut c, Some(&monitor), Some(handle.id())).unwrap();
+    handle.preview_call("bash", serde_json::json!({ "command": "make" }));
+
+    for round in 0..6 {
+        handle.call_output(&format!("{}round {round}\n", "x".repeat(99_000)));
+        assert!(refresh(&mut c, &monitor).unwrap(), "round {round} changed the card");
+        let tail = c
+            .state()
+            .active_tool()
+            .map(|tool| tool.output.clone())
+            .unwrap_or_default();
+        assert!(tail.ends_with(&format!("round {round}\n")), "round {round} is the tail");
+    }
+    let events = monitor.record(handle.id()).unwrap().events;
+    assert!(matches!(events.last(), Some(AgentEvent::ToolCall { dropped, .. }) if *dropped > 0));
 }
 
 #[test]

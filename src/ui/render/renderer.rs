@@ -1,6 +1,5 @@
 //! Central terminal presentation renderer.
 
-use std::collections::HashMap;
 use std::io::{self, Write};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
@@ -11,13 +10,13 @@ use indicatif::{ProgressBar, ProgressStyle};
 use crate::ui::interactive::{Activity, InteractiveUi, OutputEvent};
 use crate::ui::markdown::MarkdownRenderer;
 use crate::ui::render::card::render_tool_transcript;
-use crate::ui::render::file_change;
 use crate::ui::render::margin::{Margin, margin_width};
 use crate::ui::render::thinking::ThinkingRenderer;
 use crate::ui::theme::Theme;
+use rho_engine::tools::file_change::PendingFileChanges;
 use rho_harness_core::config::DisplayUiConfig;
 use rho_harness_core::presentation::summary::format_tool_args_summary;
-use rho_harness_core::presentation::{FileChange, ToolLine, TurnTelemetry};
+use rho_harness_core::presentation::{ToolLine, TurnTelemetry};
 
 pub use super::notices::NoticeKind;
 
@@ -37,14 +36,6 @@ impl RenderActivity {
     }
 }
 
-/// The file content a `write` call shows in its live card, which tails it like command output.
-fn written_content<'a>(name: &str, args: &'a serde_json::Value) -> Option<&'a str> {
-    (name == "write")
-        .then(|| rho_harness_core::args::write_text(args))
-        .flatten()
-        .filter(|content| !content.is_empty())
-}
-
 #[derive(Clone)]
 pub struct TerminalRenderer {
     pub theme: Theme,
@@ -55,7 +46,7 @@ pub struct TerminalRenderer {
     pub(crate) width: Arc<AtomicUsize>,
     pub(crate) assistant_margin: Arc<Mutex<Margin>>,
     pub(crate) thinking_stream: Arc<Mutex<ThinkingRenderer>>,
-    pub(crate) pending_file_changes: Arc<Mutex<HashMap<String, FileChange>>>,
+    pub(crate) pending_file_changes: Arc<PendingFileChanges>,
 }
 
 impl Default for TerminalRenderer {
@@ -69,7 +60,7 @@ impl Default for TerminalRenderer {
             width: Arc::new(AtomicUsize::new(0)),
             assistant_margin: Arc::new(Mutex::new(Margin::new(None))),
             thinking_stream: Arc::new(Mutex::new(ThinkingRenderer::new(&Theme::default()))),
-            pending_file_changes: Arc::new(Mutex::new(HashMap::new())),
+            pending_file_changes: Arc::new(PendingFileChanges::default()),
         }
     }
 }
@@ -261,11 +252,7 @@ impl TerminalRenderer {
     }
 
     pub fn start_tool_run(&self, name: &str, args: &serde_json::Value) {
-        if let Some((path, change)) = file_change::capture(name, args)
-            && let Ok(mut pending) = self.pending_file_changes.lock()
-        {
-            pending.insert(path, change);
-        }
+        self.pending_file_changes.note(name, args);
         let summary = if name == "bash" && self.theme.full_bash_command {
             rho_harness_core::presentation::summary::format_bash_full_summary(args)
         } else {
@@ -278,9 +265,6 @@ impl TerminalRenderer {
                     args_summary: summary,
                     arguments: args.clone(),
                 });
-                if let Some(content) = written_content(name, args) {
-                    let _ = ui.tool_chunk(content.to_string());
-                }
             } else {
                 let _ = ui.set_running_tool(Some(name.to_string()));
             }
@@ -308,12 +292,7 @@ impl TerminalRenderer {
             }
             return;
         }
-        if line.file_change.is_none()
-            && let Some(path) = rho_harness_core::args::target_path(&line.arguments)
-            && let Ok(mut pending) = self.pending_file_changes.lock()
-        {
-            line.file_change = pending.remove(path);
-        }
+        self.pending_file_changes.attach(&mut line);
         if let Some(ui) = &self.ui {
             let _ = ui.push_transcript(crate::ui::interactive::TranscriptItem::Tool(line));
             return;

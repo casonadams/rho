@@ -32,7 +32,21 @@ pub fn frame(record: &AgentRecord) -> ViewFrame {
                 frame.items.push(TranscriptItem::Tool(line.clone()));
             }
             AgentEvent::Tool(_) => {}
-            AgentEvent::ToolCall { name, args } if running => frame.running_tool = live_card(name, args),
+            AgentEvent::ToolCall {
+                name,
+                args,
+                output,
+                dropped,
+            } if running => {
+                frame.running_tool = live_card(name, args);
+                if frame.running_tool.is_some() {
+                    frame.running_output = output.clone();
+                    frame.running_output_start = *dropped;
+                } else {
+                    frame.running_output = String::new();
+                    frame.running_output_start = 0;
+                }
+            }
             AgentEvent::ToolCall { name, .. } => {
                 frame
                     .items
@@ -56,15 +70,14 @@ pub fn frame(record: &AgentRecord) -> ViewFrame {
 }
 
 /// A running tool's card, for the tools the main agent shows one for.
-fn live_card(name: &str, args: &str) -> Option<ToolStartRequest> {
+fn live_card(name: &str, args: &serde_json::Value) -> Option<ToolStartRequest> {
     if !RunningTool::has_live_card(name) {
         return None;
     }
-    let args = serde_json::from_str(args).unwrap_or(serde_json::Value::Null);
     Some(ToolStartRequest {
         name: name.to_string(),
-        args_summary: format_tool_args_summary(name, &args),
-        arguments: args,
+        args_summary: format_tool_args_summary(name, args),
+        arguments: args.clone(),
     })
 }
 

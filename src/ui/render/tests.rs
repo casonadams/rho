@@ -1167,5 +1167,5 @@ fn renderer_attaches_the_snapshot_taken_when_the_tool_started() {
         })
         .expect("tool line should carry the pre-run snapshot");
     assert_eq!(change.edit_start_lines, [Some(2)]);
-    assert!(renderer.pending_file_changes.lock().unwrap().is_empty());
+    assert!(renderer.pending_file_changes.is_empty());
 }

@@ -4,7 +4,7 @@ pub(crate) mod prune;
 pub mod runner;
 mod store;
 mod stream;
-mod streaming_tool;
+pub(crate) mod streaming_tool;
 mod thinking;
 pub mod types;
 

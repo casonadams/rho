@@ -21,6 +21,7 @@ use crate::engine::runner::turn::MemoryStore;
 use crate::engine::runner::turn::runner::{
     AgentRunner, EMPTY_RESPONSE_ERROR, MultiTurnStreamItem, StreamEvent, ToolObserver,
 };
+use crate::engine::runner::turn::streaming_tool::StreamingToolTracker;
 use crate::engine::runner::turn::types::{CancellationSignal, unless_cancelled};
 use crate::tools::engine_tool::{EngineTool, TurnToolContext};
 use crate::tools::subagent::types::SubagentRole;
@@ -83,6 +84,14 @@ enum Finish {
     Done(String),
     Stopped,
     Failed(AppError),
+}
+
+/// What a round's stream has shown so far: the tools of the model call in progress, and the tool
+/// call whose arguments are streaming into a preview card.
+#[derive(Default)]
+struct Shown {
+    pending_names: Vec<String>,
+    streaming_tool: StreamingToolTracker,
 }
 
 /// What the round's turns added up to.
@@ -471,7 +480,7 @@ impl SubagentRunner {
                 compacted: false,
             };
         }
-        let presenter: Arc<dyn Presenter> = Arc::new(AgentPresenter::new(tracker.cloned(), self.ctx.progress.clone()));
+        let presenter: Arc<dyn Presenter> = Arc::new(AgentPresenter::new(tracker.cloned()));
         let (question_tool, questions) = AskParentTool::with_question_slot();
         let (report_tool, report) = CompleteTaskTool::with_report_slot();
         let mut round = RoundState {
@@ -633,7 +642,6 @@ impl SubagentRunner {
             Some(tracker) => Arc::new(hook.for_agent(tracker.clone())),
             None => hook.clone(),
         }))
-        .stream_port(self.ctx.progress.clone())
         .inbox(self.inbox.clone())
         .cancellation(Some(setup.stop.clone()))
         .monitor(self.ctx.monitor.clone())
@@ -678,7 +686,7 @@ impl SubagentRunner {
         tally: &mut Tally,
     ) -> Finish {
         let mut stream = agent.stream();
-        let mut pending_names: Vec<String> = Vec::new();
+        let mut shown = Shown::default();
         let mut output = None;
         loop {
             let Some(item) = unless_cancelled(Some(stop), stream.next()).await else {
@@ -692,7 +700,7 @@ impl SubagentRunner {
                     return Finish::Failed(error);
                 }
                 Some(Ok(MultiTurnStreamItem::FinalResponse(resp))) => output = Some(resp.output),
-                Some(Ok(item)) => self.show(item, sink, tracker, tally, &mut pending_names),
+                Some(Ok(item)) => self.show(item, sink, tracker, tally, &mut shown),
             }
         }
         sink.flush_display();
@@ -709,19 +717,23 @@ impl SubagentRunner {
         sink: &Arc<TerminalApprovalSink>,
         tracker: Option<&AgentHandle>,
         tally: &mut Tally,
-        pending_names: &mut Vec<String>,
+        shown: &mut Shown,
     ) {
+        shown.streaming_tool.observe_boundary(&item, sink);
         match item {
             MultiTurnStreamItem::StreamAssistantItem(StreamEvent::Text(text)) => sink.emit_text(&text),
             MultiTurnStreamItem::StreamAssistantItem(StreamEvent::Reasoning(text)) => sink.emit_reasoning(&text),
-            MultiTurnStreamItem::StreamAssistantItem(StreamEvent::Arguments { .. }) => sink.flush_reasoning(),
+            MultiTurnStreamItem::StreamAssistantItem(StreamEvent::Arguments { id, name, json }) => {
+                sink.flush_reasoning();
+                shown.streaming_tool.handle_delta(&id, &name, &json, sink);
+            }
             MultiTurnStreamItem::ToolCall { tool_call } => {
                 tally.tool_calls += 1;
-                pending_names.push(tool_call.function.name);
+                shown.pending_names.push(tool_call.function.name);
             }
             MultiTurnStreamItem::ModelTurnRetried(retry) => {
                 tally.tool_calls = tally.tool_calls.saturating_sub(retry.discarded_tool_calls);
-                pending_names.clear();
+                shown.pending_names.clear();
                 sink.flush_display();
             }
             MultiTurnStreamItem::CompletionCall(call) => {
@@ -734,9 +746,9 @@ impl SubagentRunner {
                 if let Some(tracker) = tracker {
                     tracker.turn(tally.turns);
                 }
-                if !pending_names.is_empty() {
-                    self.report_progress(tally.turns, pending_names);
-                    pending_names.clear();
+                if !shown.pending_names.is_empty() {
+                    self.report_progress(tally.turns, &shown.pending_names);
+                    shown.pending_names.clear();
                 }
             }
             MultiTurnStreamItem::DisplayBarrier(drained) => {

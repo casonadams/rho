@@ -133,6 +133,34 @@ async fn unclipped_output_has_no_failure_summary() {
 
 #[cfg(unix)]
 #[tokio::test]
+async fn a_bound_tool_streams_its_output_to_the_turns_port_as_the_command_runs() {
+    #[derive(Default)]
+    struct Chunks(std::sync::Mutex<Vec<String>>);
+    impl rho_harness_core::presentation::ToolStreamSink for Chunks {
+        fn tool_chunk(&self, chunk: String) {
+            self.0.lock().unwrap().push(chunk);
+        }
+    }
+    let chunks = std::sync::Arc::new(Chunks::default());
+    let logged = LoggedTool::new();
+    let tool = logged
+        .bind_turn(&TurnToolContext {
+            progress: rho_harness_core::presentation::ToolStreamPort::new(Some(chunks.clone())),
+            ..TurnToolContext::default()
+        })
+        .expect("a tool binds to its turn's port");
+
+    let res = tool
+        .execute(serde_json::json!({ "command": "echo first; sleep 0.05; echo second" }))
+        .await
+        .unwrap();
+
+    assert!(!res.is_error);
+    assert_eq!(chunks.0.lock().unwrap().concat(), "first\nsecond\n");
+}
+
+#[cfg(unix)]
+#[tokio::test]
 async fn a_bound_tool_owns_its_background_jobs_and_they_stop_when_the_session_is_abandoned() {
     let dir = tempfile::tempdir().unwrap();
     let owner = "bash-owner-7c2".to_string();
@@ -144,7 +172,6 @@ async fn a_bound_tool_owns_its_background_jobs_and_they_stop_when_the_session_is
             ..TurnToolContext::default()
         })
         .expect("a tool with a mailbox binds to it");
-    assert!(unbound.bind_turn(&TurnToolContext::default()).is_none());
 
     let started = tool
         .execute(serde_json::json!({ "command": "sleep 30", "background": true }))

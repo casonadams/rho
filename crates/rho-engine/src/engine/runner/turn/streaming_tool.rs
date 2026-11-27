@@ -1,3 +1,4 @@
+use super::runner::MultiTurnStreamItem;
 use crate::engine::runner::sink::TerminalApprovalSink;
 use std::sync::Arc;
 
@@ -76,6 +77,21 @@ impl StreamingToolTracker {
         rho_harness_core::args::TARGET_PATH_KEYS
             .iter()
             .find_map(|key| extract_json_string_field(&self.arguments_buf, key))
+    }
+
+    /// Ends the call being streamed when the stream moves past it: its model call finished or was
+    /// retried, or its tools were committed to run. A retried call's preview card is removed.
+    pub fn observe_boundary(&mut self, item: &MultiTurnStreamItem, sink: &Arc<TerminalApprovalSink>) {
+        match item {
+            MultiTurnStreamItem::FinalResponse(_)
+            | MultiTurnStreamItem::CompletionCall(_)
+            | MultiTurnStreamItem::ToolExecutionCommitted => self.reset(),
+            MultiTurnStreamItem::ModelTurnRetried(_) => {
+                self.reset();
+                sink.cancel_tool_preview();
+            }
+            _ => {}
+        }
     }
 
     pub fn reset(&mut self) {

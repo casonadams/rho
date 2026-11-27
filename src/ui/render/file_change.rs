@@ -1,71 +1,8 @@
 //! Pre-run file snapshots and header stats for edit and write tool cards.
 
-use super::diff::locate_edit_line_number;
+pub(crate) use rho_engine::tools::file_change::{capture, edit_start_lines, explicit_edit_line, read_bounded};
 use rho_harness_core::presentation::{FileChange, ToolLine};
 use serde_json::Value;
-
-const MAX_SNAPSHOT_BYTES: u64 = 10 * 1024 * 1024;
-
-pub(crate) fn explicit_edit_line(edit: &Value) -> Option<usize> {
-    edit.get("line")
-        .or_else(|| edit.get("start_line"))
-        .or_else(|| edit.get("line_number"))
-        .and_then(Value::as_u64)
-        .map(|line| line as usize)
-}
-
-pub(crate) fn read_bounded(path: &str) -> Option<String> {
-    let too_large = std::fs::metadata(path).is_ok_and(|meta| meta.len() > MAX_SNAPSHOT_BYTES);
-    if too_large {
-        return None;
-    }
-    std::fs::read_to_string(path).ok()
-}
-
-pub(crate) fn edit_start_lines(edits: &[Value], content: Option<&str>) -> Vec<Option<usize>> {
-    edits
-        .iter()
-        .map(|edit| {
-            explicit_edit_line(edit).or_else(|| {
-                let new = edit.get("newText").and_then(Value::as_str).unwrap_or("");
-                locate_edit_line_number(content?, match_anchor(edit), new)
-            })
-        })
-        .collect()
-}
-
-fn match_anchor(edit: &Value) -> &str {
-    let text = |key: &str| edit.get(key).and_then(Value::as_str).filter(|s| !s.is_empty());
-    text("oldText").or_else(|| text("startText")).unwrap_or("")
-}
-
-fn replaced_regions(edits: &[Value], content: Option<&str>) -> Vec<Option<String>> {
-    let Some(mut current) = content.map(str::to_string) else {
-        return Vec::new();
-    };
-    let line_ending = rho_engine::tools::edit::detect_line_ending(&current);
-    let mut regions = Vec::with_capacity(edits.len());
-    for edit in edits {
-        let parsed = serde_json::from_value::<rho_harness_core::args::EditReplacement>(edit.clone()).ok();
-        let located = parsed.as_ref().and_then(|e| {
-            let ranges = rho_engine::tools::edit::locate_edit(&current, e, line_ending).ok()?;
-            Some((e, ranges))
-        });
-        let Some((parsed, ranges)) = located else {
-            regions.push(None);
-            continue;
-        };
-        let region = ranges
-            .first()
-            .filter(|_| parsed.start_text.is_some())
-            .map(|r| current[r.clone()].to_string());
-        regions.push(region);
-        for range in ranges.into_iter().rev() {
-            current.replace_range(range, &parsed.new_text);
-        }
-    }
-    regions
-}
 
 pub(crate) fn removed_text(edit: &Value, idx: usize, change: Option<&FileChange>) -> String {
     if let Some(old) = edit.get("oldText").and_then(Value::as_str).filter(|s| !s.is_empty()) {
@@ -82,28 +19,6 @@ pub(crate) fn removed_text(edit: &Value, idx: usize, change: Option<&FileChange>
         ("", "") => String::new(),
         (start, end) => format!("{start}\n\u{22ee}\n{end}"),
     }
-}
-
-pub(crate) fn capture(name: &str, args: &Value) -> Option<(String, FileChange)> {
-    let path = rho_harness_core::args::target_path(args)?;
-    let change = match name {
-        "write" => FileChange {
-            overwrote_existing: std::path::Path::new(path).is_file(),
-            edit_start_lines: Vec::new(),
-            replaced_regions: Vec::new(),
-        },
-        "edit" => {
-            let edits = args.get("edits")?.as_array()?;
-            let content = read_bounded(path);
-            FileChange {
-                overwrote_existing: true,
-                edit_start_lines: edit_start_lines(edits, content.as_deref()),
-                replaced_regions: replaced_regions(edits, content.as_deref()),
-            }
-        }
-        _ => return None,
-    };
-    Some((path.to_string(), change))
 }
 
 pub(crate) fn edit_line_stats(args: &Value, change: Option<&FileChange>) -> Option<(usize, usize, usize)> {

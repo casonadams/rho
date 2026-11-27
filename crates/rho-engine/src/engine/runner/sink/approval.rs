@@ -4,7 +4,7 @@ use super::types::{
     CompletedTool, DisplayKind, PendingToolCall, TerminalSinkConfig, TerminalSinkState, ToolFinishDetails,
 };
 use crate::engine::metrics::RunTracker;
-use rho_harness_core::presentation::{Presenter, ToolLine, summarize_tool_output};
+use rho_harness_core::presentation::{Presenter, ToolLine, ToolStreamSink, summarize_tool_output};
 use rho_harness_core::session::SessionManager;
 use serde_json::Value;
 use std::collections::HashMap;
@@ -94,6 +94,7 @@ impl TerminalApprovalSink {
                 reasoning_carry: String::new(),
                 tool_preview: None,
                 tool_preview_started: None,
+                tool_output_carry: String::new(),
             }),
         })
     }
@@ -293,6 +294,7 @@ impl TerminalApprovalSink {
         self.presenter.flush();
         let arguments = self.redact_arguments(arguments);
         if let Ok(mut state) = self.state.lock() {
+            state.tool_output_carry.clear();
             let previewing = state.tool_preview.take().is_some();
             let started = state.tool_preview_started.take().unwrap_or_else(Instant::now);
             disarm_spinner(&mut state);
@@ -371,7 +373,7 @@ impl TerminalApprovalSink {
             state.tool_preview = Some(String::new());
             state.tool_preview_started.get_or_insert_with(Instant::now);
         }
-        self.presenter.start_tool_run(name, &arguments);
+        self.presenter.preview_tool_run(name, &arguments);
     }
 
     pub fn preview_tool_chunk(&self, chunk: &str) {
@@ -397,6 +399,20 @@ impl TerminalApprovalSink {
         });
         if previewing {
             self.presenter.end_tool_run();
+        }
+    }
+}
+
+/// The port a turn's tools stream their live output through: secrets are redacted before it
+/// reaches the presenter's port, which is the screen's card or the subagent's own record.
+impl ToolStreamSink for TerminalApprovalSink {
+    fn tool_chunk(&self, chunk: String) {
+        let redacted = {
+            let Ok(mut state) = self.state.lock() else { return };
+            self.redact_streamed(&mut state.tool_output_carry, &chunk)
+        };
+        if !redacted.is_empty() {
+            self.presenter.stream_port().stream_chunk(&redacted);
         }
     }
 }
@@ -629,6 +645,41 @@ mod tests {
         });
         assert_eq!(thinking, "thinking about [REDACTED] now");
         assert_eq!(text, "key: [REDACTED] done tail credential-");
+    }
+
+    #[test]
+    fn secrets_split_across_a_running_tools_output_chunks_are_redacted() {
+        use rho_harness_core::presentation::{RecordingSink, StructuredPresenter, UiEvent};
+        let temp = tempfile::tempdir().unwrap();
+        let recording = RecordingSink::new();
+        let presenter: Arc<dyn Presenter> = Arc::new(StructuredPresenter::recording(recording.clone()));
+        let session = rho_harness_core::session::SessionManager::new_with_secrets(
+            temp.path(),
+            None,
+            vec!["credential-sentinel".to_string()],
+        )
+        .unwrap();
+        let sink = TerminalApprovalSink::new(
+            &presenter,
+            TerminalSinkConfig {
+                model_label: "test".to_string(),
+                run_tracker: crate::engine::metrics::RunTracker::default(),
+            },
+            session,
+        );
+
+        sink.tool_chunk("key: credential-".to_string());
+        sink.tool_chunk("sentinel done\n".to_string());
+
+        let shown: String = recording
+            .events()
+            .iter()
+            .filter_map(|event| match event {
+                UiEvent::ToolChunk { chunk, .. } => Some(chunk.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(shown, "key: [REDACTED] done\n");
     }
 
     #[test]
