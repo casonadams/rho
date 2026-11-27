@@ -1,10 +1,12 @@
+use crate::engine::runner::SteeringQueueProvider;
 use crate::engine::runner::turn::types::CancellationSignal;
-use crate::mailbox::{Envelope, Kind, Mailboxes, Party};
+use crate::mailbox::{Envelope, Kind, Mailbox, Mailboxes, Party};
 use crate::tools::bash::runner::neutralize_notice_tags;
 use std::collections::{HashMap, VecDeque};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Instant;
+use tokio::sync::watch;
 
 pub const MAX_FINISHED_JOBS: usize = 32;
 
@@ -33,9 +35,58 @@ struct Registry {
     finished: VecDeque<String>,
 }
 
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub struct JobManager {
     registry: Arc<Mutex<Registry>>,
+    /// Counts jobs that stopped running, so waiters wake when one ends without sending a message.
+    ended: Arc<watch::Sender<u64>>,
+}
+
+impl Default for JobManager {
+    fn default() -> Self {
+        Self {
+            registry: Arc::default(),
+            ended: Arc::new(watch::Sender::new(0)),
+        }
+    }
+}
+
+/// What wakes an agent waiting on its background work: a message in its mailbox, steering from the
+/// user, or any job ending. Made before the waiter first checks what it waits for, so it never
+/// misses a change that happens between that check and the wait.
+pub(crate) struct Wakeups<'a> {
+    inbox: Option<&'a Mailbox>,
+    steering: Option<&'a dyn SteeringQueueProvider>,
+    ended: watch::Receiver<u64>,
+}
+
+impl Wakeups<'_> {
+    /// Returns once a message or steering is waiting, or after a job ended since the last call.
+    pub(crate) async fn next(&mut self) {
+        let Self { inbox, steering, ended } = self;
+        let job_ended = async {
+            if ended.changed().await.is_err() {
+                std::future::pending::<()>().await;
+            }
+        };
+        let message = async {
+            match inbox {
+                Some(inbox) => inbox.wait().await,
+                None => std::future::pending().await,
+            }
+        };
+        let steering = async {
+            match steering {
+                Some(steering) => steering.arrived().await,
+                None => std::future::pending().await,
+            }
+        };
+        tokio::select! {
+            () = job_ended => {}
+            () = message => {}
+            () = steering => {}
+        }
+    }
 }
 
 /// A job's notice: `heading`, then any output it produced, framed as untrusted data.
@@ -171,14 +222,32 @@ impl JobManager {
     pub fn update_status(&self, id: &str, status: JobStatus) {
         let mut registry = self.lock();
         let Registry { jobs, finished } = &mut *registry;
+        let mut ended = false;
         if let Some(job) = jobs.get_mut(id) {
-            let finishing = job.status == JobStatus::Running && status != JobStatus::Running;
+            ended = job.status == JobStatus::Running && status != JobStatus::Running;
             job.status = status;
-            if finishing {
+            if ended {
                 finished.push_back(id.to_string());
             }
         }
         evict_finished(&mut registry);
+        drop(registry);
+        if ended {
+            self.ended.send_modify(|count| *count += 1);
+        }
+    }
+
+    /// Wakes a waiter on `inbox`, `steering`, or any job of this manager ending.
+    pub(crate) fn wakeups<'a>(
+        &self,
+        inbox: Option<&'a Mailbox>,
+        steering: Option<&'a dyn SteeringQueueProvider>,
+    ) -> Wakeups<'a> {
+        Wakeups {
+            inbox,
+            steering,
+            ended: self.ended.subscribe(),
+        }
     }
 
     pub fn get(&self, id: &str) -> Option<BackgroundJobInfo> {

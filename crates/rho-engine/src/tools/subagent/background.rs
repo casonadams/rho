@@ -317,15 +317,7 @@ impl Rounds {
     }
 
     async fn take(self: &Arc<Self>) -> RoundSlot {
-        loop {
-            let freed = self.freed.notified();
-            tokio::pin!(freed);
-            freed.as_mut().enable();
-            if let Some(slot) = self.try_take() {
-                return slot;
-            }
-            freed.await;
-        }
+        crate::wake::until(&self.freed, || self.try_take()).await
     }
 
     #[cfg(test)]

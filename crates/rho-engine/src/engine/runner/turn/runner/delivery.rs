@@ -1,4 +1,5 @@
 use super::{AgentRunner, MultiTurnStreamItem, RunnerStepContext, TurnEmitter, interrupted};
+use crate::tools::jobs::{JobManager, Wakeups};
 use rho_harness_core::error::AppError;
 use rho_harness_core::model::ChatMessage;
 
@@ -28,22 +29,17 @@ pub(super) async fn deliver_messages(
     Ok(true)
 }
 
-/// Waits for a message, a cancellation, or a short tick (a job can end without sending anything).
-async fn wait_for_message(runner: &AgentRunner) -> Result<(), AppError> {
-    runner
-        .unless_cancelled(crate::mailbox::wait_for_message_or_tick(runner.inbox.as_ref()))
-        .await
-}
-
 pub(super) enum WaitStepResult {
     EventDelivered,
     ContinueWaiting,
 }
 
+/// Delivers what is waiting, or else waits for the next wake-up and delivers what it brought.
 pub(super) async fn wait_step(
     runner: &AgentRunner,
     ctx: &mut RunnerStepContext<'_>,
     emitter: &TurnEmitter,
+    wakeups: &mut Wakeups<'_>,
 ) -> Result<WaitStepResult, AppError> {
     if runner.cancellation.as_ref().is_some_and(|c| c.is_cancelled()) {
         return Err(interrupted());
@@ -51,7 +47,7 @@ pub(super) async fn wait_step(
     if deliver_messages(runner, ctx, emitter).await? {
         return Ok(WaitStepResult::EventDelivered);
     }
-    wait_for_message(runner).await?;
+    runner.unless_cancelled(wakeups.next()).await?;
     if deliver_messages(runner, ctx, emitter).await? {
         return Ok(WaitStepResult::EventDelivered);
     }
@@ -66,7 +62,8 @@ pub(super) async fn wait_for_background_jobs(
     emitter: &TurnEmitter,
 ) -> Result<bool, AppError> {
     let owner = runner.store.owner();
-    let jobs = crate::tools::jobs::JobManager::global();
+    let jobs = JobManager::global();
+    let mut wakeups = jobs.wakeups(runner.inbox.as_ref(), runner.steering.as_deref());
     if !jobs.has_running(owner) {
         return deliver_messages(runner, ctx, emitter).await;
     }
@@ -74,7 +71,7 @@ pub(super) async fn wait_for_background_jobs(
     emitter.wait_for_display_drain().await?;
     runner.sink.resume_spinner_with_message("waiting...");
     while jobs.has_running(owner) {
-        if let WaitStepResult::EventDelivered = wait_step(runner, ctx, emitter).await? {
+        if let WaitStepResult::EventDelivered = wait_step(runner, ctx, emitter, &mut wakeups).await? {
             runner.sink.resume_spinner_with_message("thinking...");
             return Ok(true);
         }

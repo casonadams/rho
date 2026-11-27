@@ -45,6 +45,7 @@ pub mod review;
 #[cfg(test)]
 pub(crate) mod test_support;
 pub mod tools;
+pub mod wake;
 pub mod worktree;
 
 pub fn install_crypto_provider() {

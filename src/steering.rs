@@ -1,6 +1,7 @@
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
+use tokio::sync::Notify;
 
 use crate::engine::runner::{PendingMessageQueue, SteeringQueueProvider};
 
@@ -8,18 +9,20 @@ use crate::engine::runner::{PendingMessageQueue, SteeringQueueProvider};
 pub struct SharedSteeringQueue {
     queue: Arc<Mutex<PendingMessageQueue<String>>>,
     consumed: Arc<Mutex<Vec<String>>>,
+    enqueued: Arc<Notify>,
 }
 
 impl SharedSteeringQueue {
     pub fn new(mode: crate::engine::runner::QueueMode) -> Self {
         Self {
             queue: Arc::new(Mutex::new(PendingMessageQueue::new(mode))),
-            consumed: Arc::new(Mutex::new(Vec::new())),
+            ..Self::default()
         }
     }
 
     pub fn enqueue(&self, msg: String) {
         self.queue.lock().unwrap().enqueue(msg);
+        self.enqueued.notify_waiters();
     }
 
     pub fn clear(&self) {
@@ -49,6 +52,10 @@ impl SteeringQueueProvider for SharedSteeringQueue {
     fn has_steering(&self) -> bool {
         !self.queue.lock().unwrap().is_empty()
     }
+
+    async fn arrived(&self) {
+        rho_engine::wake::until(&self.enqueued, || self.has_steering().then_some(())).await;
+    }
 }
 
 #[cfg(test)]
@@ -76,5 +83,22 @@ mod tests {
         queue.clear();
         let polled_after_clear = queue.poll_steering().await;
         assert!(polled_after_clear.is_empty());
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_waiter_wakes_when_steering_is_enqueued() {
+        let queue = SharedSteeringQueue::new(QueueMode::All);
+        let waiter = tokio::spawn({
+            let queue = queue.clone();
+            async move { queue.arrived().await }
+        });
+        tokio::task::yield_now().await;
+        assert!(!waiter.is_finished());
+
+        queue.enqueue("steer".to_string());
+
+        let started = tokio::time::Instant::now();
+        waiter.await.unwrap();
+        assert_eq!(started.elapsed(), std::time::Duration::ZERO);
     }
 }

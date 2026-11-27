@@ -304,15 +304,7 @@ impl Mailbox {
 
     /// Returns once at least one message is waiting.
     pub async fn wait(&self) {
-        loop {
-            let notified = self.0.wake.notified();
-            tokio::pin!(notified);
-            notified.as_mut().enable();
-            if self.pending() > 0 {
-                return;
-            }
-            notified.await;
-        }
+        crate::wake::until(&self.0.wake, || (self.pending() > 0).then_some(())).await;
     }
 
     /// Closes the mailbox for every clone, returning the messages the agent never read.
@@ -325,22 +317,6 @@ impl Mailbox {
     #[must_use]
     pub fn same(&self, other: &Self) -> bool {
         Arc::ptr_eq(&self.0, &other.0)
-    }
-}
-
-/// How often a waiter re-checks for work that ends without sending a message.
-pub const WAKE_TICK: std::time::Duration = std::time::Duration::from_millis(250);
-
-/// Returns when a message is waiting in `inbox` or after [`WAKE_TICK`], whichever comes first.
-pub async fn wait_for_message_or_tick(inbox: Option<&Mailbox>) {
-    tokio::select! {
-        () = async {
-            match inbox {
-                Some(inbox) => inbox.wait().await,
-                None => std::future::pending::<()>().await,
-            }
-        } => {}
-        () = tokio::time::sleep(WAKE_TICK) => {}
     }
 }
 

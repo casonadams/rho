@@ -1,6 +1,6 @@
 use crate::engine::runner::SteeringQueueProvider;
 use crate::engine::runner::turn::types::{CancellationSignal, unless_cancelled};
-use crate::mailbox::{Mailbox, wait_for_message_or_tick};
+use crate::mailbox::Mailbox;
 use crate::tools::engine_tool::{EngineTool, TurnToolContext, TypedTool};
 use crate::tools::jobs::{BackgroundJobInfo, JobManager};
 use crate::tools::types::ToolResult;
@@ -108,16 +108,19 @@ impl TypedTool for WaitTool {
             return Ok(ToolResult::success(NOTHING_RUNNING));
         };
         let deadline = Instant::now() + self.cap;
+        let mut wakeups = self.jobs.wakeups(Some(&turn.inbox), turn.steering.as_deref());
         let mut waited = false;
         loop {
             if let Some(result) = self.ready(turn, waited) {
                 return Ok(result);
             }
-            if Instant::now() >= deadline {
-                return Ok(self.still_running(turn.inbox.id()));
-            }
             waited = true;
-            unless_cancelled(turn.cancellation.as_ref(), wait_for_message_or_tick(Some(&turn.inbox))).await;
+            let woken = tokio::time::timeout_at(deadline, wakeups.next());
+            if let Some(Err(_)) = unless_cancelled(turn.cancellation.as_ref(), woken).await {
+                return Ok(self
+                    .ready(turn, waited)
+                    .unwrap_or_else(|| self.still_running(turn.inbox.id())));
+            }
         }
     }
 

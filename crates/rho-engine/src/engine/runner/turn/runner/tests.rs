@@ -161,6 +161,82 @@ async fn test_wait_for_background_jobs_flow() {
         .update_status("bg-2", crate::tools::jobs::JobStatus::Failed { error: "a".into() });
 }
 
+#[tokio::test(start_paused = true)]
+async fn a_job_ending_without_a_notice_ends_the_wait_at_once() {
+    let _queue = BACKGROUND_QUEUE_TEST_LOCK.lock().await;
+    let (runner, _temp, mut buf, mut tracker) = test_agent_env(Arc::new(MockAdapter::default()));
+    let owner = runner.session_file().session_id.clone();
+    let mut ctx = RunnerStepContext::from_test_buffers(&mut buf, &mut tracker);
+    let emitter = acking_emitter();
+    let jobs = crate::tools::jobs::JobManager::global();
+    let job = jobs.start(&owner, None, "silent-5e3".into(), "sleep".into());
+    tokio::spawn(async move {
+        tokio::task::yield_now().await;
+        job.finish(
+            crate::tools::jobs::JobStatus::Failed {
+                error: "stopped".into(),
+            },
+            None,
+        );
+    });
+    let started = tokio::time::Instant::now();
+
+    let delivered = wait_for_background_jobs(&runner, &mut ctx, &emitter).await.unwrap();
+
+    assert!(!delivered);
+    assert_eq!(
+        started.elapsed(),
+        std::time::Duration::ZERO,
+        "woken by the job, not a timer"
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn steering_typed_while_waiting_for_background_work_is_delivered_at_once() {
+    struct Queued(std::sync::Mutex<Vec<String>>, tokio::sync::Notify);
+    #[async_trait::async_trait]
+    impl crate::engine::runner::SteeringQueueProvider for Queued {
+        async fn poll_steering(&self) -> Vec<String> {
+            std::mem::take(&mut *self.0.lock().unwrap())
+        }
+        fn has_steering(&self) -> bool {
+            !self.0.lock().unwrap().is_empty()
+        }
+        async fn arrived(&self) {
+            crate::wake::until(&self.1, || self.has_steering().then_some(())).await;
+        }
+    }
+    let _queue = BACKGROUND_QUEUE_TEST_LOCK.lock().await;
+    let steering = Arc::new(Queued(std::sync::Mutex::default(), tokio::sync::Notify::new()));
+    let (runner, _temp, mut buf, mut tracker) = test_agent_env(Arc::new(MockAdapter::default()));
+    let runner = runner.steering(Some(steering.clone()));
+    let owner = runner.session_file().session_id.clone();
+    let mut ctx = RunnerStepContext::from_test_buffers(&mut buf, &mut tracker);
+    let emitter = acking_emitter();
+    let jobs = crate::tools::jobs::JobManager::global();
+    jobs.register(&owner, "steer-wait-2b8".into(), "sleep".into());
+    tokio::spawn(async move {
+        tokio::task::yield_now().await;
+        steering.0.lock().unwrap().push("use the cache".into());
+        steering.1.notify_waiters();
+    });
+    let started = tokio::time::Instant::now();
+
+    let delivered = wait_for_background_jobs(&runner, &mut ctx, &emitter).await.unwrap();
+
+    assert!(delivered);
+    assert_eq!(started.elapsed(), std::time::Duration::ZERO);
+    assert!(
+        serde_json::to_string(&*ctx.current_messages)
+            .unwrap()
+            .contains("use the cache")
+    );
+    jobs.update_status(
+        "steer-wait-2b8",
+        crate::tools::jobs::JobStatus::Failed { error: "done".into() },
+    );
+}
+
 #[tokio::test]
 async fn a_turn_neither_waits_for_nor_receives_another_sessions_background_work() {
     let _queue = BACKGROUND_QUEUE_TEST_LOCK.lock().await;
@@ -1090,7 +1166,8 @@ async fn background_notification_is_injected_once_when_woken() {
     });
 
     let emitter = acking_emitter();
-    let step = wait_step(&runner, &mut ctx, &emitter).await.unwrap();
+    let mut wakeups = crate::tools::jobs::JobManager::global().wakeups(runner.inbox.as_ref(), None);
+    let step = wait_step(&runner, &mut ctx, &emitter, &mut wakeups).await.unwrap();
     enqueue.await.unwrap();
     deliver_messages(&runner, &mut ctx, &emitter).await.unwrap();
 

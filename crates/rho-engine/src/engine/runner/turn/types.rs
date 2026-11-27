@@ -45,17 +45,8 @@ impl CancellationSignal {
     pub fn is_cancelled(&self) -> bool {
         self.inner.cancelled.load(Ordering::Acquire)
     }
-    /// `notify_waiters` stores no permit, so the waiter must be registered before the flag is read.
     pub async fn wait_cancelled(&self) {
-        loop {
-            let notified = self.inner.notify.notified();
-            tokio::pin!(notified);
-            notified.as_mut().enable();
-            if self.is_cancelled() {
-                return;
-            }
-            notified.await;
-        }
+        crate::wake::until(&self.inner.notify, || self.is_cancelled().then_some(())).await;
     }
 }
 
@@ -82,6 +73,11 @@ pub trait SteeringQueueProvider: Send + Sync {
     /// Whether steering is waiting, without taking it.
     fn has_steering(&self) -> bool {
         false
+    }
+
+    /// Returns once steering is waiting; a provider that cannot signal arrivals never returns.
+    async fn arrived(&self) {
+        std::future::pending::<()>().await;
     }
 }
 
