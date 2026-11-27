@@ -67,6 +67,18 @@ struct GatedSink {
     open: Arc<AtomicBool>,
 }
 
+impl GatedSink {
+    /// A port forwarding to `port` until the returned gate is closed.
+    fn over(port: &ToolStreamPort) -> (ToolStreamPort, Arc<AtomicBool>) {
+        let open = Arc::new(AtomicBool::new(true));
+        let sink = Self {
+            port: port.clone(),
+            open: open.clone(),
+        };
+        (ToolStreamPort::new(Some(Arc::new(sink))), open)
+    }
+}
+
 impl ToolStreamSink for GatedSink {
     fn tool_chunk(&self, chunk: String) {
         if self.open.load(Ordering::Relaxed) {
@@ -194,11 +206,7 @@ impl Backgrounding {
     where
         F: Future<Output = ToolResult> + Send + 'static,
     {
-        let foreground = Arc::new(AtomicBool::new(true));
-        let gated = ToolStreamPort::new(Some(Arc::new(GatedSink {
-            port: progress.clone(),
-            open: foreground.clone(),
-        })));
+        let (gated, foreground) = GatedSink::over(progress);
         let stop = CancellationSignal::default();
         let mut round = self.runtime.open_round(
             task.id,
@@ -253,7 +261,7 @@ impl Backgrounding {
     /// save its transcript, and aborts it only if it has not finished after `STOP_GRACE`.
     fn detach(&self, mut handle: JoinHandle<ToolResult>, task: &BackgroundTask<'_>, stop: CancellationSignal) {
         let job = self.jobs.start(
-            Some(self.runtime.mailboxes().notices_for(task.owner)),
+            Some(self.runtime.notices_for(task.owner)),
             task.id.to_string(),
             task.label.clone(),
         );

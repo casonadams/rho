@@ -48,6 +48,11 @@ impl CancellationSignal {
     pub async fn wait_cancelled(&self) {
         crate::wake::until(&self.inner.notify, || self.is_cancelled().then_some(())).await;
     }
+
+    /// Whether `other` is this same signal rather than one with the same state.
+    pub(crate) fn same(&self, other: &Self) -> bool {
+        std::sync::Arc::ptr_eq(&self.inner, &other.inner)
+    }
 }
 
 /// Runs `fut` to completion, or resolves to `None` when `signal` fires first; no signal means it always completes.

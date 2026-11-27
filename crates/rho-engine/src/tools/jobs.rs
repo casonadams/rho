@@ -122,7 +122,11 @@ impl JobCompletion {
         {
             tracing::warn!("delivering the notice for job {} failed: {error}", self.id);
         }
-        self.jobs.update_status(&self.id, status);
+        self.record(status);
+    }
+
+    fn record(&self, status: JobStatus) {
+        self.jobs.record(&self.id, status, |job| job.cancel.same(&self.cancel));
     }
 }
 
@@ -130,7 +134,7 @@ impl Drop for JobCompletion {
     fn drop(&mut self) {
         if !self.finished {
             let error = "stopped unexpectedly before reporting a result".to_string();
-            self.jobs.update_status(&self.id, JobStatus::Failed { error });
+            self.record(JobStatus::Failed { error });
         }
     }
 }
@@ -207,10 +211,16 @@ impl JobManager {
     }
 
     pub fn update_status(&self, id: &str, status: JobStatus) {
+        self.record(id, status, |_| true);
+    }
+
+    /// Records `status` for job `id` if `is_run` accepts its current record, so a finished run never
+    /// overwrites a later run registered under the same id.
+    fn record(&self, id: &str, status: JobStatus, is_run: impl Fn(&BackgroundJobInfo) -> bool) {
         let mut registry = self.lock();
         let Registry { jobs, finished } = &mut *registry;
         let mut ended = false;
-        if let Some(job) = jobs.get_mut(id) {
+        if let Some(job) = jobs.get_mut(id).filter(|job| is_run(job)) {
             ended = job.status == JobStatus::Running && status != JobStatus::Running;
             job.status = status;
             if ended {
@@ -356,6 +366,19 @@ mod tests {
         );
         assert_eq!(notices[0].from, Party::System);
         assert!(!mgr.has_running("o") && !mgr.has_running("gone"));
+    }
+
+    #[test]
+    fn an_earlier_run_finishing_late_leaves_the_rerun_under_its_id_running() {
+        let mgr = JobManager::new();
+        let boxes = Mailboxes::default();
+        let first = mgr.start(Some(boxes.notices_for("o")), "task-1".into(), "subagent".into());
+        let _second = mgr.start(Some(boxes.notices_for("o")), "task-1".into(), "subagent".into());
+
+        first.finish(done(0, "stale"), None);
+
+        assert_eq!(mgr.get("task-1").unwrap().status, JobStatus::Running);
+        assert!(mgr.has_running("o"));
     }
 
     #[test]

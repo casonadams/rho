@@ -4,7 +4,7 @@
 
 use super::conversation::ConversationSettings;
 use crate::engine::runner::turn::types::CancellationSignal;
-use crate::mailbox::{Delivery, Mailbox, Mailboxes, Party, SendError};
+use crate::mailbox::{Delivery, Mailbox, Mailboxes, NoticeTarget, Party, SendError};
 use rho_harness_core::a2ui::{SemanticTone, SubagentSurfaceRow, subagent_surface_messages};
 use rho_harness_core::args::SubagentRole;
 use rho_harness_core::presentation::Presenter;
@@ -93,7 +93,8 @@ impl SubagentRuntime {
     }
 
     /// Registers task `task_id`'s round, delegated by the top-level agent `owner`, and opens its
-    /// mailbox; the round is forgotten when the returned registration closes or drops.
+    /// mailbox under `owner`'s (opened too if it is not yet), which decides who the round may message.
+    /// The round is forgotten when the returned registration closes or drops.
     pub(crate) fn open_round(
         &self,
         task_id: &str,
@@ -123,9 +124,9 @@ impl SubagentRuntime {
         }
     }
 
-    /// Every running agent's mailbox, for delivering to them.
-    pub(crate) fn mailboxes(&self) -> &Mailboxes {
-        &self.mailboxes
+    /// Where agent `agent`'s notices go.
+    pub(crate) fn notices_for(&self, agent: &str) -> NoticeTarget {
+        self.mailboxes.notices_for(agent)
     }
 
     #[cfg(test)]
