@@ -48,7 +48,8 @@ pub(super) fn build_chatgpt_model(request: &ModelRequest<'_>, auth_store: &AuthS
     let account_id = auth_store.chatgpt_account_id(request.connection, token);
     Arc::new(
         crate::chatgpt::ChatGptClient::with_token_provider(stored_tokens(request), request.model)
-            .with_account_id(account_id),
+            .with_account_id(account_id)
+            .with_thinking_level(request.thinking_level),
     )
 }
 

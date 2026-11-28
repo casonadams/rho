@@ -36,6 +36,8 @@ pub struct ModelCompletionRequest {
     pub max_tokens: Option<u64>,
     pub temperature: Option<f64>,
     pub thinking_level: Option<ThinkingLevel>,
+    /// Shared by every request of one conversation (a session or a subagent task); `None` for one-off requests.
+    pub conversation_id: Option<String>,
 }
 
 impl ModelCompletionRequest {

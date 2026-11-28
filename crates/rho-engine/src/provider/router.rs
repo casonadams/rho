@@ -20,7 +20,7 @@ pub(crate) struct ModelRequest<'a> {
     /// The auth-store key of the login to use: `provider` or `provider:account`.
     pub connection: &'a str,
     pub model: &'a str,
-    /// rho's `thinking_level`; Antigravity uses it to pick the runtime variant.
+    /// rho's `thinking_level`, which each client maps onto its provider's reasoning settings.
     pub thinking_level: Option<&'a str>,
     /// How long Claude keeps each request's prompt cache.
     pub cache_retention: CacheRetention,

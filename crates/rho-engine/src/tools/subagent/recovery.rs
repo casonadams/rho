@@ -25,6 +25,7 @@ pub(crate) async fn attempt_recovery_synthesis(
         max_tokens: None,
         temperature: Some(0.0),
         thinking_level: None,
+        conversation_id: None,
     };
     let resp = tokio::time::timeout(SYNTHESIS_TIMEOUT, model.complete(req))
         .await

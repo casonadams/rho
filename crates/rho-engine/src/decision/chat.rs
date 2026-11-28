@@ -142,6 +142,7 @@ impl DecisionModel for ChatDecisionAdapter {
                 max_tokens: Some(256),
                 temperature: Some(0.0),
                 thinking_level: None,
+                conversation_id: None,
             })
             .await?;
         let answers = parse_chat_answers(&completion.content, &request)?;

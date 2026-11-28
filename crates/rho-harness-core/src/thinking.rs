@@ -60,6 +60,20 @@ impl ThinkingLevel {
         if self == Self::Auto { Self::Medium } else { self }
     }
 
+    /// The OpenAI Responses `reasoning.effort` value, `None` for off: several models reject `none` with HTTP 400
+    /// (<https://developers.openai.com/api/docs/guides/reasoning#reasoning-effort>).
+    pub fn responses_effort(self) -> Option<&'static str> {
+        match self.concrete_or_default() {
+            Self::Off => None,
+            Self::Minimal => Some("minimal"),
+            Self::Low => Some("low"),
+            Self::Medium | Self::Auto => Some("medium"),
+            Self::High => Some("high"),
+            Self::XHigh => Some("xhigh"),
+            Self::Max => Some("max"),
+        }
+    }
+
     pub fn parse(name: &str) -> Option<Self> {
         let name = name.trim();
         Self::ALL
@@ -128,6 +142,23 @@ mod tests {
         assert!(!ThinkingLevel::Medium.is_auto());
         assert_eq!(ThinkingLevel::Auto.concrete_or_default(), ThinkingLevel::Medium);
         assert_eq!(ThinkingLevel::High.concrete_or_default(), ThinkingLevel::High);
+    }
+
+    #[test]
+    fn responses_effort_sends_each_documented_value_and_nothing_for_off() {
+        let cases = [
+            (ThinkingLevel::Off, None),
+            (ThinkingLevel::Minimal, Some("minimal")),
+            (ThinkingLevel::Low, Some("low")),
+            (ThinkingLevel::Medium, Some("medium")),
+            (ThinkingLevel::High, Some("high")),
+            (ThinkingLevel::XHigh, Some("xhigh")),
+            (ThinkingLevel::Max, Some("max")),
+            (ThinkingLevel::Auto, Some("medium")),
+        ];
+        for (level, effort) in cases {
+            assert_eq!(level.responses_effort(), effort, "{level:?}");
+        }
     }
 
     #[test]

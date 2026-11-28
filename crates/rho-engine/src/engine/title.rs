@@ -210,6 +210,7 @@ async fn generate_title_text(
         max_tokens: Some(TITLE_MAX_TOKENS),
         temperature: None,
         thinking_level: None,
+        conversation_id: None,
     };
     let response = model.complete(request).await.ok()?;
     sanitize_title(&response.content)

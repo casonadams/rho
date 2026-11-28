@@ -16,6 +16,7 @@ fn minimal_request(history: Vec<ChatMessage>) -> ModelCompletionRequest {
         max_tokens: None,
         temperature: None,
         thinking_level: None,
+        conversation_id: None,
     }
 }
 

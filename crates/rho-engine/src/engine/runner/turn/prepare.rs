@@ -323,6 +323,7 @@ impl AgentEngine {
             .prompt(params.prompt)
             .budget(params.budget)
             .thinking_level(params.thinking_level)
+            .conversation_id(self.session_manager.session_id.clone())
             .steering(request.steering.clone())
             .inbox(Some(self.inbox()))
             .monitor(Some(self.agent_monitor.clone()))

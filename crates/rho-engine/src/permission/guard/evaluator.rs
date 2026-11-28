@@ -317,6 +317,7 @@ impl GuardEvaluator {
             max_tokens: Some(256),
             temperature: Some(0.0),
             thinking_level: None,
+            conversation_id: None,
         };
 
         match tokio::time::timeout(GUARD_TIMEOUT, model.complete(req)).await {

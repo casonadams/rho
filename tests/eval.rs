@@ -84,6 +84,7 @@ fn sample_sensitive_request() -> rho_engine::provider::adapter::ModelCompletionR
         max_tokens: None,
         temperature: None,
         thinking_level: None,
+        conversation_id: None,
     }
 }
 

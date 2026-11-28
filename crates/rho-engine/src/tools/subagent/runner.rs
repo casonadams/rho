@@ -121,6 +121,7 @@ struct AgentSetup<'a> {
     /// The agent's monitor record, which its permission prompts mark as waiting for approval.
     tracker: Option<&'a AgentHandle>,
     context: Option<ContextBudget>,
+    conversation_id: String,
 }
 
 /// The finished turn loop: how it ended, the conversation it left, its totals, and whether that
@@ -610,6 +611,7 @@ impl SubagentRunner {
                 .context
                 .clone()
                 .map(|budget| budget.with_compaction_timing(round.compaction.timing())),
+            conversation_id: self.task_id.clone().unwrap_or_else(|| round.owner.clone()),
         });
         let finish = self.consume(agent, &sink, tracker, stop, &mut round.run.tally).await;
         let messages = store.messages();
@@ -695,6 +697,7 @@ impl SubagentRunner {
         .project_context(self.ctx.project.clone())
         .context_budget(setup.context)
         .observer(Some(observer))
+        .conversation_id(setup.conversation_id)
     }
 
     /// The round end for a turn loop that stopped with `error`.

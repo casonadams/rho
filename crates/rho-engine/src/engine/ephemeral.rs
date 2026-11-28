@@ -149,6 +149,7 @@ impl AgentEngine {
             max_tokens: request.max_tokens,
             temperature: None,
             thinking_level: None,
+            conversation_id: None,
         };
 
         Ok(PreparedEphemeralTurn {

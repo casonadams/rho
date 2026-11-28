@@ -154,6 +154,7 @@ pub struct AgentRunner {
     a2ui_widgets: bool,
     a2ui_config: rho_harness_core::config::A2uiConfig,
     thinking_level: Option<ThinkingLevel>,
+    conversation_id: Option<String>,
 }
 
 impl AgentRunner {
@@ -321,6 +322,7 @@ fn completion_request(
         max_tokens: None,
         temperature: None,
         thinking_level: runner.thinking_level,
+        conversation_id: runner.conversation_id.clone(),
     }
 }
 

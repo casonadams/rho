@@ -96,6 +96,45 @@ fn text_and_tool_calls_stream_and_aggregate() {
 }
 
 #[test]
+fn parallel_function_calls_with_interleaved_arguments_are_each_emitted() {
+    let call = |kind: &str, index: u64, id: &str| {
+        format!(
+            "data: {{\"type\":\"response.output_item.{kind}\",\"output_index\":{index},\"item\":{{\"type\":\"function_call\",\"id\":\"fc_{id}\",\"call_id\":\"call_{id}\",\"name\":\"read\"}}}}\n\n"
+        )
+    };
+    let delta = |id: &str, text: &str| {
+        format!(
+            "data: {{\"type\":\"response.function_call_arguments.delta\",\"item_id\":\"fc_{id}\",\"delta\":\"{text}\"}}\n\n"
+        )
+    };
+    let chunks = [
+        call("added", 0, "a"),
+        call("added", 1, "b"),
+        delta("b", "{\\\"path\\\":\\\"b.rs\\\"}"),
+        delta("a", "{\\\"path\\\":\\\"a.rs\\\"}"),
+        call("done", 0, "a"),
+        call("done", 1, "b"),
+        COMPLETED.to_string(),
+    ];
+    let mut parser = SseParser::new();
+    let calls: Vec<_> = chunks
+        .iter()
+        .flat_map(|chunk| parser.feed(chunk.as_bytes()))
+        .filter_map(|event| match event {
+            Ok(ModelStreamEvent::ToolCall(call)) => Some((call.id, call.function.arguments)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        calls,
+        [
+            ("call_a".to_string(), serde_json::json!({"path": "a.rs"})),
+            ("call_b".to_string(), serde_json::json!({"path": "b.rs"})),
+        ]
+    );
+}
+
+#[test]
 fn reasoning_summary_across_multiple_output_items_does_not_collide() {
     let mut parser = SseParser::new();
 

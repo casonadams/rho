@@ -100,6 +100,28 @@ async fn a_subagent_with_nothing_to_compact_runs_on_instead_of_stopping_early() 
 }
 
 #[tokio::test]
+async fn a_subagent_conversation_is_identified_by_its_task_or_else_its_own_round() {
+    for task in [Some("task-7"), None] {
+        let adapter = MockAdapter::from_turns([tool_call_turn(&[("read", "a")]), text_turn("Done.")]);
+        let mut runner = SubagentRunner::new(Arc::new(adapter.clone()), SubagentRole::Scout, &[named_tool("read")], 5);
+        if let Some(task) = task {
+            runner = runner.with_task_id(task);
+        }
+
+        runner.run_round(Vec::new(), round::RoundInput::Prompt("look")).await;
+
+        let ids: Vec<Option<String>> = adapter.requests().into_iter().map(|r| r.conversation_id).collect();
+        assert_eq!(ids.len(), 2);
+        assert_eq!(ids[0], ids[1], "{task:?}");
+        let id = ids[0].clone().unwrap();
+        match task {
+            Some(task) => assert_eq!(id, task),
+            None => assert!(id.starts_with("subagent-"), "{id}"),
+        }
+    }
+}
+
+#[tokio::test]
 async fn a_failure_before_the_first_reply_keeps_the_instruction_in_the_transcript() {
     let adapter = MockAdapter::from_result_turns([vec![Err(AppError::Other(anyhow::anyhow!("boom")))]]);
     let runner = SubagentRunner::new(Arc::new(adapter), SubagentRole::Scout, &[], 5);

@@ -353,6 +353,7 @@ impl Executor<'_> {
             max_tokens: None,
             temperature: Some(0.0),
             thinking_level: None,
+            conversation_id: None,
         };
         let repair = runner.model().complete(request);
         let response = unless_cancelled(self.ctx().cancellation.as_ref(), repair).await?.ok()?;

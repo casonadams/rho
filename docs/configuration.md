@@ -210,6 +210,9 @@ Configure model roles in `~/.config/rho/config.toml` or `.rho/config.toml` under
 # models.guard, or medium on timeout/unconfigured). Subagents use the same level (resolving
 # auto to medium). Changing the level or model mid-session makes the next request rewrite
 # the prompt cache; rho shows a notice when the cache is warm.
+# ChatGPT logins send the level as the Responses `reasoning.effort` (auto as medium) and stream
+# reasoning summaries; off sends no reasoning settings, so the model uses its default effort
+# (some models reject the `none` effort).
 thinking_level = "high"
 
 # Claude prompt-cache lifetime: auto (default: 1 hour on `claude` subscription

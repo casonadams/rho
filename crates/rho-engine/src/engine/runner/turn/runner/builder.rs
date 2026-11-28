@@ -71,6 +71,7 @@ impl AgentRunner {
             a2ui_widgets: false,
             a2ui_config: rho_harness_core::config::A2uiConfig::default(),
             thinking_level: None,
+            conversation_id: None,
         }
     }
 
@@ -180,6 +181,12 @@ impl AgentRunner {
 
     pub fn thinking_level(mut self, thinking_level: Option<ThinkingLevel>) -> Self {
         self.thinking_level = thinking_level;
+        self
+    }
+
+    /// Identifies the conversation every request of this runner belongs to.
+    pub fn conversation_id(mut self, conversation_id: impl Into<String>) -> Self {
+        self.conversation_id = Some(conversation_id.into());
         self
     }
 }

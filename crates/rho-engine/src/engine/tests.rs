@@ -656,6 +656,43 @@ async fn a_handed_off_workflow_report_precedes_only_the_next_prompt() {
     assert!(!prompts[1].contains("[The user ran workflow"), "{}", prompts[1]);
 }
 
+#[tokio::test]
+async fn each_turn_request_carries_the_session_id_as_its_conversation_id() {
+    use crate::engine::eval::mock::{MockEngineConfig, mock_engine};
+    use crate::provider::adapter::{MockAdapter, ModelStreamEvent};
+    let dir = crate::test_support::TestDir::new();
+    let model = Arc::new(MockAdapter::default());
+    for reply in ["one", "two"] {
+        model.add_turn(vec![Ok(ModelStreamEvent::Text(reply.to_string()))]);
+    }
+    let engine = mock_engine(
+        model.clone(),
+        MockEngineConfig::new(
+            &dir,
+            Config {
+                auth_file: dir.join("auth.json"),
+                ..Config::default()
+            },
+        ),
+    );
+    let presenter = Arc::new(crate::engine::eval::presenter::NoopPresenter);
+
+    for prompt in ["first", "second"] {
+        engine
+            .run_turn(crate::engine::runner::TurnRequest::new(prompt), presenter.clone())
+            .await
+            .unwrap();
+    }
+
+    let ids: Vec<Option<String>> = model
+        .requests()
+        .into_iter()
+        .map(|r| r.conversation_id)
+        .take(2)
+        .collect();
+    assert_eq!(ids, vec![Some(engine.session_manager.session_id.clone()); 2]);
+}
+
 fn mock_engine_in(dir: &Path, session: Option<SessionManager>) -> AgentEngine {
     crate::engine::eval::mock::mock_engine(
         Arc::new(crate::provider::adapter::MockAdapter::default()),

@@ -23,6 +23,7 @@ fn sample_request_with_tools(tools: Vec<ModelToolDefinition>) -> ModelCompletion
         max_tokens: None,
         temperature: None,
         thinking_level: None,
+        conversation_id: None,
     }
 }
 
@@ -253,6 +254,7 @@ fn convert_messages_converts_user_and_assistant_images() {
         max_tokens: None,
         temperature: None,
         thinking_level: None,
+        conversation_id: None,
     };
 
     let messages = contents::convert_messages(&req);
@@ -320,6 +322,7 @@ fn convert_messages_replays_signed_and_redacted_thinking_and_drops_unsigned() {
         max_tokens: None,
         temperature: None,
         thinking_level: None,
+        conversation_id: None,
     };
 
     let messages = contents::convert_messages(&req);
@@ -375,6 +378,7 @@ fn convert_messages_handles_tool_results() {
         max_tokens: None,
         temperature: None,
         thinking_level: None,
+        conversation_id: None,
     };
 
     let messages = contents::convert_messages(&req);

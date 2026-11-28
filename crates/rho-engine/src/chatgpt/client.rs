@@ -9,6 +9,7 @@ use crate::provider::error::{HttpFailure, HttpResult, retry_once_after_unauthori
 use crate::provider::sse::open_sse_stream;
 use rho_harness_core::error::AppError;
 use rho_harness_core::model::{ChatMessage, Reasoning, ReasoningContent};
+use rho_harness_core::thinking::ThinkingLevel;
 use serde_json::{Value, json};
 
 pub const DEFAULT_ENDPOINT: &str = "https://chatgpt.com/backend-api/codex";
@@ -20,6 +21,7 @@ pub struct ChatGptClient {
     model: String,
     account_id: Option<String>,
     endpoint: Option<String>,
+    thinking_level: Option<String>,
 }
 
 impl std::fmt::Debug for ChatGptClient {
@@ -27,6 +29,7 @@ impl std::fmt::Debug for ChatGptClient {
         f.debug_struct("ChatGptClient")
             .field("model", &self.model)
             .field("account_id", &self.account_id)
+            .field("thinking_level", &self.thinking_level)
             .finish()
     }
 }
@@ -38,6 +41,7 @@ impl ChatGptClient {
             model: model.into(),
             account_id: None,
             endpoint: None,
+            thinking_level: None,
         }
     }
 
@@ -47,7 +51,13 @@ impl ChatGptClient {
             model: model.into(),
             account_id: None,
             endpoint: None,
+            thinking_level: None,
         }
+    }
+
+    pub fn with_thinking_level(mut self, level: Option<&str>) -> Self {
+        self.thinking_level = level.map(String::from);
+        self
     }
 
     pub fn with_account_id(mut self, account_id: Option<String>) -> Self {
@@ -68,7 +78,7 @@ impl ChatGptClient {
         )
     }
 
-    fn headers(&self, token: &str) -> Result<reqwest::header::HeaderMap, HttpFailure> {
+    fn headers(&self, token: &str, conversation_id: Option<&str>) -> Result<reqwest::header::HeaderMap, HttpFailure> {
         let mut headers = reqwest::header::HeaderMap::new();
         headers.insert(reqwest::header::AUTHORIZATION, bearer(token)?);
         headers.insert(
@@ -77,10 +87,8 @@ impl ChatGptClient {
         );
         headers.insert("originator", reqwest::header::HeaderValue::from_static("codex"));
         headers.insert("User-Agent", reqwest::header::HeaderValue::from_static("Codex/0.22.4"));
-        headers.insert(
-            "session_id",
-            header_value(&uuid::Uuid::new_v4().to_string(), "The session id")?,
-        );
+        let session_id = conversation_id.map_or_else(|| uuid::Uuid::new_v4().to_string(), String::from);
+        headers.insert("session_id", header_value(&session_id, "The session id")?);
         if let Some(account_id) = &self.account_id {
             let val = header_value(account_id, "The account id")?;
             headers.insert("chatgpt-account-id", val);
@@ -136,13 +144,23 @@ impl ChatGptClient {
         });
         if !tools.is_empty() {
             body["tools"] = json!(tools);
+            body["tool_choice"] = json!("auto");
+            body["parallel_tool_calls"] = json!(true);
+        }
+        let level = ThinkingLevel::from_setting(request.effective_thinking(self.thinking_level.as_deref()));
+        if let Some(effort) = level.responses_effort() {
+            body["reasoning"] = json!({"effort": effort, "summary": "auto"});
+        }
+        if let Some(conversation_id) = &request.conversation_id {
+            body["prompt_cache_key"] = json!(conversation_id);
         }
         body
     }
 
     async fn post_stream(&self, token: &str, request: &ModelCompletionRequest) -> HttpResult {
         let body = self.build_request(request);
-        post_json_checked(&self.target_url(), self.headers(token)?, &body).await
+        let headers = self.headers(token, request.conversation_id.as_deref())?;
+        post_json_checked(&self.target_url(), headers, &body).await
     }
 
     pub async fn open_stream(&self, request: &ModelCompletionRequest) -> HttpResult {
@@ -298,7 +316,7 @@ mod tests {
     #[test]
     fn chatgpt_client_headers_include_originator_and_beta() {
         let client = ChatGptClient::new("test-token", "gpt-5.4").with_account_id(Some("acc-123".to_string()));
-        let headers = client.headers("test-token").unwrap();
+        let headers = client.headers("test-token", None).unwrap();
         assert_eq!(headers.get("OpenAI-Beta").unwrap(), "responses=experimental");
         assert_eq!(headers.get("originator").unwrap(), "codex");
         assert_eq!(headers.get("User-Agent").unwrap(), "Codex/0.22.4");
@@ -328,6 +346,76 @@ mod tests {
 
         assert_eq!(json_body["store"], false);
         assert_eq!(json_body["include"], json!(["reasoning.encrypted_content"]));
+    }
+
+    #[test]
+    fn build_request_maps_the_thinking_level_to_reasoning_effort_with_a_summary() {
+        use rho_harness_core::thinking::ThinkingLevel;
+        let cases = [
+            (None, None, None),
+            (Some("off"), None, None),
+            (Some("minimal"), None, Some("minimal")),
+            (Some("low"), None, Some("low")),
+            (Some("high"), None, Some("high")),
+            (Some("xhigh"), None, Some("xhigh")),
+            (Some("max"), None, Some("max")),
+            (Some("auto"), None, Some("medium")),
+            (Some("off"), Some(ThinkingLevel::High), Some("high")),
+            (Some("high"), Some(ThinkingLevel::Off), None),
+        ];
+        for (configured, per_turn, effort) in cases {
+            let client = ChatGptClient::new("test-token", "gpt-5.4").with_thinking_level(configured);
+            let mut req = sample_completion_request();
+            req.thinking_level = per_turn;
+            let body = client.build_request(&req);
+            let expected = effort.map(|effort| json!({"effort": effort, "summary": "auto"}));
+            assert_eq!(body.get("reasoning").cloned(), expected, "{configured:?} {per_turn:?}");
+        }
+    }
+
+    #[test]
+    fn build_request_lets_the_model_call_its_tools_in_parallel() {
+        let client = ChatGptClient::new("test-token", "gpt-5.4");
+        let mut req = sample_completion_request();
+        req.tools = vec![crate::provider::adapter::ModelToolDefinition {
+            name: "read".to_string(),
+            description: "Read a file".to_string(),
+            parameters: json!({"type": "object"}),
+        }];
+        let body = client.build_request(&req);
+        assert_eq!(body["tool_choice"], "auto");
+        assert_eq!(body["parallel_tool_calls"], true);
+
+        let without_tools = client.build_request(&sample_completion_request());
+        for field in ["tools", "tool_choice", "parallel_tool_calls"] {
+            assert!(without_tools.get(field).is_none(), "{field}");
+        }
+    }
+
+    #[test]
+    fn the_conversation_id_keys_the_prompt_cache_and_the_session_header_of_every_request() {
+        let client = ChatGptClient::new("test-token", "gpt-5.4");
+        let mut req = sample_completion_request();
+        req.conversation_id = Some("session-1".to_string());
+        for _ in 0..2 {
+            assert_eq!(client.build_request(&req)["prompt_cache_key"], "session-1");
+            let headers = client.headers("test-token", req.conversation_id.as_deref()).unwrap();
+            assert_eq!(headers.get("session_id").unwrap(), "session-1");
+        }
+    }
+
+    #[test]
+    fn a_request_outside_a_conversation_has_no_cache_key_and_a_fresh_session_header() {
+        let client = ChatGptClient::new("test-token", "gpt-5.4");
+        assert!(
+            client
+                .build_request(&sample_completion_request())
+                .get("prompt_cache_key")
+                .is_none()
+        );
+        let first = client.headers("test-token", None).unwrap();
+        let second = client.headers("test-token", None).unwrap();
+        assert_ne!(first.get("session_id"), second.get("session_id"));
     }
 
     #[test]
@@ -389,6 +477,7 @@ mod tests {
             max_tokens: None,
             temperature: None,
             thinking_level: None,
+            conversation_id: None,
         }
     }
 

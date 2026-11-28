@@ -48,6 +48,7 @@ async fn run_agent_completion(model: ModelHandle, prompt: &str) -> Result<(Strin
         max_tokens: None,
         temperature: Some(0.0),
         thinking_level: None,
+        conversation_id: None,
     };
     let response = tokio::time::timeout(SUMMARY_TIMEOUT, model.complete(req))
         .await

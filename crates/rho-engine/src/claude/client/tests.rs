@@ -18,6 +18,7 @@ fn sample_request() -> ModelCompletionRequest {
         max_tokens: None,
         temperature: Some(0.7),
         thinking_level: None,
+        conversation_id: None,
     }
 }
 
@@ -138,6 +139,7 @@ fn request_with_tool_and_history() -> ModelCompletionRequest {
         max_tokens: None,
         temperature: Some(0.7),
         thinking_level: None,
+        conversation_id: None,
     }
 }
 

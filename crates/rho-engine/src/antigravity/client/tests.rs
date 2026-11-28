@@ -193,6 +193,7 @@ fn test_completion_request() -> ModelCompletionRequest {
         max_tokens: None,
         temperature: None,
         thinking_level: None,
+        conversation_id: None,
     }
 }
 
