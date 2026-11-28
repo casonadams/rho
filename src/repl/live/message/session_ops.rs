@@ -157,12 +157,11 @@ pub(crate) async fn handle_session_diagnostics<B: TerminalBackend>(
 ) -> Result<bool> {
     match result {
         CommandResult::OpenSessionSelector => {
-            crate::repl::live::modal::open_session_selector(
+            ctx.session.session_listing = Some(crate::repl::live::modal::open_session_selector(
                 &ctx.session.config.sessions_dir,
                 &ctx.engine.session_manager.session_id,
                 io.controller,
-            )
-            .await;
+            ));
             io.controller.redraw()?;
         }
         CommandResult::NameSession { name } => {

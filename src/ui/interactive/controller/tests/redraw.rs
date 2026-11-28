@@ -3,7 +3,7 @@
 mod resize {
     use super::super::fake::{Operation, controller, controller_with_size};
     use crate::ui::interactive::ToolStartRequest;
-    use crate::ui::interactive::controller::ansi::CLEAR_SCREEN_AND_SCROLLBACK;
+    use crate::ui::interactive::controller::ansi::{CLEAR_SCREEN, CLEAR_SCREEN_AND_SCROLLBACK};
 
     #[test]
     fn resize_erases_using_old_layout_and_redraws_at_new_width() {
@@ -92,17 +92,8 @@ mod resize {
         assert_eq!(*operations.borrow(), [Operation::Size]);
     }
 
-    fn assert_resize_operations(operations: &[Operation]) {
-        assert!(
-            operations
-                .iter()
-                .any(|op| matches!(op, Operation::Write(text) if text == CLEAR_SCREEN_AND_SCROLLBACK))
-        );
-        assert!(operations.ends_with(&[Operation::Write("\x1b[?2026l".into()), Operation::Flush,]));
-    }
-
     #[test]
-    fn resize_vertical_only_rerenders_and_updates_height() {
+    fn resize_vertical_only_redraws_the_visible_tail_without_clearing_scrollback() {
         let (mut controller, operations, _width, height) = controller_with_size(60, 24);
         assert_eq!((controller.terminal_height(), controller.terminal_width()), (24, 60));
 
@@ -111,7 +102,17 @@ mod resize {
 
         assert!(controller.refresh_size().unwrap());
         assert_eq!((controller.terminal_height(), controller.terminal_width()), (12, 60));
-        assert_resize_operations(&operations.borrow());
+        let ops = operations.borrow();
+        assert!(
+            ops.iter()
+                .any(|op| matches!(op, Operation::Write(text) if text == CLEAR_SCREEN))
+        );
+        assert!(
+            !ops.iter()
+                .any(|op| matches!(op, Operation::Write(text) if text == CLEAR_SCREEN_AND_SCROLLBACK)),
+            "a height-only resize keeps the scrollback instead of replaying the transcript"
+        );
+        assert!(ops.ends_with(&[Operation::Write("\x1b[?2026l".into()), Operation::Flush,]));
     }
 
     #[test]

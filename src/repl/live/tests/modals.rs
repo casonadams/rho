@@ -1,8 +1,9 @@
 use crate::auth::AuthStore;
 use crate::repl::ReplSession;
+use crate::repl::live::modal::selectors::session::open_listed_session_selector;
 use crate::repl::live::modal::{
     ModalKeyResult, handle_modal_key, open_help_selector, open_login_selector, open_mcp_selector, open_model_selector,
-    open_session_selector, open_tree_selector,
+    open_tree_selector,
 };
 use crate::repl::live::turn::{TurnModelSwitchInput, apply_turn_model_switch};
 use crate::ui::TerminalRenderer;
@@ -906,7 +907,7 @@ async fn open_session_selector_for_test(
     manager.set_session_name("Test Session").await.unwrap();
     let session_id = manager.session_id.clone();
     let mut controller = crate::repl::test_controller();
-    open_session_selector(&temp_dir, &session_id, &mut controller).await;
+    open_listed_session_selector(&temp_dir, &session_id, &mut controller).await;
     (temp_dir, session_id, controller)
 }
 

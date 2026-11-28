@@ -29,7 +29,7 @@ fn a_running_agent_streams_its_reply_and_shows_its_running_tool_like_the_main_ag
         serde_json::json!({ "command": "make test" }),
         None,
     ));
-    let with_tool = frame(&monitor.record(handle.id()).unwrap());
+    let with_tool = frame(monitor.record(handle.id()).unwrap());
     assert_eq!(
         with_tool.items,
         [TranscriptItem::UserMessage("Audit the parser".into())]
@@ -44,7 +44,7 @@ fn a_running_agent_streams_its_reply_and_shows_its_running_tool_like_the_main_ag
             .with_duration_ms(5),
     ));
     handle.event(AgentEvent::Text("Tests pass".into()));
-    let streaming = frame(&monitor.record(handle.id()).unwrap());
+    let streaming = frame(monitor.record(handle.id()).unwrap());
     assert_eq!(streaming.items.len(), 2, "{:?}", streaming.items);
     assert_eq!(
         streaming.streaming,
@@ -56,7 +56,7 @@ fn a_running_agent_streams_its_reply_and_shows_its_running_tool_like_the_main_ag
     assert_eq!(streaming.running_tool, None);
 
     handle.finish(AgentStatus::Done);
-    let settled = frame(&monitor.record(handle.id()).unwrap());
+    let settled = frame(monitor.record(handle.id()).unwrap());
     assert_eq!(
         settled.items.last(),
         Some(&TranscriptItem::AssistantText("Tests pass".into()))
@@ -70,7 +70,7 @@ fn a_running_agents_thinking_streams_like_its_reply() {
     let handle = running_agent(&monitor, "audit");
     handle.stream(rho_harness_core::agents::Streamed::Thinking, "Checking the parser");
 
-    let thinking = frame(&monitor.record(handle.id()).unwrap());
+    let thinking = frame(monitor.record(handle.id()).unwrap());
 
     assert_eq!(thinking.items, [TranscriptItem::UserMessage("Audit the parser".into())]);
     assert_eq!(
@@ -87,10 +87,10 @@ fn tools_without_a_live_card_and_unfinished_calls_follow_the_main_agents_rules()
     let monitor = AgentMonitor::default();
     let handle = running_agent(&monitor, "scout");
     handle.event(AgentEvent::tool_call("rg", serde_json::json!({ "pattern": "x" }), None));
-    assert_eq!(frame(&monitor.record(handle.id()).unwrap()).running_tool, None);
+    assert_eq!(frame(monitor.record(handle.id()).unwrap()).running_tool, None);
 
     handle.finish(AgentStatus::Cancelled);
-    let stopped = frame(&monitor.record(handle.id()).unwrap());
+    let stopped = frame(monitor.record(handle.id()).unwrap());
     assert_eq!(
         stopped.items.last(),
         Some(&TranscriptItem::Notice("\u{2717} rg did not finish".into()))
@@ -109,7 +109,7 @@ fn a_fast_tool_started_beside_a_running_bash_leaves_its_card_up_like_the_main_ag
     handle.call_output("building\n");
     handle.event(AgentEvent::tool_call("rg", serde_json::json!({ "pattern": "x" }), None));
 
-    let shown = frame(&monitor.record(handle.id()).unwrap());
+    let shown = frame(monitor.record(handle.id()).unwrap());
 
     assert_eq!(shown.running_tool.map(|tool| tool.name).as_deref(), Some("bash"));
     assert_eq!(shown.running_output, "building\n");
@@ -256,6 +256,61 @@ fn the_view_follows_the_agent_into_the_round_that_continues_its_task() {
     assert_eq!(c.viewed_agent(), Some(next.id()));
     assert_ne!(c.viewed_agent(), Some(other.id()));
     assert_eq!(c.transcript(), [TranscriptItem::UserMessage("Also check tests".into())]);
+}
+
+#[test]
+fn an_event_past_the_kept_cap_is_appended_without_replaying_the_view() {
+    use crate::ui::interactive::controller::ansi::CLEAR_SCREEN_AND_SCROLLBACK;
+    use crate::ui::interactive::controller::tests::fake::{Operation, controller as fake_controller};
+    let monitor = AgentMonitor::default();
+    let handle = running_agent(&monitor, "audit");
+    for n in 0..600 {
+        handle.event(AgentEvent::Task(format!("step {n}")));
+    }
+    let (mut c, operations, _) = fake_controller(80);
+    show_agent(&mut c, Some(&monitor), Some(handle.id())).unwrap();
+    refresh(&mut c, &monitor).unwrap();
+    operations.borrow_mut().clear();
+
+    handle.event(AgentEvent::Task("step 600".into()));
+    assert!(refresh(&mut c, &monitor).unwrap());
+
+    let ops = operations.borrow();
+    assert!(
+        !ops.iter()
+            .any(|op| matches!(op, Operation::Write(text) if text == CLEAR_SCREEN_AND_SCROLLBACK)),
+        "the view is not replayed"
+    );
+    let written: String = ops
+        .iter()
+        .filter_map(|op| match op {
+            Operation::Write(text) => Some(text.as_str()),
+            _ => None,
+        })
+        .collect();
+    assert!(written.contains("step 600"));
+    assert!(!written.contains("step 599"), "only the new event is written");
+    assert_eq!(
+        c.transcript().last(),
+        Some(&TranscriptItem::UserMessage("step 600".into()))
+    );
+}
+
+#[test]
+fn dropped_events_are_counted_in_the_footer_title_not_the_transcript() {
+    let monitor = AgentMonitor::default();
+    let handle = running_agent(&monitor, "audit");
+    for n in 0..500 {
+        handle.event(AgentEvent::Task(format!("step {n}")));
+    }
+    let mut c = controller();
+    show_agent(&mut c, Some(&monitor), Some(handle.id())).unwrap();
+    assert_eq!(
+        c.transcript().first(),
+        Some(&TranscriptItem::UserMessage("step 0".into()))
+    );
+    let title = c.state().footer().viewing.clone().unwrap();
+    assert!(title.contains("1 earlier event not kept"), "{title}");
 }
 
 #[test]

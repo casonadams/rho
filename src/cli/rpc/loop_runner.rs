@@ -143,6 +143,80 @@ pub(crate) async fn handle_turn_done<W: tokio::io::AsyncWrite + Unpin>(
     Ok(())
 }
 
+/// The most events written in one batch, so requests are read between batches of a long backlog.
+const MAX_EVENT_BATCH: usize = 256;
+
+type RequestRead = rho_harness_core::error::Result<Option<RpcRequest>>;
+
+/// `first` and the events queued behind it, with adjacent text or reasoning chunks joined, so a
+/// backlog of streamed tokens is written as a few lines.
+pub(crate) fn drain_coalesced(first: RpcEvent, event_rx: &mut mpsc::UnboundedReceiver<RpcEvent>) -> Vec<RpcEvent> {
+    let mut events = vec![first];
+    while events.len() < MAX_EVENT_BATCH
+        && let Ok(next) = event_rx.try_recv()
+    {
+        match (events.last_mut(), next) {
+            (Some(RpcEvent::TextChunk { content }), RpcEvent::TextChunk { content: more })
+            | (Some(RpcEvent::ReasoningChunk { content }), RpcEvent::ReasoningChunk { content: more }) => {
+                content.push_str(&more);
+            }
+            (_, next) => events.push(next),
+        }
+    }
+    events
+}
+
+/// Writes `events` while still reading requests, so a client that is slow to read can stop the turn:
+/// an `Abort` or `Exit` read meanwhile aborts it at once. Returns the request read, if any, to be
+/// handled once the write is done.
+pub(crate) async fn write_events_while_reading<R, W>(
+    reader: &mut JsonLinesReader<R>,
+    ctx: &mut RpcDaemonContext<'_, W>,
+    events: &[RpcEvent],
+) -> Result<Option<RequestRead>>
+where
+    R: tokio::io::AsyncBufRead + Unpin,
+    W: tokio::io::AsyncWrite + Unpin,
+{
+    let writer = &mut *ctx.writer;
+    let active_turn = &*ctx.active_turn;
+    let write = async {
+        for event in events {
+            writer.write_message(event).await?;
+        }
+        Ok::<_, rho_harness_core::error::AppError>(())
+    };
+    tokio::pin!(write);
+    let mut read = None;
+    loop {
+        tokio::select! {
+            res = &mut write => {
+                res?;
+                return Ok(read);
+            }
+            req = reader.read_message::<RpcRequest>(), if read.is_none() => {
+                if let Ok(Some(request)) = &req
+                    && matches!(request.command, RpcCommand::Abort | RpcCommand::Exit)
+                    && let Some(turn) = active_turn
+                {
+                    turn.abort();
+                }
+                read = Some(req);
+            }
+        }
+    }
+}
+
+async fn handle_request<W: tokio::io::AsyncWrite + Unpin>(
+    res: RequestRead,
+    ctx: &mut RpcDaemonContext<'_, W>,
+) -> Result<RpcLoopAction> {
+    let Some(req) = handle_read_request(res, ctx.writer).await? else {
+        return Ok(RpcLoopAction::Break);
+    };
+    dispatch_rpc(req.command, req.id, ctx).await
+}
+
 pub(crate) async fn handle_next_rpc_item<R, W>(
     reader: &mut JsonLinesReader<R>,
     event_rx: &mut mpsc::UnboundedReceiver<RpcEvent>,
@@ -154,20 +228,18 @@ where
 {
     match poll_next_rpc(reader, event_rx, ctx.active_turn).await {
         NextRpcItem::Event(Some(event)) => {
-            ctx.writer.write_message(&event).await?;
-            Ok(RpcLoopAction::Continue)
+            let events = drain_coalesced(event, event_rx);
+            match write_events_while_reading(reader, ctx, &events).await? {
+                Some(res) => handle_request(res, ctx).await,
+                None => Ok(RpcLoopAction::Continue),
+            }
         }
         NextRpcItem::Event(None) => Ok(RpcLoopAction::Break),
         NextRpcItem::TurnDone(res) => {
             handle_turn_done(ctx, *res).await?;
             Ok(RpcLoopAction::Continue)
         }
-        NextRpcItem::Request(res) => {
-            let Some(req) = handle_read_request(res, ctx.writer).await? else {
-                return Ok(RpcLoopAction::Break);
-            };
-            dispatch_rpc(req.command, req.id, ctx).await
-        }
+        NextRpcItem::Request(res) => handle_request(res, ctx).await,
     }
 }
 

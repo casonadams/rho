@@ -252,19 +252,90 @@ pub fn cached_git_pr(cwd: &Path, branch: Option<&str>) -> Option<GitPrInfo> {
     stale
 }
 
+/// Whether a footer read may start a fresh `git status`; a running turn only reads the last one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GitStatusRead {
+    Refresh,
+    Cached,
+}
+
 /// PR and git status for the enabled footer segments, read through the cached lookups above.
 pub fn cached_footer_git(
     cfg: &StatusBarConfig,
     cwd: &Path,
     branch: Option<&str>,
+    status_read: GitStatusRead,
 ) -> (Option<GitPrInfo>, Option<GitStatusCounts>) {
     let pr = status_bar_uses_segment(cfg, StatusBarSegmentId::Pr)
         .then(|| cached_git_pr(cwd, branch))
         .flatten();
     let git_status = status_bar_uses_segment(cfg, StatusBarSegmentId::Git)
-        .then(|| cached_git_status_counts(cwd))
+        .then(|| match status_read {
+            GitStatusRead::Refresh => cached_git_status_counts(cwd),
+            GitStatusRead::Cached => last_git_status_counts(cwd),
+        })
         .flatten();
     (pr, git_status)
+}
+
+const GIT_BRANCH_TTL: Duration = Duration::from_secs(30);
+
+#[derive(Default)]
+struct GitBranchCacheEntry {
+    cwd: Option<PathBuf>,
+    branch: Option<String>,
+    fetched_at: Option<Instant>,
+    in_flight: bool,
+}
+
+static GIT_BRANCH_CACHE: std::sync::LazyLock<Mutex<GitBranchCacheEntry>> =
+    std::sync::LazyLock::new(|| Mutex::new(GitBranchCacheEntry::default()));
+
+/// The branch of `cwd` without blocking: read from the repository's `HEAD` when it names one, else
+/// the last answer from `git`, asked again in the background once stale and announced through
+/// `subscribe_git_pr()`.
+pub fn cached_git_branch(cwd: &Path) -> Option<String> {
+    if let Some(branch) = crate::platform::git::branch_from_files(cwd) {
+        return Some(branch);
+    }
+    let mut guard = lock(&GIT_BRANCH_CACHE);
+    let now = Instant::now();
+    let same_cwd = guard.cwd.as_deref() == Some(cwd);
+    let stale = if same_cwd { guard.branch.clone() } else { None };
+    let fresh = same_cwd
+        && guard
+            .fetched_at
+            .is_some_and(|t| now.saturating_duration_since(t) < GIT_BRANCH_TTL);
+    if fresh || guard.in_flight {
+        return stale;
+    }
+    guard.cwd = Some(cwd.to_path_buf());
+    guard.branch = stale.clone();
+    guard.fetched_at = Some(now);
+    #[cfg(not(test))]
+    {
+        guard.in_flight = true;
+        drop(guard);
+        let cwd_owned = cwd.to_path_buf();
+        std::thread::spawn(move || {
+            let branch = get_git_branch(&cwd_owned);
+            let updated = {
+                let mut g = lock(&GIT_BRANCH_CACHE);
+                let matched = g.cwd.as_deref() == Some(cwd_owned.as_path());
+                let changed = matched && g.branch != branch;
+                if matched {
+                    g.branch = branch;
+                    g.fetched_at = Some(Instant::now());
+                }
+                g.in_flight = false;
+                changed
+            };
+            if updated {
+                pr_version_sender().send_modify(|v| *v = v.wrapping_add(1));
+            }
+        });
+    }
+    stale
 }
 
 const GIT_STATUS_TTL: Duration = Duration::from_secs(5);
@@ -285,6 +356,16 @@ fn git_status_entry_is_fresh(entry: &GitStatusCacheEntry, cwd: &Path, now: Insta
         && entry
             .fetched_at
             .is_some_and(|t| now.saturating_duration_since(t) < GIT_STATUS_TTL)
+}
+
+/// The git status last read for `cwd`, without starting a new read.
+fn last_git_status_counts(cwd: &Path) -> Option<GitStatusCounts> {
+    let guard = lock(&GIT_STATUS_CACHE);
+    if guard.cwd.as_deref() == Some(cwd) {
+        guard.counts
+    } else {
+        None
+    }
 }
 
 /// Non-blocking git status lookup cached per `cwd`. Spawns a background fetch on miss/expiry
@@ -399,6 +480,54 @@ mod tests {
             };
         }
         assert_eq!(cached_git_pr(&cwd, Some("feat/pr")), Some(pr));
+    }
+
+    #[test]
+    fn cached_git_branch_reads_head_and_keeps_gits_last_answer_elsewhere() {
+        let repo = rho_test_support::TestDir::new();
+        std::fs::create_dir_all(repo.join(".git")).unwrap();
+        std::fs::write(repo.join(".git/HEAD"), "ref: refs/heads/feat/head\n").unwrap();
+        assert_eq!(cached_git_branch(&repo), Some("feat/head".to_string()));
+
+        let plain = PathBuf::from("/rho-test/no-repo-branch");
+        *lock(&GIT_BRANCH_CACHE) = GitBranchCacheEntry {
+            cwd: Some(plain.clone()),
+            branch: Some("feat/git".to_string()),
+            fetched_at: Some(Instant::now() - GIT_BRANCH_TTL - Duration::from_secs(1)),
+            in_flight: false,
+        };
+        assert_eq!(
+            cached_git_branch(&plain),
+            Some("feat/git".to_string()),
+            "a stale answer stands while git is asked again"
+        );
+        assert_eq!(cached_git_branch(Path::new("/rho-test/other-no-repo")), None);
+    }
+
+    #[test]
+    fn a_cached_status_read_does_not_start_git_status() {
+        let cwd = PathBuf::from("/rho-test/status-peek");
+        *lock(&GIT_STATUS_CACHE) = GitStatusCacheEntry::default();
+        assert_eq!(last_git_status_counts(&cwd), None);
+        assert_eq!(lock(&GIT_STATUS_CACHE).cwd, None, "nothing was fetched");
+
+        let counts = GitStatusCounts {
+            staged: 1,
+            unstaged: 2,
+            untracked: 3,
+        };
+        *lock(&GIT_STATUS_CACHE) = GitStatusCacheEntry {
+            cwd: Some(cwd.clone()),
+            counts: Some(counts),
+            fetched_at: Some(Instant::now() - GIT_STATUS_TTL - Duration::from_secs(1)),
+            in_flight: false,
+        };
+        assert_eq!(last_git_status_counts(&cwd), Some(counts));
+        assert!(
+            lock(&GIT_STATUS_CACHE)
+                .fetched_at
+                .is_some_and(|t| t.elapsed() > GIT_STATUS_TTL)
+        );
     }
 
     #[test]

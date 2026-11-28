@@ -13,86 +13,93 @@ use crate::ui::interactive::{
 use crate::ui::render::stream::StreamKind;
 
 /// The agent's record as the main terminal shows it: settled items, the reply or thinking it is
-/// still writing, and the tool it is running (as a live card, like the main agent's).
-pub fn frame(record: &AgentRecord) -> ViewFrame {
+/// still writing, and the tool it is running (as a live card, like the main agent's). Each item
+/// carries the sequence number of the event it shows, which stays put as old events are dropped.
+pub fn frame(record: AgentRecord) -> ViewFrame {
     let running = record.summary.status == AgentStatus::Running;
     let mut frame = ViewFrame::default();
-    if record.dropped_events > 0 {
-        frame.items.push(TranscriptItem::Notice(format!(
-            "({} earlier events not kept)",
-            record.dropped_events
-        )));
+    let mut events = record.events;
+    if running && matches!(events.last(), Some(AgentEvent::Text(_) | AgentEvent::Thinking(_))) {
+        frame.streaming = events.pop().and_then(streaming_text);
     }
-    for event in &record.events {
-        match event {
-            AgentEvent::Task(text) => frame.items.push(TranscriptItem::UserMessage(text.trim().to_string())),
-            AgentEvent::Text(text) => frame.items.push(TranscriptItem::AssistantText(text.clone())),
-            AgentEvent::Thinking(text) => frame.items.push(TranscriptItem::Thinking(text.clone())),
-            AgentEvent::Tool(line) if RunningTool::has_transcript_card(&line.name) => {
-                frame.items.push(TranscriptItem::tool(line.clone()));
-            }
-            AgentEvent::Tool(_) => {}
-            AgentEvent::ToolCall {
-                name,
-                args,
-                output,
-                dropped,
-                file_change,
-            } if running => {
-                if let Some(card) = live_card(name, args, file_change.as_ref()) {
-                    frame.running_tool = Some(card);
-                    frame.running_output = output.clone();
-                    frame.running_output_start = *dropped;
-                }
-            }
-            AgentEvent::ToolCall { name, .. } => {
-                frame
-                    .items
-                    .push(TranscriptItem::Notice(format!("\u{2717} {name} did not finish")));
-            }
-        }
-    }
-    if running {
-        frame.streaming = record.events.last().and_then(streaming_text);
-        if frame.streaming.is_some() {
-            frame.items.pop();
+    for (offset, event) in events.into_iter().enumerate() {
+        let seq = record.dropped_events + offset;
+        if let Some(item) = settled_item(event, running, &mut frame) {
+            frame.items.push(item);
+            frame.item_seqs.push(seq);
         }
     }
     frame
 }
 
-fn streaming_text(event: &AgentEvent) -> Option<StreamingText> {
+/// The transcript item `event` shows, or `None` when it shows none; a running agent's unfinished
+/// call becomes the frame's live card instead.
+fn settled_item(event: AgentEvent, running: bool, frame: &mut ViewFrame) -> Option<TranscriptItem> {
+    match event {
+        AgentEvent::Task(text) => Some(TranscriptItem::UserMessage(text.trim().to_string())),
+        AgentEvent::Text(text) => Some(TranscriptItem::AssistantText(text)),
+        AgentEvent::Thinking(text) => Some(TranscriptItem::Thinking(text)),
+        AgentEvent::Tool(line) if RunningTool::has_transcript_card(&line.name) => Some(TranscriptItem::tool(line)),
+        AgentEvent::Tool(_) => None,
+        AgentEvent::ToolCall {
+            name,
+            args,
+            output,
+            dropped,
+            file_change,
+        } if running => {
+            if let Some(card) = live_card(&name, args, file_change) {
+                frame.running_tool = Some(card);
+                frame.running_output = output;
+                frame.running_output_start = dropped;
+            }
+            None
+        }
+        AgentEvent::ToolCall { name, .. } => Some(TranscriptItem::Notice(format!("\u{2717} {name} did not finish"))),
+    }
+}
+
+fn streaming_text(event: AgentEvent) -> Option<StreamingText> {
     let (kind, text) = match event {
         AgentEvent::Text(text) => (StreamKind::Reply, text),
         AgentEvent::Thinking(text) => (StreamKind::Thinking, text),
         _ => return None,
     };
-    Some(StreamingText {
-        kind,
-        text: text.clone(),
-    })
+    Some(StreamingText { kind, text })
 }
 
 /// A running tool's card, for the tools the main agent shows one for.
 fn live_card(
     name: &str,
-    args: &serde_json::Value,
-    file_change: Option<&rho_harness_core::presentation::FileChange>,
+    args: serde_json::Value,
+    file_change: Option<rho_harness_core::presentation::FileChange>,
 ) -> Option<ToolStartRequest> {
     if !RunningTool::has_live_card(name) {
         return None;
     }
     Some(ToolStartRequest {
         name: name.to_string(),
-        arguments: args.clone(),
-        file_change: file_change.cloned(),
+        arguments: args,
+        file_change,
     })
 }
 
-/// The footer title of the shown agent: who it is, its model, and how far it is.
+/// The footer title of the shown agent: who it is, its model, how far it is, and how many of its
+/// earliest events were not kept.
 fn title(record: &AgentRecord) -> String {
     let s = &record.summary;
-    format!("{} \u{b7} {} \u{b7} {}", s.label, s.model, progress(s))
+    let title = format!("{} \u{b7} {} \u{b7} {}", s.label, s.model, progress(s));
+    match record.dropped_events {
+        0 => title,
+        1 => format!("{title} \u{b7} 1 earlier event not kept"),
+        n => format!("{title} \u{b7} {n} earlier events not kept"),
+    }
+}
+
+fn enter<B: TerminalBackend>(controller: &mut TerminalController<B>, record: AgentRecord) -> Result<()> {
+    let title = title(&record);
+    controller.enter_agent_view(record.summary.id, title, frame(record))?;
+    Ok(())
 }
 
 /// Shows agent `target` in place of the main agent, or the main agent again for `None`.
@@ -102,7 +109,7 @@ pub fn show_agent<B: TerminalBackend>(
     target: Option<u64>,
 ) -> Result<()> {
     match target.and_then(|id| monitor?.record(id)) {
-        Some(record) => controller.enter_agent_view(record.summary.id, title(&record), frame(&record))?,
+        Some(record) => enter(controller, record)?,
         None => controller.leave_agent_view()?,
     }
     Ok(())
@@ -143,11 +150,11 @@ fn sync_viewed<B: TerminalBackend>(
         return Ok(true);
     };
     if let Some(newer) = newer_round(monitor, &record) {
-        controller.enter_agent_view(newer.summary.id, title(&newer), frame(&newer))?;
+        enter(controller, newer)?;
         return Ok(true);
     }
     let titled = controller.set_view_title(title(&record));
-    let synced = controller.sync_agent_view(frame(&record))?;
+    let synced = controller.sync_agent_view(frame(record))?;
     Ok(titled || synced)
 }
 

@@ -55,7 +55,8 @@ fn read_pipe(pipe: Option<impl std::io::Read>) -> std::io::Result<Vec<u8>> {
     Ok(buf)
 }
 
-fn wait_for_child(child: &mut std::process::Child, timeout: Duration) -> Option<std::process::ExitStatus> {
+/// Waits up to `timeout` for `child` to exit, killing it when it does not; `None` when killed.
+pub fn wait_for_child(child: &mut std::process::Child, timeout: Duration) -> Option<std::process::ExitStatus> {
     let deadline = Instant::now() + timeout;
     loop {
         match child.try_wait() {
@@ -98,20 +99,22 @@ pub fn run_command_with_timeout(mut cmd: std::process::Command, timeout: Duratio
     })
 }
 
-pub fn get_git_branch(cwd: &Path) -> Option<String> {
+/// The branch named by the `HEAD` of the repository holding `cwd`, read from its files; `None` when
+/// there is no `.git` above `cwd` or its `HEAD` names no branch, so only `git` itself can tell.
+pub fn branch_from_files(cwd: &Path) -> Option<String> {
     let mut curr = Some(cwd);
     while let Some(dir) = curr {
         let git_dir = dir.join(".git");
         if git_dir.is_dir() || git_dir.is_file() {
-            if let Some(branch) = branch_from_git_dir(dir, &git_dir) {
-                return Some(branch);
-            }
-            break;
+            return branch_from_git_dir(dir, &git_dir);
         }
         curr = dir.parent();
     }
+    None
+}
 
-    branch_from_git_process(cwd)
+pub fn get_git_branch(cwd: &Path) -> Option<String> {
+    branch_from_files(cwd).or_else(|| branch_from_git_process(cwd))
 }
 
 #[cfg(test)]

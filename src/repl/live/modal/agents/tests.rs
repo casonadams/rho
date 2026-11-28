@@ -155,7 +155,8 @@ fn refresh_tracks_new_agents_and_keeps_the_selection() {
     handle_agents_key(&mut c, key(KeyCode::Down), &monitor).unwrap();
     let _late = monitor.start("refine › round 2", "validate · validator", "claude/claude-opus-5-5", 16);
 
-    assert!(refresh_agent_modals(&mut c, &monitor).unwrap());
+    let mut count = AgentCountSync::default();
+    assert!(refresh_agent_modals(&mut c, &monitor, &mut count).unwrap());
 
     let list = c.state().active_modal().unwrap();
     assert_eq!(list.options.len(), 3);
@@ -163,8 +164,28 @@ fn refresh_tracks_new_agents_and_keeps_the_selection() {
         list.selected_option().unwrap().value.as_deref(),
         Some(done.id().to_string().as_str())
     );
-    assert!(!refresh_agent_modals(&mut c, &monitor).unwrap());
+    assert!(!refresh_agent_modals(&mut c, &monitor, &mut count).unwrap());
     assert_eq!(c.state().footer().running_agents, 2);
+}
+
+#[test]
+fn the_running_count_is_retaken_only_when_the_monitor_changes() {
+    let (monitor, _, running) = monitor_with_two_agents();
+    let mut c = controller();
+    let mut count = AgentCountSync::default();
+    assert!(refresh_agent_modals(&mut c, &monitor, &mut count).unwrap());
+    assert_eq!(c.state().footer().running_agents, 1);
+
+    c.state_mut().footer_mut().running_agents = 7;
+    assert!(
+        !refresh_agent_modals(&mut c, &monitor, &mut count).unwrap(),
+        "an unchanged monitor is not counted again"
+    );
+    assert_eq!(c.state().footer().running_agents, 7);
+
+    running.finish(AgentStatus::Done);
+    assert!(refresh_agent_modals(&mut c, &monitor, &mut count).unwrap());
+    assert_eq!(c.state().footer().running_agents, 0);
 }
 
 #[test]

@@ -66,8 +66,12 @@ fn sync_turn_git_footer(footer: &mut crate::ui::interactive::FooterState) -> boo
     let Some(cwd) = footer.cwd.as_deref() else {
         return false;
     };
-    let (pr, git_status) =
-        crate::ui::interactive::footer::cached_footer_git(cfg, std::path::Path::new(cwd), footer.git_branch.as_deref());
+    let (pr, git_status) = crate::ui::interactive::footer::cached_footer_git(
+        cfg,
+        std::path::Path::new(cwd),
+        footer.git_branch.as_deref(),
+        crate::ui::interactive::footer::path::GitStatusRead::Cached,
+    );
     let changed = footer.git_pr != pr || footer.git_status != git_status;
     if changed {
         footer.git_pr = pr;

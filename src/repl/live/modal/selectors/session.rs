@@ -1,37 +1,117 @@
 use std::path::Path;
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use rho_harness_core::session::SessionSummary;
+use tokio::sync::oneshot;
 
 use super::super::ModalKeyResult;
 use crate::error::Result;
 use crate::ui::interactive::session_picker::{resume_modal, resume_options, session_row};
 use crate::ui::interactive::{ModalKind, TerminalBackend, TerminalController};
 
-pub async fn open_session_selector<B: TerminalBackend>(
+const LOADING: &str = "Loading sessions\u{2026}";
+
+/// The saved sessions, listed off the UI thread, with any problem met while listing them.
+#[derive(Debug, Default)]
+pub struct ListedSessions {
+    summaries: Vec<SessionSummary>,
+    warnings: Vec<String>,
+}
+
+/// The session listing the open selector is waiting for.
+#[derive(Debug)]
+pub struct SessionListing {
+    rx: oneshot::Receiver<ListedSessions>,
+}
+
+async fn list_sessions(sessions_dir: &Path, active_session_id: &str) -> ListedSessions {
+    let mut listed = ListedSessions::default();
+    if let Err(err) = rho_harness_core::session::prune_empty_sessions_async(sessions_dir, Some(active_session_id)).await
+    {
+        listed
+            .warnings
+            .push(format!("Warning: could not prune empty sessions: {err}"));
+    }
+    match rho_harness_core::session::list_session_summaries_async(sessions_dir).await {
+        Ok(summaries) => listed.summaries = summaries,
+        Err(err) => listed.warnings.push(format!("Warning: could not list sessions: {err}")),
+    }
+    listed
+}
+
+/// Opens the session selector at once, showing that it is loading, and lists the sessions in a
+/// spawned task; `refresh_session_selector` fills it in when they arrive.
+pub fn open_session_selector<B: TerminalBackend>(
     sessions_dir: &Path,
     active_session_id: &str,
     controller: &mut TerminalController<B>,
-) {
-    if let Err(err) = rho_harness_core::session::prune_empty_sessions_async(sessions_dir, Some(active_session_id)).await
-    {
-        controller.set_system_message(format!("Warning: could not prune empty sessions: {err}"));
-    }
-    let summaries = match rho_harness_core::session::list_session_summaries_async(sessions_dir).await {
-        Ok(summaries) => summaries,
-        Err(err) => {
-            controller.set_system_message(format!("Warning: could not list sessions: {err}"));
-            Vec::new()
-        }
+) -> SessionListing {
+    controller
+        .state_mut()
+        .push_modal(resume_modal(Vec::new(), LOADING).with_kind(ModalKind::Session));
+    let (tx, rx) = oneshot::channel();
+    let sessions_dir = sessions_dir.to_path_buf();
+    let active_session_id = active_session_id.to_string();
+    tokio::spawn(async move {
+        let _ = tx.send(list_sessions(&sessions_dir, &active_session_id).await);
+    });
+    SessionListing { rx }
+}
+
+/// Fills the open session selector once its listing arrives, keeping what was typed to filter it;
+/// returns whether the screen changed. A selector closed meanwhile is left closed.
+pub fn refresh_session_selector<B: TerminalBackend>(
+    controller: &mut TerminalController<B>,
+    listing: &mut Option<SessionListing>,
+) -> bool {
+    let Some(pending) = listing.as_mut() else {
+        return false;
     };
-    let options = resume_options(&summaries, session_row);
+    let listed = match pending.rx.try_recv() {
+        Ok(listed) => listed,
+        Err(oneshot::error::TryRecvError::Empty) => return false,
+        Err(oneshot::error::TryRecvError::Closed) => ListedSessions {
+            warnings: vec!["Warning: could not list sessions".to_string()],
+            ..ListedSessions::default()
+        },
+    };
+    *listing = None;
+    fill_session_selector(controller, listed);
+    true
+}
+
+fn fill_session_selector<B: TerminalBackend>(controller: &mut TerminalController<B>, listed: ListedSessions) {
+    for warning in listed.warnings {
+        controller.set_system_message(warning);
+    }
+    let Some(modal) = controller
+        .state_mut()
+        .active_modal_mut()
+        .filter(|modal| modal.kind == ModalKind::Session)
+    else {
+        return;
+    };
+    let options = resume_options(&listed.summaries, session_row);
     let subtitle = if options.is_empty() {
         "No previous sessions to resume"
     } else {
         ""
     };
-    controller
-        .state_mut()
-        .push_modal(resume_modal(options, subtitle).with_kind(ModalKind::Session));
+    let query = std::mem::take(&mut modal.filter_query);
+    *modal = resume_modal(options, subtitle).with_kind(ModalKind::Session);
+    modal.set_filter(&query);
+}
+
+/// Opens the selector and waits for its sessions, for tests that need the listing in place.
+#[cfg(test)]
+pub(crate) async fn open_listed_session_selector<B: TerminalBackend>(
+    sessions_dir: &Path,
+    active_session_id: &str,
+    controller: &mut TerminalController<B>,
+) {
+    let listing = open_session_selector(sessions_dir, active_session_id, controller);
+    let listed = listing.rx.await.unwrap_or_default();
+    fill_session_selector(controller, listed);
 }
 
 fn selected_session_id<B: TerminalBackend>(controller: &TerminalController<B>) -> Option<String> {
@@ -83,7 +163,10 @@ pub fn handle_session_key<B: TerminalBackend>(
 
 #[cfg(test)]
 mod tests {
-    use super::{ModalKeyResult, handle_session_key, open_session_selector};
+    use super::{
+        LOADING, ModalKeyResult, handle_session_key, open_listed_session_selector, open_session_selector,
+        refresh_session_selector,
+    };
     use crate::ui::interactive::InteractiveState;
     use crate::ui::interactive::TerminalController;
     use crate::ui::interactive::controller::tests::fake::FakeTerminal;
@@ -103,8 +186,33 @@ mod tests {
         let active = SessionManager::new_async(&dir, None).await.unwrap();
         let (backend, _, _) = FakeTerminal::new(80);
         let mut controller = TerminalController::new(backend, InteractiveState::default()).unwrap();
-        open_session_selector(&dir, &active.session_id, &mut controller).await;
+        open_listed_session_selector(&dir, &active.session_id, &mut controller).await;
         (controller, dir)
+    }
+
+    #[tokio::test]
+    async fn the_selector_opens_loading_and_fills_in_when_the_sessions_are_listed() {
+        use rho_harness_core::model::ChatMessage;
+        let dir = rho_test_support::TestDir::new();
+        let saved = SessionManager::new_async(&dir, None).await.unwrap();
+        let messages = vec![ChatMessage::user("first question"), ChatMessage::assistant("a reply")];
+        saved.append_messages(&saved.session_id, messages).await.unwrap();
+        let mut controller = crate::repl::test_controller();
+
+        let mut listing = Some(open_session_selector(&dir, "active", &mut controller));
+        let modal = controller.state().active_modal().unwrap();
+        assert_eq!((modal.body.as_str(), modal.all_options.len()), (LOADING, 0));
+        controller.state_mut().active_modal_mut().unwrap().set_filter("first");
+
+        while !refresh_session_selector(&mut controller, &mut listing) {
+            tokio::task::yield_now().await;
+        }
+        assert!(listing.is_none());
+        let modal = controller.state().active_modal().unwrap();
+        assert_eq!(modal.body, "");
+        assert_eq!(modal.all_options.len(), 1);
+        assert_eq!(modal.filter_query, "first", "what was typed while loading is kept");
+        assert!(!refresh_session_selector(&mut controller, &mut listing));
     }
 
     fn selected_id(controller: &TerminalController<FakeTerminal>) -> String {
@@ -168,7 +276,7 @@ mod tests {
         let (backend, _, _) = FakeTerminal::new(80);
         let mut controller = TerminalController::new(backend, InteractiveState::default()).unwrap();
 
-        open_session_selector(&dir, &session.session_id, &mut controller).await;
+        open_listed_session_selector(&dir, &session.session_id, &mut controller).await;
 
         assert!(session.file_path.exists());
         session

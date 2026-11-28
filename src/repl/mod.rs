@@ -74,6 +74,8 @@ pub struct ReplSession {
     pub(crate) mcp_completions: crate::repl::interactive::McpServerList,
     pub catalog: rho_engine::provider::ModelCatalog,
     pub(crate) btw: Option<crate::repl::live::modal::btw::BtwSession>,
+    /// The sessions the open `/resume` selector is still waiting for.
+    pub(crate) session_listing: Option<crate::repl::live::modal::SessionListing>,
     fetch_models: bool,
     pub(crate) pending_resume_recap: bool,
 }
@@ -96,6 +98,7 @@ impl ReplSession {
             mcp_completions,
             catalog: rho_engine::provider::ModelCatalog::default(),
             btw: None,
+            session_listing: None,
             fetch_models: false,
             pending_resume_recap: false,
         }

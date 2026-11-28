@@ -264,21 +264,42 @@ fn refresh_list(modal: &mut ModalState, monitor: &AgentMonitor) -> bool {
     true
 }
 
+/// The monitor version the footer's running-agent count was last taken at.
+#[derive(Debug, Default)]
+pub struct AgentCountSync {
+    version: Option<u64>,
+}
+
+impl AgentCountSync {
+    /// Recounts the running agents when the monitor changed since the last count; returns whether
+    /// the count changed.
+    fn sync<B: TerminalBackend>(&mut self, controller: &mut TerminalController<B>, monitor: &AgentMonitor) -> bool {
+        let version = monitor.version();
+        if self.version == Some(version) {
+            return false;
+        }
+        self.version = Some(version);
+        let running = monitor
+            .summaries()
+            .iter()
+            .filter(|s| s.status == AgentStatus::Running)
+            .count();
+        let changed = controller.state().footer().running_agents != running;
+        if changed {
+            controller.state_mut().footer_mut().running_agents = running;
+        }
+        changed
+    }
+}
+
 /// Brings the agent list, the shown agent, and the footer's running-agent count up to date;
 /// returns whether anything changed.
 pub fn refresh_agent_modals<B: TerminalBackend>(
     controller: &mut TerminalController<B>,
     monitor: &AgentMonitor,
+    count: &mut AgentCountSync,
 ) -> Result<bool> {
-    let running = monitor
-        .summaries()
-        .iter()
-        .filter(|s| s.status == AgentStatus::Running)
-        .count();
-    let count_changed = controller.state().footer().running_agents != running;
-    if count_changed {
-        controller.state_mut().footer_mut().running_agents = running;
-    }
+    let count_changed = count.sync(controller, monitor);
     let view_changed = agent_focus::refresh(controller, monitor)?;
     let list_changed = controller
         .state_mut()

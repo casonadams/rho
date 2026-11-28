@@ -227,7 +227,7 @@ async fn handle_login_provider_selected(
 
 async fn open_idle_help_modal(
     command: &str,
-    session: &ReplSession,
+    session: &mut ReplSession,
     engine: &AgentEngine,
     controller: &mut TerminalController<impl TerminalBackend>,
 ) -> Result<bool> {
@@ -236,12 +236,11 @@ async fn open_idle_help_modal(
     }
     match command {
         "/resume" => {
-            super::super::modal::open_session_selector(
+            session.session_listing = Some(super::super::modal::open_session_selector(
                 &session.config.sessions_dir,
                 &engine.session_manager.session_id,
                 controller,
-            )
-            .await;
+            ));
         }
         "/mcp" => super::super::modal::open_mcp_selector(session, controller),
         "/login" => super::super::modal::open_login_selector(session, controller),

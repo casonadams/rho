@@ -32,19 +32,46 @@ struct IdleUi {
     recap: IdleRecapController,
 }
 
+/// The frame tick while nothing is in flight: input, UI events, and the watch channels wake the
+/// loop on their own, so the tick only catches unreported resizes and expiring messages.
+const IDLE_FRAME_INTERVAL: std::time::Duration = std::time::Duration::from_millis(250);
+
+fn frame_interval(period: std::time::Duration) -> tokio::time::Interval {
+    let mut frame = tokio::time::interval(period);
+    frame.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    frame
+}
+
 impl IdleUi {
     fn new(engine: &crate::engine::AgentEngine, session: &ReplSession) -> Self {
-        let mut frame = tokio::time::interval(OUTPUT_FRAME_INTERVAL);
-        frame.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         Self {
             batch: LiveBatch::new().with_monitor(engine.agent_monitor().clone()),
-            frame,
+            frame: frame_interval(OUTPUT_FRAME_INTERVAL),
             quota_rx: engine.quota_subscribe(),
             catalog_rx: session.catalog.subscribe(),
             title_rx: engine.title_subscribe(),
             pr_rx: crate::ui::interactive::footer::subscribe_git_pr(),
             mcp: engine.mcp_runtime().cloned(),
             recap: IdleRecapController::new(),
+        }
+    }
+
+    /// Ticks every output frame while something needs them (batched output, a settling resize, a
+    /// loading or streaming modal, running or shown agents), and slowly otherwise.
+    fn pace_frames<B: TerminalBackend>(&mut self, controller: &TerminalController<B>, session: &ReplSession) {
+        let busy = !self.batch.ui.is_empty()
+            || self.batch.resize_pending()
+            || session.session_listing.is_some()
+            || session.btw.is_some()
+            || controller.state().footer().running_agents > 0
+            || controller.viewed_agent().is_some();
+        let period = if busy {
+            OUTPUT_FRAME_INTERVAL
+        } else {
+            IDLE_FRAME_INTERVAL
+        };
+        if self.frame.period() != period {
+            self.frame = frame_interval(period);
         }
     }
 }
@@ -147,11 +174,18 @@ pub(crate) fn sync_idle_pr<B: TerminalBackend>(
     let Some(cwd) = footer.cwd.as_deref() else {
         return Ok(false);
     };
-    let (pr, git_status) =
-        crate::ui::interactive::footer::cached_footer_git(cfg, std::path::Path::new(cwd), footer.git_branch.as_deref());
-    let changed = footer.git_pr != pr || footer.git_status != git_status;
+    let cwd = std::path::Path::new(cwd);
+    let branch = crate::ui::interactive::footer::path::cached_git_branch(cwd);
+    let (pr, git_status) = crate::ui::interactive::footer::cached_footer_git(
+        cfg,
+        cwd,
+        branch.as_deref(),
+        crate::ui::interactive::footer::path::GitStatusRead::Refresh,
+    );
+    let changed = footer.git_branch != branch || footer.git_pr != pr || footer.git_status != git_status;
     if changed {
         let footer_mut = controller.state_mut().footer_mut();
+        footer_mut.git_branch = branch;
         footer_mut.git_pr = pr;
         footer_mut.git_status = git_status;
         batch.flush(controller, true)?;
@@ -174,7 +208,7 @@ fn handle_frame_tick<B: TerminalBackend>(
     engine: &crate::engine::AgentEngine,
 ) -> Result<()> {
     let expired = controller.check_system_message_expiration();
-    let resized = controller.refresh_size()?;
+    let resized = batch.refresh_size(controller)?;
     if resized {
         session.renderer.set_width(controller.width());
     }
@@ -188,12 +222,17 @@ fn handle_frame_tick<B: TerminalBackend>(
     if name_changed {
         controller.state_mut().footer_mut().session_name = name;
     }
-    let agents = crate::repl::live::modal::agents::refresh_agent_modals(controller, engine.agent_monitor())?;
+    let agents = crate::repl::live::modal::agents::refresh_agent_modals(
+        controller,
+        engine.agent_monitor(),
+        &mut batch.agent_count,
+    )?;
     let btw = session
         .btw
         .as_mut()
         .is_some_and(|b| crate::repl::live::modal::btw::refresh_btw_modal(controller, b));
-    let should_redraw = expired || resized || quota_changed || name_changed || agents || btw;
+    let sessions = crate::repl::live::modal::refresh_session_selector(controller, &mut session.session_listing);
+    let should_redraw = expired || resized || quota_changed || name_changed || agents || btw || sessions;
     if !batch.ui.is_empty() || should_redraw {
         batch.flush(controller, should_redraw)?;
     }
@@ -385,6 +424,7 @@ async fn drive_idle_loop<B: TerminalBackend>(
             ui.quota_rx = ctx.engine.quota_subscribe();
         }
         prepare_idle_recap(controller, ctx, &mut ui.recap).await;
+        ui.pace_frames(controller, ctx.session);
         let inbox = ctx.engine.inbox();
         let step = next_idle_step(&mut ui, &inbox, input, ui_events).await;
         drop(inbox);
@@ -486,7 +526,7 @@ mod tests {
         assert_eq!(other.take().len(), 1, "another agent's mail stays with it");
     }
 
-    #[tokio::test]
+    #[tokio::test(start_paused = true)]
     async fn test_handle_tick_frame_and_quota() {
         let (mut controller, shared_width, mut batch, mut session, mut engine, _temp) = test_harness().await;
         let mut last_escape_time = None;
@@ -496,8 +536,12 @@ mod tests {
             last_escape_time: &mut last_escape_time,
         };
 
-        // Frame tick with resize
         shared_width.set(100);
+        handle_tick(&mut controller, &mut batch, IdleTick::Frame, &mut ctx)
+            .await
+            .unwrap();
+        assert_eq!(controller.width(), 80, "a resize applies once it settles");
+        tokio::time::advance(crate::repl::live::resize::RESIZE_SETTLE).await;
         handle_tick(&mut controller, &mut batch, IdleTick::Frame, &mut ctx)
             .await
             .unwrap();
@@ -515,6 +559,20 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(controller.state().footer().quota, Some("50%".to_string()));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn idle_frames_slow_down_with_nothing_in_flight_and_speed_up_for_pending_output() {
+        let (controller, _width, _batch, session, engine, _temp) = test_harness().await;
+        let mut ui = IdleUi::new(&engine, &session);
+        assert_eq!(ui.frame.period(), OUTPUT_FRAME_INTERVAL);
+
+        ui.pace_frames(&controller, &session);
+        assert_eq!(ui.frame.period(), IDLE_FRAME_INTERVAL);
+
+        let _ = ui.batch.ui.push(UiEvent::RunningTool(Some("bash".to_string())));
+        ui.pace_frames(&controller, &session);
+        assert_eq!(ui.frame.period(), OUTPUT_FRAME_INTERVAL);
     }
 
     #[tokio::test]

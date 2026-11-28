@@ -136,7 +136,7 @@ impl<B: TerminalBackend> BashRun<'_, B> {
 
     fn handle_frame_tick(&mut self, stream: &mut StreamBuffers) -> Result<()> {
         let expired = self.controller.check_system_message_expiration();
-        let resized = self.controller.refresh_size()?;
+        let resized = self.batch.refresh_size(self.controller)?;
         sync_renderer_width(self.renderer, self.controller, resized);
         if stream.progress.on_tick(self.controller) || expired || resized {
             self.drain_and_flush(true)?;

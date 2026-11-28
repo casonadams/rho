@@ -45,12 +45,30 @@ async fn test_clipboard_basic_async() {
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 #[test]
 fn pipe_to_command_reports_failed_exit() {
-    assert!(pipe_to_command(&mut std::process::Command::new("false"), "text").is_err());
+    assert!(pipe_to_command(&mut std::process::Command::new("false"), "text", CLIPBOARD_TIMEOUT).is_err());
+}
+
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+#[test]
+fn pipe_to_command_gives_up_on_a_command_that_hangs() {
+    let mut hung = std::process::Command::new("sh");
+    hung.args(["-c", "cat >/dev/null; exec sleep 5"]);
+    let started = std::time::Instant::now();
+    let err = pipe_to_command(&mut hung, "text", Duration::from_millis(80)).unwrap_err();
+    assert!(err.to_string().contains("did not finish"), "{err:#}");
+    assert!(started.elapsed() < Duration::from_secs(2));
+}
+
+#[tokio::test]
+async fn async_and_bounded_clipboard_calls_stay_in_memory_under_test() {
+    set_text_async("from async".to_string()).await.unwrap();
+    assert_eq!(get_text_or_image_path_bounded(), Some("from async".to_string()));
+    assert_eq!(get_text_or_image_path_async().await, Some("from async".to_string()));
 }
 
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 #[test]
 fn pipe_to_command_reports_missing_program() {
     let mut cmd = std::process::Command::new("rho-no-such-clipboard-tool");
-    assert!(pipe_to_command(&mut cmd, "text").is_err());
+    assert!(pipe_to_command(&mut cmd, "text", CLIPBOARD_TIMEOUT).is_err());
 }

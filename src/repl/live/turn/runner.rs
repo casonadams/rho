@@ -45,18 +45,23 @@ impl<'a, B: TerminalBackend> TurnLoop<'a, B> {
     pub fn on_tick(&mut self) -> Result<()> {
         let (steering, spinner) = self.tick_steering_and_spinner();
         let expired = self.controller.check_system_message_expiration();
-        let resized = self.controller.refresh_size()?;
+        let resized = self.batch.refresh_size(self.controller)?;
         let footer = sync_turn_footer(self.controller, self.engine);
-        let agents =
-            crate::repl::live::modal::agents::refresh_agent_modals(self.controller, self.engine.agent_monitor())?;
+        let agents = crate::repl::live::modal::agents::refresh_agent_modals(
+            self.controller,
+            self.engine.agent_monitor(),
+            &mut self.batch.agent_count,
+        )?;
         let btw = self
             .session
             .btw
             .as_mut()
             .is_some_and(|b| crate::repl::live::modal::btw::refresh_btw_modal(self.controller, b));
+        let sessions =
+            crate::repl::live::modal::refresh_session_selector(self.controller, &mut self.session.session_listing);
         self.batch.flush(
             self.controller,
-            spinner || footer || expired || steering || resized || agents || btw,
+            spinner || footer || expired || steering || resized || agents || btw || sessions,
         )?;
         self.promote_idle_activity();
         Ok(())

@@ -1,6 +1,7 @@
 pub mod ansi;
 pub mod backend;
 pub mod cache;
+mod held;
 pub mod paint;
 mod pin;
 mod sgr;
@@ -287,21 +288,30 @@ impl<B: TerminalBackend> TerminalController<B> {
         self.apply_size(w, h)
     }
 
+    /// The terminal size the backend reports now, without applying it.
+    pub fn probe_size(&self) -> io::Result<(usize, usize)> {
+        self.backend.size().map(|(w, h)| (usize::from(w), usize::from(h)))
+    }
+
     pub fn refresh_size(&mut self) -> io::Result<bool> {
-        let (width, height) = self.backend.size().map(|(w, h)| (usize::from(w), usize::from(h)))?;
+        let (width, height) = self.probe_size()?;
         self.apply_size(width, height)
     }
 
+    /// A new width reflows the whole transcript; a new height only repaints the visible tail.
     fn apply_size(&mut self, width: usize, height: usize) -> io::Result<bool> {
         if width == self.width && height == self.height {
             return Ok(false);
         }
-        if width != self.width {
-            self.cache.clear();
-        }
+        let reflow = width != self.width;
         self.width = width;
         self.height = height;
-        self.replay_transcript()?;
+        if reflow {
+            self.cache.clear();
+            self.replay_transcript()?;
+        } else {
+            self.full_redraw()?;
+        }
         Ok(true)
     }
 

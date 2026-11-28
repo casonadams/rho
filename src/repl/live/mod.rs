@@ -8,6 +8,7 @@ pub mod message;
 pub mod modal;
 pub mod navigation;
 pub(crate) mod recap;
+pub mod resize;
 mod setup;
 #[cfg(test)]
 mod tests;

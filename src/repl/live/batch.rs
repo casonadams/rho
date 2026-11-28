@@ -1,4 +1,6 @@
+use super::modal::agents::AgentCountSync;
 use super::modal::{PendingModal, install_interaction};
+use super::resize::SizeSettle;
 use crate::error::Result;
 use crate::repl::live::agent_focus::show_agent;
 use crate::ui::interactive::{Activity, BatchDecision, PendingUiBatch, PendingUiDrain, TerminalController, UiEvent};
@@ -19,6 +21,9 @@ pub struct LiveBatch {
     monitor: Option<AgentMonitor>,
     /// A permission prompt waiting until the agent it belongs to is shown (`None`: the main agent).
     held_interaction: Option<(UiEvent, Option<u64>)>,
+    size: SizeSettle,
+    /// When the footer's running-agent count was last taken.
+    pub(crate) agent_count: AgentCountSync,
 }
 
 impl LiveBatch {
@@ -29,6 +34,8 @@ impl LiveBatch {
             active_turn: false,
             monitor: None,
             held_interaction: None,
+            size: SizeSettle::default(),
+            agent_count: AgentCountSync::default(),
         }
     }
 
@@ -37,6 +44,20 @@ impl LiveBatch {
             active_turn: true,
             ..Self::new()
         }
+    }
+
+    /// The frame tick's size check: applies a terminal size the input reader did not report once it
+    /// has settled; returns whether the size changed.
+    pub fn refresh_size<B: crate::ui::interactive::TerminalBackend>(
+        &mut self,
+        controller: &mut TerminalController<B>,
+    ) -> Result<bool> {
+        Ok(self.size.refresh(controller)?)
+    }
+
+    /// Whether a frame-tick resize is waiting to settle.
+    pub fn resize_pending(&self) -> bool {
+        self.size.is_pending()
     }
 
     /// Routes permission prompts to the agent that asked, using `monitor` to find it.

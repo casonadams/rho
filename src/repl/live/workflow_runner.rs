@@ -98,7 +98,16 @@ impl<B: TerminalBackend> WorkflowView<'_, '_, B> {
         };
         match event? {
             Event::Key(key) if key.kind != KeyEventKind::Release => self.handle_key(key),
-            Event::Resize(..) | Event::FocusGained => self.handle_frame(),
+            Event::Resize(cols, rows) => {
+                let resized = self.io.controller.resize_to(usize::from(cols), usize::from(rows))?;
+                sync_renderer_width(self.renderer, self.io.controller, resized);
+                self.handle_frame()
+            }
+            Event::FocusGained => {
+                let resized = self.io.controller.refresh_size()?;
+                sync_renderer_width(self.renderer, self.io.controller, resized);
+                self.handle_frame()
+            }
             _ => Ok(()),
         }
     }
@@ -120,13 +129,13 @@ impl<B: TerminalBackend> WorkflowView<'_, '_, B> {
 
     fn handle_frame(&mut self) -> Result<()> {
         self.tick_spinner();
-        let resized = self.io.controller.refresh_size()?;
+        let resized = self.batch.refresh_size(self.io.controller)?;
         sync_renderer_width(self.renderer, self.io.controller, resized);
         self.io.controller.check_system_message_expiration();
         if self.abort_at.is_some() {
             self.io.controller.set_system_message(CANCELLING);
         }
-        agents::refresh_agent_modals(self.io.controller, &self.monitor)?;
+        agents::refresh_agent_modals(self.io.controller, &self.monitor, &mut self.batch.agent_count)?;
         self.flush(true)
     }
 }

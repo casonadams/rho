@@ -299,7 +299,9 @@ pub(crate) async fn handle_btw_modal_action<B: TerminalBackend>(
         }
         ModalKeyResult::BtwCopy => {
             if let Some(answer) = session.btw.as_ref().and_then(BtwSession::last_answer)
-                && crate::platform::clipboard::set_text(answer).is_ok()
+                && crate::platform::clipboard::set_text_async(answer.to_string())
+                    .await
+                    .is_ok()
             {
                 controller.set_system_message("Copied /btw answer to clipboard");
             }

@@ -9,14 +9,14 @@ use crate::ui::interactive::{
 };
 use rho_harness_core::thinking::ThinkingLevel;
 
-pub fn copy_last_message<B: TerminalBackend>(session: &ReplSession, controller: &TerminalController<B>) {
+pub async fn copy_last_message<B: TerminalBackend>(session: &ReplSession, controller: &TerminalController<B>) {
     let last_text = controller.transcript().iter().rev().find_map(|item| match item {
         TranscriptItem::AssistantText(text) => Some(text.clone()),
         _ => None,
     });
 
     if let Some(text) = last_text {
-        if crate::platform::clipboard::set_text(&text).is_ok() {
+        if crate::platform::clipboard::set_text_async(text).await.is_ok() {
             session.renderer.print_status("Copied message to clipboard");
         } else {
             session.renderer.print_status("Failed to access clipboard");
@@ -74,7 +74,7 @@ pub fn refresh_footer(state: &mut InteractiveState, session: &ReplSession, engin
 
     let cwd = std::env::current_dir().unwrap_or_default();
     footer.cwd = Some(cwd.display().to_string());
-    footer.git_branch = crate::ui::interactive::footer::get_git_branch(&cwd);
+    footer.git_branch = crate::ui::interactive::footer::path::cached_git_branch(&cwd);
     footer.session_name = engine.session_manager.cached_session_name();
     footer.quota = engine.quota_display();
     footer.context_percent = engine.context_percent_f64();

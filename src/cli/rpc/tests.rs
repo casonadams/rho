@@ -956,3 +956,62 @@ async fn set_api_key_fetches_that_providers_model_list() {
     assert!(request.starts_with("get /models "), "{request}");
     assert!(request.contains("authorization: bearer acme-key\r\n"), "{request}");
 }
+
+#[test]
+fn queued_events_are_written_with_adjacent_chunks_joined() {
+    let text = |s: &str| RpcEvent::TextChunk { content: s.to_string() };
+    let reasoning = |s: &str| RpcEvent::ReasoningChunk { content: s.to_string() };
+    let busy = RpcEvent::StatusChanged {
+        status: "busy".to_string(),
+    };
+    let (event_tx, mut event_rx) = mpsc::unbounded_channel();
+    for event in [
+        text("b"),
+        reasoning("c"),
+        reasoning("d"),
+        busy.clone(),
+        text("e"),
+        text("f"),
+    ] {
+        event_tx.send(event).unwrap();
+    }
+
+    let events = super::loop_runner::drain_coalesced(text("a"), &mut event_rx);
+
+    assert_eq!(events, [text("ab"), reasoning("cd"), busy, text("ef")]);
+    assert!(event_rx.try_recv().is_err());
+}
+
+#[tokio::test(start_paused = true)]
+async fn an_abort_is_read_while_events_wait_on_a_slow_client() {
+    let (_unread_client, server_out) = duplex(64);
+    let mut writer = JsonLinesWriter::new(server_out);
+    let temp_dir = rho_test_support::TestDir::new();
+    let mut active_turn = Some(tokio::spawn(std::future::pending::<
+        crate::error::Result<rho_engine::engine::runner::TurnOutput>,
+    >()));
+    let mut ctx = setup_test_rpc_context(&mut writer, &temp_dir, &mut active_turn).await;
+    let (client_in, server_in) = duplex(4096);
+    let mut reader = JsonLinesReader::new(tokio::io::BufReader::new(server_in));
+    JsonLinesWriter::new(client_in)
+        .write_message(&rho_harness_core::rpc::protocol::RpcRequest {
+            id: Some("abort-1".to_string()),
+            command: RpcCommand::Abort,
+        })
+        .await
+        .unwrap();
+    let events = [RpcEvent::TextChunk {
+        content: "x".repeat(1024),
+    }];
+
+    let write = super::loop_runner::write_events_while_reading(&mut reader, &mut ctx, &events);
+    let pending = tokio::time::timeout(std::time::Duration::from_secs(1), write).await;
+    assert!(pending.is_err(), "the client never reads, so the write stays pending");
+    drop(ctx);
+    tokio::task::yield_now().await;
+
+    assert!(
+        active_turn.as_ref().is_some_and(tokio::task::JoinHandle::is_finished),
+        "the turn is aborted without waiting for the write"
+    );
+}

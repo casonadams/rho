@@ -68,7 +68,7 @@ fn handle_plain_key<B: TerminalBackend>(controller: &mut TerminalController<B>, 
         InputAction::HistoryPrevious => handle_vertical_move(controller, false),
         InputAction::HistoryNext => handle_vertical_move(controller, true),
         InputAction::ClipboardPasteImage => {
-            if let Some(text) = crate::platform::clipboard::get_text_or_image_path() {
+            if let Some(text) = crate::platform::clipboard::get_text_or_image_path_bounded() {
                 apply_modal_edit(controller, UiAction::Paste(text));
             }
         }

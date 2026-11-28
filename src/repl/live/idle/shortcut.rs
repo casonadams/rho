@@ -116,7 +116,7 @@ async fn handle_auxiliary_action(
             flush_after(ctx, batch)?;
         }
         InputAction::MessageCopy => {
-            copy_last_message(ctx.session, ctx.controller);
+            copy_last_message(ctx.session, ctx.controller).await;
             flush_after(ctx, batch)?;
         }
         InputAction::ClipboardPasteImage => {

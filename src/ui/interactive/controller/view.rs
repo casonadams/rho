@@ -16,6 +16,8 @@ use std::io;
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ViewFrame {
     pub items: Vec<TranscriptItem>,
+    /// The sequence number of the agent event each of `items` shows, ascending.
+    pub item_seqs: Vec<usize>,
     pub streaming: Option<StreamingText>,
     pub running_tool: Option<ToolStartRequest>,
     pub running_output: String,
@@ -39,6 +41,8 @@ pub(crate) struct AgentView {
     tool_streamed: usize,
     /// The monitor version the shown frame was last synced at.
     synced_version: Option<u64>,
+    /// The sequence number of the event behind each shown transcript item.
+    shown_seqs: Vec<usize>,
 }
 
 struct Parked {
@@ -109,8 +113,21 @@ fn stream_continues(
     next.is_some_and(|(kind, text)| stream.continues(kind, text))
 }
 
-fn common_prefix(shown: &[TranscriptItem], next: &[TranscriptItem]) -> usize {
-    shown.iter().zip(next).take_while(|(a, b)| a == b).count()
+/// How the shown items line up with `frame`'s: how many leading shown items show events the agent
+/// has since dropped, and how many after those `frame` starts with unchanged.
+fn aligned_prefix(shown: &[TranscriptItem], shown_seqs: &[usize], frame: &ViewFrame) -> (usize, usize) {
+    let dropped = frame
+        .item_seqs
+        .first()
+        .map_or(0, |first| shown_seqs.iter().take_while(|seq| *seq < first).count())
+        .min(shown.len());
+    let kept = shown[dropped..]
+        .iter()
+        .zip(&shown_seqs[dropped..])
+        .zip(frame.items.iter().zip(&frame.item_seqs))
+        .take_while(|(a, b)| a == b)
+        .count();
+    (dropped, kept)
 }
 
 fn same_tool(running: Option<&RunningTool>, request: Option<&ToolStartRequest>) -> bool {
@@ -157,6 +174,7 @@ impl<B: TerminalBackend> TerminalController<B> {
             stream: None,
             tool_streamed: 0,
             synced_version: None,
+            shown_seqs: Vec::new(),
         });
         self.state.footer_mut().viewing = Some(title);
         self.show_frame(frame)
@@ -176,6 +194,9 @@ impl<B: TerminalBackend> TerminalController<B> {
     fn show_frame(&mut self, frame: ViewFrame) -> io::Result<()> {
         self.transcript = frame.items;
         self.cache.clear();
+        if let Some(view) = self.view.as_mut() {
+            view.shown_seqs = frame.item_seqs;
+        }
         let (stream, streamed) = match &frame.streaming {
             Some(streaming) => {
                 let mut stream = LiveStream::new(streaming.kind, &self.theme);
@@ -207,15 +228,18 @@ impl<B: TerminalBackend> TerminalController<B> {
         let Some(view) = self.view.as_ref() else {
             return Ok(false);
         };
-        let kept = common_prefix(&self.transcript, &frame.items);
+        let (dropped, kept) = aligned_prefix(&self.transcript, &view.shown_seqs, &frame);
         let continues = stream_continues(view.stream.as_ref(), &frame.items[kept..], frame.streaming.as_ref());
-        if kept < self.transcript.len() || !continues {
+        if dropped + kept < self.transcript.len() || !continues {
             self.show_frame(frame)?;
             return Ok(true);
         }
         let mut changed = false;
-        for item in &frame.items[kept..] {
-            self.push_view_item(item.clone())?;
+        for (item, seq) in frame.items.into_iter().zip(frame.item_seqs).skip(kept) {
+            if let Some(view) = self.view.as_mut() {
+                view.shown_seqs.push(seq);
+            }
+            self.push_view_item(item)?;
             changed = true;
         }
         changed |= self.stream_view_text(frame.streaming)?;
@@ -318,7 +342,7 @@ impl<B: TerminalBackend> TerminalController<B> {
     /// Keeps the main agent's output while another agent is shown.
     pub fn hold_output(&mut self, drained: PendingUiDrain) {
         if let Some(view) = self.view.as_mut() {
-            view.parked.held.push(drained);
+            super::held::hold(&mut view.parked.held, drained);
         }
     }
 

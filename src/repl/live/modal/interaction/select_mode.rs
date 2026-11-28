@@ -225,7 +225,7 @@ fn handle_navigation_key<B: TerminalBackend>(controller: &mut TerminalController
 fn handle_fallback_input<B: TerminalBackend>(controller: &mut TerminalController<B>, key: KeyEvent) {
     match map_key(key) {
         InputAction::ClipboardPasteImage => {
-            if let Some(text) = crate::platform::clipboard::get_text_or_image_path() {
+            if let Some(text) = crate::platform::clipboard::get_text_or_image_path_bounded() {
                 crate::repl::live::modal::handle_modal_paste(controller, &text);
             }
         }

@@ -18,6 +18,7 @@ use rho_harness_core::config::ModelRole;
 use rho_harness_core::provider::ModelRoute;
 
 pub use interaction::{PendingModal, install_interaction};
+pub use selectors::{SessionListing, refresh_session_selector};
 pub use selectors::{
     open_help_selector, open_login_selector, open_mcp_selector, open_model_selector, open_model_selector_with_default,
     open_models_selector, open_role_model_selector, open_search_engine_selector, open_session_selector,
@@ -155,7 +156,7 @@ pub(crate) fn apply_modal_edit_key<B: TerminalBackend>(controller: &mut Terminal
             }
         }
         InputAction::ClipboardPasteImage => {
-            if let Some(text) = crate::platform::clipboard::get_text_or_image_path()
+            if let Some(text) = crate::platform::clipboard::get_text_or_image_path_bounded()
                 && let Some(modal) = controller.state_mut().active_modal_mut()
             {
                 apply_input_edit(&mut modal.input, UiAction::Paste(text));

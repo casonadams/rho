@@ -16,7 +16,7 @@ pub use model::{
 };
 pub use models::{handle_models_key, open_models_selector, update_models_role_description};
 pub use search_engine::{handle_search_engine_key, open_search_engine_selector};
-pub use session::{handle_session_key, open_session_selector};
+pub use session::{SessionListing, handle_session_key, open_session_selector, refresh_session_selector};
 pub use tools::{handle_tools_key, open_tools_selector, update_tools_search_engine};
 
 /// Aligned selector row whose description carries the active check mark.
