@@ -54,58 +54,50 @@ pub(crate) fn server_error(method: &str, error: &JsonRpcError) -> AppError {
 mod tests {
     use super::*;
     use serde_json::json;
+    use test_case::test_case;
 
-    #[test]
-    fn messages_are_classified_by_shape() {
-        let error = JsonRpcError {
-            code: -32602,
-            message: "Bad params".to_string(),
-            data: None,
-        };
-        let cases = [
-            (
-                json!({ "jsonrpc": "2.0", "method": "notifications/tools/list_changed" }),
-                Some(Routed::Notification("notifications/tools/list_changed".to_string())),
-            ),
-            (
-                json!({ "jsonrpc": "2.0", "id": "a", "method": "ping" }),
-                Some(Routed::Request {
-                    id: json!("a"),
-                    method: "ping".to_string(),
-                }),
-            ),
-            (
-                json!({ "jsonrpc": "2.0", "id": 3, "result": { "ok": true } }),
-                Some(Routed::Response(json!(3), Ok(json!({ "ok": true })))),
-            ),
-            (
-                json!({ "jsonrpc": "2.0", "id": 4 }),
-                Some(Routed::Response(json!(4), Ok(Value::Null))),
-            ),
-            (
-                json!({ "jsonrpc": "2.0", "id": null, "error": { "code": -32602, "message": "Bad params" } }),
-                Some(Routed::Response(json!(null), Err(error))),
-            ),
-            (json!({ "jsonrpc": "2.0", "result": {} }), None),
-            (json!("not an object"), None),
-        ];
-        for (message, expected) in cases {
-            assert_eq!(route_message(message.clone()), expected, "{message}");
-        }
+    #[test_case(
+        json!({ "jsonrpc": "2.0", "method": "notifications/tools/list_changed" }),
+        Some(Routed::Notification("notifications/tools/list_changed".to_string()));
+        "notification"
+    )]
+    #[test_case(
+        json!({ "jsonrpc": "2.0", "id": "a", "method": "ping" }),
+        Some(Routed::Request { id: json!("a"), method: "ping".to_string() });
+        "request"
+    )]
+    #[test_case(
+        json!({ "jsonrpc": "2.0", "id": 3, "result": { "ok": true } }),
+        Some(Routed::Response(json!(3), Ok(json!({ "ok": true }))));
+        "result response"
+    )]
+    #[test_case(
+        json!({ "jsonrpc": "2.0", "id": 4 }),
+        Some(Routed::Response(json!(4), Ok(Value::Null)));
+        "response without result"
+    )]
+    #[test_case(
+        json!({ "jsonrpc": "2.0", "id": null, "error": { "code": -32602, "message": "Bad params" } }),
+        Some(Routed::Response(
+            json!(null),
+            Err(JsonRpcError { code: -32602, message: "Bad params".to_string(), data: None })
+        ));
+        "error response"
+    )]
+    #[test_case(json!({ "jsonrpc": "2.0", "result": {} }), None; "result without id")]
+    #[test_case(json!("not an object"), None; "not an object")]
+    fn messages_are_classified_by_shape(message: Value, expected: Option<Routed>) {
+        assert_eq!(route_message(message), expected);
     }
 
-    #[test]
-    fn server_requests_get_ping_results_or_method_not_found() {
-        let cases = [
-            ("ping", json!({ "jsonrpc": "2.0", "id": "s1", "result": {} })),
-            (
-                "roots/list",
-                json!({ "jsonrpc": "2.0", "id": "s1", "error": { "code": -32601, "message": "Method not found: roots/list" } }),
-            ),
-        ];
-        for (method, expected) in cases {
-            let reply = reply_to_server_request(json!("s1"), method);
-            assert_eq!(serde_json::to_value(reply).unwrap(), expected, "{method}");
-        }
+    #[test_case("ping", json!({ "jsonrpc": "2.0", "id": "s1", "result": {} }); "ping")]
+    #[test_case(
+        "roots/list",
+        json!({ "jsonrpc": "2.0", "id": "s1", "error": { "code": -32601, "message": "Method not found: roots/list" } });
+        "unsupported method"
+    )]
+    fn server_requests_get_ping_results_or_method_not_found(method: &str, expected: Value) {
+        let reply = reply_to_server_request(json!("s1"), method);
+        assert_eq!(serde_json::to_value(reply).unwrap(), expected);
     }
 }

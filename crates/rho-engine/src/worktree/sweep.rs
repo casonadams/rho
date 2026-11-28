@@ -183,7 +183,7 @@ mod tests {
     #[tokio::test]
     async fn sweeping_expires_old_work_and_removes_leftovers_but_keeps_recent_work() {
         let (dir, root) = create(&[("a.rs", "base\n")]);
-        let store = WorktreeStore::new(dir.path().join("store"));
+        let store = WorktreeStore::new(dir.join("store"));
         let fresh = store.create(&root, "fresh", Some("s1")).await.unwrap().unwrap();
         let mut old = store.create(&root, "old", Some("s0")).await.unwrap().unwrap();
         old.created = Utc::now() - chrono::Duration::hours(25);
@@ -226,7 +226,7 @@ mod tests {
     #[tokio::test]
     async fn unreadable_metadata_protects_its_worktree_from_the_sweep() {
         let (dir, root) = create(&[("a.rs", "base\n")]);
-        let store = WorktreeStore::new(dir.path().join("store"));
+        let store = WorktreeStore::new(dir.join("store"));
         let worktree = store.create(&root, "damaged", Some("s1")).await.unwrap().unwrap();
         write(&worktree.path, "a.rs", "agent\n");
         worktree.commit().await.unwrap();
@@ -249,7 +249,7 @@ mod tests {
     #[tokio::test]
     async fn saving_metadata_leaves_no_temporary_files_and_replaces_the_old_file() {
         let (dir, root) = create(&[("a.rs", "base\n")]);
-        let store = WorktreeStore::new(dir.path().join("store"));
+        let store = WorktreeStore::new(dir.join("store"));
         let mut worktree = store.create(&root, "saved", Some("s1")).await.unwrap().unwrap();
         worktree.label = "renamed".into();
         worktree.save().await.unwrap();
@@ -265,7 +265,7 @@ mod tests {
     #[tokio::test]
     async fn a_cleared_checkout_is_recreated_from_its_branch() {
         let (dir, root) = create(&[("a.rs", "base\n")]);
-        let store = WorktreeStore::new(dir.path().join("store"));
+        let store = WorktreeStore::new(dir.join("store"));
         let worktree = store.create(&root, "swept", Some("s1")).await.unwrap().unwrap();
         write(&worktree.path, "a.rs", "agent\n");
         worktree.commit().await.unwrap();
@@ -281,7 +281,7 @@ mod tests {
     #[tokio::test]
     async fn concurrent_finds_of_a_cleared_checkout_keep_the_branch_and_its_commits() {
         let (dir, root) = create(&[("a.rs", "base\n")]);
-        let store = WorktreeStore::new(dir.path().join("store"));
+        let store = WorktreeStore::new(dir.join("store"));
         let worktree = store.create(&root, "swept", Some("s1")).await.unwrap().unwrap();
         write(&worktree.path, "a.rs", "agent\n");
         worktree.commit().await.unwrap();
@@ -297,7 +297,7 @@ mod tests {
     #[tokio::test]
     async fn finding_a_worktree_whose_branch_is_gone_drops_its_stale_metadata() {
         let (dir, root) = create(&[("a.rs", "base\n")]);
-        let store = WorktreeStore::new(dir.path().join("store"));
+        let store = WorktreeStore::new(dir.join("store"));
         let worktree = store.create(&root, "gone", Some("s1")).await.unwrap().unwrap();
         git(
             &root,
@@ -312,7 +312,7 @@ mod tests {
     #[tokio::test]
     async fn a_worktree_that_cannot_be_finished_is_rolled_back() {
         let (dir, root) = create(&[("a.rs", "base\n")]);
-        let store = WorktreeStore::new(dir.path().join("store"));
+        let store = WorktreeStore::new(dir.join("store"));
         let common_dir = PathBuf::from(git(&root, &["rev-parse", "--path-format=absolute", "--git-common-dir"]));
         std::fs::create_dir_all(common_dir.join("rho")).unwrap();
         std::fs::write(common_dir.join("rho").join("worktrees"), "not a directory").unwrap();

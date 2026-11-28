@@ -71,6 +71,7 @@ impl SessionManager {
 mod tests {
     use super::*;
     use serde_json::json;
+    use test_case::test_case;
 
     const KINDS: [SessionEventKind; 3] = [
         SessionEventKind::ToolCall,
@@ -110,29 +111,25 @@ mod tests {
         assert_eq!(reopened.load_events().await.unwrap(), live);
     }
 
-    #[test]
-    fn scan_events_rejects_files_without_a_valid_header() {
+    const NAMED_EVENT: &str = r#"{"record_type":"session_named","name":"x"}"#;
+
+    fn header_then_event(version: u32, id: &str) -> String {
+        format!(
+            r#"{{"record_type":"header","version":{version},"session_id":"{id}","created_at":"2020-01-02T03:04:05Z"}}
+{NAMED_EVENT}
+"#
+        )
+    }
+
+    #[test_case(String::new(), "mandatory version header"; "empty file")]
+    #[test_case(format!("not a header\n{NAMED_EVENT}\n"), "legacy session"; "headerless legacy file")]
+    #[test_case(header_then_event(99, "bad"), "unsupported session version 99"; "unsupported version")]
+    #[test_case(header_then_event(3, "other"), "identity does not match"; "mismatched session id")]
+    fn scan_events_rejects_files_without_a_valid_header(body: String, expected: &str) {
         let dir = crate::test_support::temp_dir();
-        let event = r#"{"record_type":"session_named","name":"x"}"#;
-        let header = |version: u32, id: &str| {
-            format!(
-                r#"{{"record_type":"header","version":{version},"session_id":"{id}","created_at":"2020-01-02T03:04:05Z"}}"#
-            )
-        };
-        let cases = [
-            (String::new(), "mandatory version header"),
-            (format!("not a header\n{event}\n"), "legacy session"),
-            (
-                format!("{}\n{event}\n", header(99, "bad")),
-                "unsupported session version 99",
-            ),
-            (format!("{}\n{event}\n", header(3, "other")), "identity does not match"),
-        ];
-        for (body, expected) in cases {
-            let path = dir.join("bad.jsonl");
-            std::fs::write(&path, &body).unwrap();
-            let error = scan_events(&path, "bad").unwrap_err().to_string();
-            assert!(error.contains(expected), "{body:?}: {error}");
-        }
+        let path = dir.join("bad.jsonl");
+        std::fs::write(&path, &body).unwrap();
+        let error = scan_events(&path, "bad").unwrap_err().to_string();
+        assert!(error.contains(expected), "{error}");
     }
 }

@@ -87,16 +87,13 @@ pub(crate) async fn save_default_model(config: &mut Config, renderer: &TerminalR
 #[cfg(test)]
 mod tests {
     use super::next_model_index;
+    use test_case::test_case;
 
-    #[test]
-    fn cycling_wraps_at_both_ends() {
-        let cases = [(0, 1, 1), (2, 1, 0), (1, -1, 0), (0, -1, 2)];
-        for (current, direction, expected) in cases {
-            assert_eq!(
-                next_model_index(current, 3, direction),
-                expected,
-                "{current} {direction}"
-            );
-        }
+    #[test_case(0, 1, 1; "forward")]
+    #[test_case(2, 1, 0; "forward wraps to first")]
+    #[test_case(1, -1, 0; "backward")]
+    #[test_case(0, -1, 2; "backward wraps to last")]
+    fn cycling_wraps_at_both_ends(current: usize, direction: i32, expected: usize) {
+        assert_eq!(next_model_index(current, 3, direction), expected);
     }
 }

@@ -5,6 +5,7 @@ use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use rho_harness_core::auth::{DeviceCodeInfo, OAuthLoginCallbacks, SelectOption, StoredCredential};
 use rho_harness_core::provider::ProviderId;
+use test_case::test_case;
 
 struct DummyCallbacks;
 
@@ -69,17 +70,13 @@ fn test_extract_chatgpt_account_id_missing_claim() {
     assert_eq!(extract_chatgpt_account_id(&jwt), None);
 }
 
-#[test]
-fn test_extract_chatgpt_account_id_malformed_jwt() {
-    for input in [
-        "",
-        "not-a-jwt",
-        "single.dot",
-        "header.invalid!base64.signature",
-        "header.bm90LWpzb24=.signature",
-    ] {
-        assert_eq!(extract_chatgpt_account_id(input), None);
-    }
+#[test_case(""; "empty")]
+#[test_case("not-a-jwt"; "no dots")]
+#[test_case("single.dot"; "two segments")]
+#[test_case("header.invalid!base64.signature"; "invalid base64")]
+#[test_case("header.bm90LWpzb24=.signature"; "payload not json")]
+fn test_extract_chatgpt_account_id_malformed_jwt(input: &str) {
+    assert_eq!(extract_chatgpt_account_id(input), None);
 }
 
 #[tokio::test]
@@ -305,47 +302,47 @@ fn test_auth_url(challenge: &str, state: &str) -> String {
     format!("https://auth.example.test/authorize?code_challenge={challenge}&state={state}")
 }
 
+fn valid_callback(state: &str) -> String {
+    format!("code=auth-code-1&state={state}")
+}
+
+fn forged_callback(_state: &str) -> String {
+    "code=auth-code-1&state=forged".to_string()
+}
+
+fn denied_callback(_state: &str) -> String {
+    "error=access_denied&error_description=User%20denied".to_string()
+}
+
+#[test_case(valid_callback, None, 23_150; "valid state")]
+#[test_case(forged_callback, Some("state mismatch"), 23_151; "forged state")]
+#[test_case(denied_callback, Some("access_denied"), 23_152; "denied")]
 #[tokio::test]
-async fn loopback_login_redeems_only_callbacks_with_matching_state() {
-    fn valid(state: &str) -> String {
-        format!("code=auth-code-1&state={state}")
-    }
-    fn forged(_state: &str) -> String {
-        "code=auth-code-1&state=forged".to_string()
-    }
-    fn denied(_state: &str) -> String {
-        "error=access_denied&error_description=User%20denied".to_string()
-    }
-    let cases: [(CallbackQuery, Option<&str>); 3] = [
-        (valid, None),
-        (forged, Some("state mismatch")),
-        (denied, Some("access_denied")),
-    ];
-    for (index, (callback_query, expected_err)) in cases.into_iter().enumerate() {
-        let client = LoopbackClient {
-            port: 23_150 + index as u16,
-            callback_query,
-        };
-        let prompt = LoginPrompt {
-            port: client.port,
-            callback_timeout: Duration::from_secs(5),
-            hint: "Finish sign-in.",
-            progress: "Waiting for authorization...",
-        };
-        let result = loopback_login(&client, &prompt, test_auth_url, |grant| async move {
-            Ok::<_, AppError>((grant.code, grant.verifier))
-        })
-        .await;
-        match expected_err {
-            None => {
-                let (code, verifier) = result.unwrap();
-                assert_eq!(code, "auth-code-1");
-                assert!(verifier.len() >= 43, "PKCE verifier too short: {verifier}");
-            }
-            Some(expected) => {
-                let err = result.expect_err("callback must be rejected");
-                assert!(err.to_string().contains(expected), "{err} should contain {expected}");
-            }
+async fn loopback_login_redeems_only_callbacks_with_matching_state(
+    callback_query: CallbackQuery,
+    expected_err: Option<&str>,
+    port: u16,
+) {
+    let client = LoopbackClient { port, callback_query };
+    let prompt = LoginPrompt {
+        port: client.port,
+        callback_timeout: Duration::from_secs(5),
+        hint: "Finish sign-in.",
+        progress: "Waiting for authorization...",
+    };
+    let result = loopback_login(&client, &prompt, test_auth_url, |grant| async move {
+        Ok::<_, AppError>((grant.code, grant.verifier))
+    })
+    .await;
+    match expected_err {
+        None => {
+            let (code, verifier) = result.unwrap();
+            assert_eq!(code, "auth-code-1");
+            assert!(verifier.len() >= 43, "PKCE verifier too short: {verifier}");
+        }
+        Some(expected) => {
+            let err = result.expect_err("callback must be rejected");
+            assert!(err.to_string().contains(expected), "{err} should contain {expected}");
         }
     }
 }

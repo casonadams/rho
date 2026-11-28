@@ -170,15 +170,19 @@ impl McpClient {
         self.paginate_list("tools/list", "tools").await
     }
 
+    async fn request_typed<T: serde::de::DeserializeOwned>(
+        &self,
+        method: &str,
+        params: Value,
+        description: &str,
+    ) -> Result<T> {
+        let response = self.transport.request(method, Some(params)).await?;
+        serde_json::from_value(response).map_err(|e| AppError::Mcp(format!("Failed to parse MCP {description}: {e}")))
+    }
+
     pub async fn call_tool(&self, name: &str, arguments: Value) -> Result<McpToolResult> {
-        let params = serde_json::json!({
-            "name": name,
-            "arguments": arguments
-        });
-
-        let response = self.transport.request("tools/call", Some(params)).await?;
-
-        serde_json::from_value(response).map_err(|e| AppError::Mcp(format!("Failed to parse MCP tool result: {e}")))
+        let params = serde_json::json!({ "name": name, "arguments": arguments });
+        self.request_typed("tools/call", params, "tool result").await
     }
 
     pub async fn list_resources(&self) -> Result<Vec<McpResourceDefinition>> {
@@ -201,8 +205,7 @@ impl McpClient {
 
     pub async fn get_prompt(&self, name: &str, arguments: &BTreeMap<String, String>) -> Result<McpPromptResult> {
         let params = serde_json::json!({ "name": name, "arguments": arguments });
-        let response = self.transport.request("prompts/get", Some(params)).await?;
-        serde_json::from_value(response).map_err(|e| AppError::Mcp(format!("Failed to parse MCP prompt: {e}")))
+        self.request_typed("prompts/get", params, "prompt").await
     }
 }
 

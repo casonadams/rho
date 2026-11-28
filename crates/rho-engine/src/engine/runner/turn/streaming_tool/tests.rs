@@ -6,6 +6,7 @@ use rho_harness_core::presentation::stream::{ToolStreamPort, ToolStreamSink};
 use rho_harness_core::presentation::{SessionStatus, ToolLine, WelcomeDisplay};
 use rho_harness_core::session::SessionManager;
 use std::sync::{Arc, Mutex};
+use test_case::test_case;
 
 #[derive(Default)]
 pub(crate) struct CallLog(pub(crate) Mutex<Vec<String>>);
@@ -106,20 +107,15 @@ fn extract_path_from_partial_json() {
     );
 }
 
-#[test]
-fn a_path_scan_over_growing_arguments_finds_what_a_full_search_finds() {
-    let cases = [
-        r#"{"path": "src/main.rs", "content": "hello"}"#,
-        r#"{"content": "é \"path\" x", "file_path": "b\"c.rs"}"#,
-        r#"{"content": "data", "file_path": "a.rs", "path": "b.rs"}"#,
-        r#"{"content": "no path here"}"#,
-    ];
-    for full in cases {
-        let mut scan = TargetPathScan::default();
-        for split in (0..=full.len()).filter(|&at| full.is_char_boundary(at)) {
-            let prefix = &full[..split];
-            assert_eq!(scan.find(prefix), extract_target_path(prefix), "{prefix}");
-        }
+#[test_case(r#"{"path": "src/main.rs", "content": "hello"}"#; "path first")]
+#[test_case(r#"{"content": "é \"path\" x", "file_path": "b\"c.rs"}"#; "path word inside content")]
+#[test_case(r#"{"content": "data", "file_path": "a.rs", "path": "b.rs"}"#; "file path and path")]
+#[test_case(r#"{"content": "no path here"}"#; "no path")]
+fn a_path_scan_over_growing_arguments_finds_what_a_full_search_finds(full: &str) {
+    let mut scan = TargetPathScan::default();
+    for split in (0..=full.len()).filter(|&at| full.is_char_boundary(at)) {
+        let prefix = &full[..split];
+        assert_eq!(scan.find(prefix), extract_target_path(prefix), "{prefix}");
     }
 }
 

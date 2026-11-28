@@ -257,9 +257,9 @@ async fn test_ancestry_walk_up_with_global_and_transclusion() {
 
 #[tokio::test]
 async fn test_claude_instructions_and_rules_discovery() {
-    let tmp = tempfile::tempdir().unwrap();
-    let home = tmp.path().join("user_home");
-    let repo = tmp.path().join("repo_root");
+    let tmp = crate::test_support::TestDir::new();
+    let home = tmp.join("user_home");
+    let repo = tmp.join("repo_root");
     let rules = repo.join(".claude").join("rules");
 
     std::fs::create_dir_all(home.join(".claude")).unwrap();

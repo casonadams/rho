@@ -5,6 +5,7 @@ use crate::test_support::TestDir;
 use crate::tools::undo::UndoTool;
 use rho_harness_core::args::UndoArgs;
 use std::collections::BTreeMap;
+use test_case::test_case;
 
 fn project() -> TestDir {
     let dir = TestDir::new();
@@ -51,14 +52,14 @@ fn symlinks_are_resolved_before_the_workspace_check() {
     assert_eq!(kept.len(), 1);
 }
 
-#[test]
-fn protected_paths_are_refused() {
+#[test_case(".env.rs"; "env file")]
+#[test_case(".git/hooks.rs"; "git dir")]
+#[test_case(".rho/notes.rs"; "rho dir")]
+fn protected_paths_are_refused(name: &str) {
     let dir = project();
-    for name in [".env.rs", ".git/hooks.rs", ".rho/notes.rs"] {
-        let by_file = BTreeMap::from([(dir.join(name), vec![json!({})])]);
-        let error = confine(by_file, &dir, "rename").unwrap_err();
-        assert!(error.contains("a protected path"), "{name}: {error}");
-    }
+    let by_file = BTreeMap::from([(dir.join(name), vec![json!({})])]);
+    let error = confine(by_file, &dir, "rename").unwrap_err();
+    assert!(error.contains("a protected path"), "{error}");
 }
 
 #[tokio::test]

@@ -5,8 +5,8 @@ use crate::repl::live::message::types::{LiveCommandContext, SessionCommandIo};
 
 #[tokio::test]
 async fn rewind_reports_the_turn_and_retained_count_in_live_mode() {
-    let temp = tempfile::tempdir().unwrap();
-    let (mut controller, _batch, mut session, mut engine, _input) = setup_modal_action_harness(temp.path()).await;
+    let temp = rho_test_support::TestDir::new();
+    let (mut controller, _batch, mut session, mut engine, _input) = setup_modal_action_harness(&temp).await;
     let (renderer, mut events) = crate::repl::collecting_renderer();
     session.renderer = renderer;
     let mut ctx = LiveCommandContext {
@@ -25,8 +25,8 @@ async fn rewind_reports_the_turn_and_retained_count_in_live_mode() {
 
 #[tokio::test]
 async fn name_session_reports_the_quoted_name_in_live_mode() {
-    let temp = tempfile::tempdir().unwrap();
-    let (mut controller, _batch, mut session, mut engine, _input) = setup_modal_action_harness(temp.path()).await;
+    let temp = rho_test_support::TestDir::new();
+    let (mut controller, _batch, mut session, mut engine, _input) = setup_modal_action_harness(&temp).await;
     let (renderer, mut events) = crate::repl::collecting_renderer();
     session.renderer = renderer;
     let mut ctx = LiveCommandContext {
@@ -52,8 +52,8 @@ async fn name_session_reports_the_quoted_name_in_live_mode() {
 
 #[tokio::test]
 async fn session_diagnostics_open_name_and_rewind_commands() {
-    let temp = tempfile::tempdir().unwrap();
-    let (mut controller, _batch, mut session, mut engine, _input) = setup_modal_action_harness(temp.path()).await;
+    let temp = rho_test_support::TestDir::new();
+    let (mut controller, _batch, mut session, mut engine, _input) = setup_modal_action_harness(&temp).await;
     let mut ctx = LiveCommandContext {
         session: &mut session,
         engine: &mut engine,

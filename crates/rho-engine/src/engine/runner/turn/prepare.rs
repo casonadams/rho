@@ -435,13 +435,17 @@ impl AgentEngine {
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
+    use std::time::{Duration, Instant};
 
+    use rho_harness_core::config::CacheRetention::{self, Auto, Long, Short};
     use rho_harness_core::config::Config;
     use rho_harness_core::model::ChatMessage;
+    use test_case::test_case;
 
     use crate::engine::AgentEngine;
     use crate::engine::eval::mock::{MockEngineConfig, mock_engine};
     use crate::engine::metrics::StructuralUsage;
+    use crate::engine::runner::turn::prune::PromptCache;
     use crate::engine::tracking::TurnUsage;
     use crate::provider::adapter::MockAdapter;
 
@@ -478,78 +482,73 @@ mod tests {
         }
     }
 
-    #[test]
-    fn prompt_cache_is_warm_only_for_the_same_model_within_the_configured_retention() {
-        use crate::engine::runner::turn::prune::PromptCache;
-        use rho_harness_core::config::CacheRetention::{Auto, Long, Short};
-        use std::time::{Duration, Instant};
-
-        let dir = crate::test_support::TestDir::new();
-        let now = Some(Instant::now());
-        let ten_minutes_ago = Instant::now().checked_sub(Duration::from_secs(600));
-        let cases = [
-            (Short, "claude", None, false, PromptCache::Cold),
-            (Short, "claude", now, false, PromptCache::Warm),
-            (Short, "claude", now, true, PromptCache::Cold),
-            (Short, "claude", ten_minutes_ago, false, PromptCache::Cold),
-            (Long, "anthropic", ten_minutes_ago, false, PromptCache::Warm),
-            (Auto, "claude", ten_minutes_ago, false, PromptCache::Warm),
-            (Auto, "anthropic", ten_minutes_ago, false, PromptCache::Cold),
-        ];
-        for (retention, provider, sent, switch, expected) in cases {
-            let mut engine = cache_test_engine(&dir, retention, provider);
-            send_then_maybe_switch(&mut engine, sent, switch);
-            assert_eq!(
-                engine.prompt_cache(),
-                expected,
-                "{retention} {provider} {sent:?} {switch}"
-            );
-        }
+    fn ago(secs: u64) -> Option<Instant> {
+        Instant::now().checked_sub(Duration::from_secs(secs))
     }
 
-    #[test]
-    fn cache_reset_warning_is_shown_once_for_a_model_change_over_a_live_cache() {
-        use crate::engine::metrics::types::StructuralUsage;
-        use rho_harness_core::config::CacheRetention;
-        use std::time::{Duration, Instant};
-
+    #[test_case(Short, "claude", None, false, PromptCache::Cold; "short never sent")]
+    #[test_case(Short, "claude", Some(Instant::now()), false, PromptCache::Warm; "short just sent")]
+    #[test_case(Short, "claude", Some(Instant::now()), true, PromptCache::Cold; "short model switched")]
+    #[test_case(Short, "claude", ago(600), false, PromptCache::Cold; "short expired")]
+    #[test_case(Long, "anthropic", ago(600), false, PromptCache::Warm; "long still live")]
+    #[test_case(Auto, "claude", ago(600), false, PromptCache::Warm; "auto claude still live")]
+    #[test_case(Auto, "anthropic", ago(600), false, PromptCache::Cold; "auto anthropic expired")]
+    fn prompt_cache_is_warm_only_for_the_same_model_within_the_configured_retention(
+        retention: CacheRetention,
+        provider: &str,
+        sent: Option<Instant>,
+        switch: bool,
+        expected: PromptCache,
+    ) {
         let dir = crate::test_support::TestDir::new();
-        let cached = StructuralUsage {
+        let mut engine = cache_test_engine(&dir, retention, provider);
+        send_then_maybe_switch(&mut engine, sent, switch);
+        assert_eq!(engine.prompt_cache(), expected);
+    }
+
+    fn cached() -> StructuralUsage {
+        StructuralUsage {
             input_tokens: 10,
             output_tokens: 200,
             total_tokens: 124_210,
             cached_input_tokens: Some(120_000),
             cache_creation_input_tokens: Some(4_000),
             ..StructuralUsage::default()
-        };
-        let uncached = StructuralUsage {
+        }
+    }
+
+    fn uncached() -> StructuralUsage {
+        StructuralUsage {
             input_tokens: 10,
             ..StructuralUsage::default()
-        };
-        let now = Some(Instant::now());
-        let an_hour_ago = Instant::now().checked_sub(Duration::from_secs(3_700));
-        let cases = [
-            (None, Some(cached), true, None),
-            (now, None, true, None),
-            (now, Some(uncached), true, None),
-            (an_hour_ago, Some(cached), true, None),
-            (now, Some(cached), false, None),
-            (now, Some(cached), true, Some("about 124k tokens")),
-        ];
-        for (sent, usage, switch, expected) in cases {
-            let mut engine = cache_test_engine(&dir, CacheRetention::Auto, "claude");
-            if let Some(usage) = usage {
-                engine.usage.record(usage);
+        }
+    }
+
+    #[test_case(None, Some(cached()), true, None; "never sent")]
+    #[test_case(Some(Instant::now()), None, true, None; "no usage")]
+    #[test_case(Some(Instant::now()), Some(uncached()), true, None; "nothing cached")]
+    #[test_case(ago(3_700), Some(cached()), true, None; "cache expired")]
+    #[test_case(Some(Instant::now()), Some(cached()), false, None; "same model")]
+    #[test_case(Some(Instant::now()), Some(cached()), true, Some("about 124k tokens"); "live cache switched")]
+    fn cache_reset_warning_is_shown_once_for_a_model_change_over_a_live_cache(
+        sent: Option<Instant>,
+        usage: Option<StructuralUsage>,
+        switch: bool,
+        expected: Option<&str>,
+    ) {
+        let dir = crate::test_support::TestDir::new();
+        let mut engine = cache_test_engine(&dir, Auto, "claude");
+        if let Some(usage) = usage {
+            engine.usage.record(usage);
+        }
+        send_then_maybe_switch(&mut engine, sent, switch);
+        let warning = engine.cache_reset_warning();
+        match expected {
+            Some(text) => {
+                assert!(warning.as_deref().is_some_and(|w| w.contains(text)), "{warning:?}");
+                assert_eq!(engine.cache_reset_warning(), None, "shown twice");
             }
-            send_then_maybe_switch(&mut engine, sent, switch);
-            let warning = engine.cache_reset_warning();
-            match expected {
-                Some(text) => {
-                    assert!(warning.as_deref().is_some_and(|w| w.contains(text)), "{warning:?}");
-                    assert_eq!(engine.cache_reset_warning(), None, "shown twice");
-                }
-                None => assert_eq!(warning, None, "{sent:?} {usage:?} {switch}"),
-            }
+            None => assert_eq!(warning, None),
         }
     }
 

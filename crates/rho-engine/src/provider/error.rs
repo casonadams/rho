@@ -206,6 +206,7 @@ fn parse_http_date(value: &str) -> Option<chrono::DateTime<chrono::Utc>> {
 mod tests {
     use super::*;
     use reqwest::header::{HeaderMap, HeaderValue};
+    use test_case::test_case;
 
     fn plain(_: Option<u16>, body: &str) -> String {
         body.to_string()
@@ -331,23 +332,17 @@ mod tests {
         ));
     }
 
-    #[test]
-    fn error_message_is_extracted_from_each_body_shape() {
-        let long = "x".repeat(400);
-        let cases = [
-            (r#"{"error":{"message":"bad key"}}"#, "bad key"),
-            (r#"{"error":{"message":"nested"},"message":"top"}"#, "nested"),
-            (r#"{"message":"top level"}"#, "top level"),
-            (r#"{"error":"plain string"}"#, "plain string"),
-            (r#"{"error":{"code":5}}"#, r#"{"error":{"code":5}}"#),
-            ("<html>Bad Gateway</html>", "<html>Bad Gateway</html>"),
-            (long.as_str(), &long[..300]),
-            ("", "unknown error"),
-            ("  \n ", "unknown error"),
-        ];
-        for (body, expected) in cases {
-            assert_eq!(error_message_or_excerpt(body), expected, "{body}");
-        }
+    #[test_case(r#"{"error":{"message":"bad key"}}"#, "bad key"; "nested message")]
+    #[test_case(r#"{"error":{"message":"nested"},"message":"top"}"#, "nested"; "nested beats top level")]
+    #[test_case(r#"{"message":"top level"}"#, "top level"; "top level message")]
+    #[test_case(r#"{"error":"plain string"}"#, "plain string"; "string error")]
+    #[test_case(r#"{"error":{"code":5}}"#, r#"{"error":{"code":5}}"#; "no message keeps body")]
+    #[test_case("<html>Bad Gateway</html>", "<html>Bad Gateway</html>"; "html body")]
+    #[test_case(&"x".repeat(400), &"x".repeat(300); "long body truncated")]
+    #[test_case("", "unknown error"; "empty body")]
+    #[test_case("  \n ", "unknown error"; "blank body")]
+    fn error_message_is_extracted_from_each_body_shape(body: &str, expected: &str) {
+        assert_eq!(error_message_or_excerpt(body), expected);
     }
 
     #[test]
@@ -371,51 +366,49 @@ mod tests {
         ));
     }
 
-    #[test]
-    fn retry_after_accepts_milliseconds_seconds_and_http_dates() {
+    fn headers(pairs: &[(&'static str, &'static str)]) -> HeaderMap {
+        let mut map = HeaderMap::new();
+        for (name, value) in pairs {
+            map.insert(*name, HeaderValue::from_static(value));
+        }
+        map
+    }
+
+    #[test_case(headers(&[("retry-after", "12")]), Some(Duration::from_secs(12)); "seconds")]
+    #[test_case(
+        headers(&[("retry-after-ms", "1500"), ("retry-after", "9")]),
+        Some(Duration::from_millis(1500));
+        "milliseconds win"
+    )]
+    #[test_case(
+        headers(&[("retry-after", "Wed, 21 Oct 2015 07:28:30 GMT")]),
+        Some(Duration::from_secs(30));
+        "http date"
+    )]
+    #[test_case(headers(&[("retry-after", "Wed, 21 Oct 2015 07:27:00 GMT")]), Some(Duration::ZERO); "past date")]
+    #[test_case(headers(&[("retry-after-ms", "1e30")]), Some(Duration::MAX); "huge milliseconds saturate")]
+    #[test_case(headers(&[("retry-after-ms", "-5")]), None; "negative milliseconds")]
+    #[test_case(
+        headers(&[("retry-after-ms", "-5"), ("retry-after", "4")]),
+        Some(Duration::from_secs(4));
+        "negative milliseconds fall back"
+    )]
+    #[test_case(
+        headers(&[("retry-after", "Wednesday, 21-Oct-15 07:28:20 GMT")]),
+        Some(Duration::from_secs(20));
+        "rfc850 date"
+    )]
+    #[test_case(
+        headers(&[("retry-after", "Wed Oct 21 07:28:10 2015")]),
+        Some(Duration::from_secs(10));
+        "asctime date"
+    )]
+    #[test_case(headers(&[("retry-after", "soon")]), None; "unparseable")]
+    #[test_case(HeaderMap::new(), None; "missing")]
+    fn retry_after_accepts_milliseconds_seconds_and_http_dates(map: HeaderMap, expected: Option<Duration>) {
         let now = chrono::DateTime::parse_from_rfc3339("2015-10-21T07:28:00Z")
             .unwrap()
             .to_utc();
-        let headers = |pairs: &[(&'static str, &'static str)]| {
-            let mut map = HeaderMap::new();
-            for (name, value) in pairs {
-                map.insert(*name, HeaderValue::from_static(value));
-            }
-            map
-        };
-        let cases = [
-            (headers(&[("retry-after", "12")]), Some(Duration::from_secs(12))),
-            (
-                headers(&[("retry-after-ms", "1500"), ("retry-after", "9")]),
-                Some(Duration::from_millis(1500)),
-            ),
-            (
-                headers(&[("retry-after", "Wed, 21 Oct 2015 07:28:30 GMT")]),
-                Some(Duration::from_secs(30)),
-            ),
-            (
-                headers(&[("retry-after", "Wed, 21 Oct 2015 07:27:00 GMT")]),
-                Some(Duration::ZERO),
-            ),
-            (headers(&[("retry-after-ms", "1e30")]), Some(Duration::MAX)),
-            (headers(&[("retry-after-ms", "-5")]), None),
-            (
-                headers(&[("retry-after-ms", "-5"), ("retry-after", "4")]),
-                Some(Duration::from_secs(4)),
-            ),
-            (
-                headers(&[("retry-after", "Wednesday, 21-Oct-15 07:28:20 GMT")]),
-                Some(Duration::from_secs(20)),
-            ),
-            (
-                headers(&[("retry-after", "Wed Oct 21 07:28:10 2015")]),
-                Some(Duration::from_secs(10)),
-            ),
-            (headers(&[("retry-after", "soon")]), None),
-            (HeaderMap::new(), None),
-        ];
-        for (map, expected) in cases {
-            assert_eq!(parse_retry_after(&map, now), expected, "{map:?}");
-        }
+        assert_eq!(parse_retry_after(&map, now), expected);
     }
 }

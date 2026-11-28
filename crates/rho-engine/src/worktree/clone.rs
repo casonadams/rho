@@ -30,11 +30,11 @@ impl CloneKind {
 pub fn clone_tree(src: &Path, dst: &Path, skip_top_level: &[&OsStr]) -> Result<CloneKind, String> {
     #[cfg(target_os = "macos")]
     {
-        apfs::clone_tree(src, dst, skip_top_level).map(|()| CloneKind::Apfs)
+        clone_children(src, dst, skip_top_level, apfs::clone_entry).map(|()| CloneKind::Apfs)
     }
     #[cfg(target_os = "linux")]
     {
-        reflink::clone_tree(src, dst, skip_top_level).map(|()| CloneKind::Reflink)
+        clone_children(src, dst, skip_top_level, reflink::clone_entry).map(|()| CloneKind::Reflink)
     }
     #[cfg(not(any(target_os = "macos", target_os = "linux")))]
     {
@@ -43,9 +43,29 @@ pub fn clone_tree(src: &Path, dst: &Path, skip_top_level: &[&OsStr]) -> Result<C
     }
 }
 
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+fn clone_children(
+    src: &Path,
+    dst: &Path,
+    skip: &[&OsStr],
+    clone_entry: fn(&Path, &Path) -> Result<(), String>,
+) -> Result<(), String> {
+    std::fs::create_dir_all(dst).map_err(|e| format!("could not create {}: {e}", dst.display()))?;
+    let entries = std::fs::read_dir(src).map_err(|e| format!("could not read {}: {e}", src.display()))?;
+    for entry in entries {
+        let entry = entry.map_err(|e| format!("read_dir entry failed: {e}"))?;
+        let name = entry.file_name();
+        if skip.contains(&name.as_os_str()) {
+            continue;
+        }
+        clone_entry(&entry.path(), &dst.join(&name))?;
+    }
+    Ok(())
+}
+
 #[cfg(target_os = "macos")]
 mod apfs {
-    use std::ffi::{CString, OsStr};
+    use std::ffi::CString;
     use std::os::unix::ffi::OsStrExt;
     use std::path::Path;
 
@@ -59,7 +79,7 @@ mod apfs {
         CString::new(path.as_os_str().as_bytes()).map_err(|_| format!("path contains interior NUL: {}", path.display()))
     }
 
-    fn clone_entry(src: &Path, dst: &Path) -> Result<(), String> {
+    pub(super) fn clone_entry(src: &Path, dst: &Path) -> Result<(), String> {
         let src_c = c_path(src)?;
         let dst_c = c_path(dst)?;
         let rc = unsafe { clonefile(src_c.as_ptr(), dst_c.as_ptr(), CLONE_NOFOLLOW) };
@@ -69,25 +89,10 @@ mod apfs {
         let err = std::io::Error::last_os_error();
         Err(format!("clonefile {} -> {}: {err}", src.display(), dst.display()))
     }
-
-    pub(super) fn clone_tree(src: &Path, dst: &Path, skip_top_level: &[&OsStr]) -> Result<(), String> {
-        std::fs::create_dir_all(dst).map_err(|e| format!("could not create {}: {e}", dst.display()))?;
-        let entries = std::fs::read_dir(src).map_err(|e| format!("could not read {}: {e}", src.display()))?;
-        for entry in entries {
-            let entry = entry.map_err(|e| format!("read_dir entry failed: {e}"))?;
-            let name = entry.file_name();
-            if skip_top_level.contains(&name.as_os_str()) {
-                continue;
-            }
-            clone_entry(&entry.path(), &dst.join(&name))?;
-        }
-        Ok(())
-    }
 }
 
 #[cfg(target_os = "linux")]
 mod reflink {
-    use std::ffi::OsStr;
     use std::fs::{File, Metadata};
     use std::os::unix::fs::symlink;
     use std::os::unix::io::AsRawFd;
@@ -109,7 +114,7 @@ mod reflink {
         Ok(())
     }
 
-    fn clone_entry(src: &Path, dst: &Path) -> Result<(), String> {
+    pub(super) fn clone_entry(src: &Path, dst: &Path) -> Result<(), String> {
         let meta = std::fs::symlink_metadata(src).map_err(|e| format!("stat {}: {e}", src.display()))?;
         let file_type = meta.file_type();
         if file_type.is_symlink() {
@@ -118,31 +123,12 @@ mod reflink {
             return Ok(());
         }
         if file_type.is_dir() {
-            clone_dir(src, dst, &[])?;
-            return Ok(());
+            return super::clone_children(src, dst, &[], clone_entry);
         }
         if file_type.is_file() {
             ficlone_file(src, dst, &meta)?;
         }
         Ok(())
-    }
-
-    fn clone_dir(src: &Path, dst: &Path, skip: &[&OsStr]) -> Result<(), String> {
-        std::fs::create_dir_all(dst).map_err(|e| format!("create_dir_all {}: {e}", dst.display()))?;
-        let entries = std::fs::read_dir(src).map_err(|e| format!("read_dir {}: {e}", src.display()))?;
-        for entry in entries {
-            let entry = entry.map_err(|e| format!("read_dir entry failed: {e}"))?;
-            let name = entry.file_name();
-            if skip.contains(&name.as_os_str()) {
-                continue;
-            }
-            clone_entry(&entry.path(), &dst.join(&name))?;
-        }
-        Ok(())
-    }
-
-    pub(super) fn clone_tree(src: &Path, dst: &Path, skip_top_level: &[&OsStr]) -> Result<(), String> {
-        clone_dir(src, dst, skip_top_level)
     }
 }
 

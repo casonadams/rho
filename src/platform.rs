@@ -80,81 +80,40 @@ pub async fn agent_engine(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use test_case::test_case;
 
+    #[test_case(
+        true,
+        true,
+        &["read", "write", "edit", "undo", "bash", "fd", "rg", "web_search", "web_fetch", "todo", "wait", "memory", "subagent"];
+        "search and fetch"
+    )]
+    #[test_case(
+        false,
+        true,
+        &["read", "write", "edit", "undo", "bash", "fd", "rg", "web_fetch", "todo", "wait", "memory", "subagent"];
+        "fetch only"
+    )]
+    #[test_case(
+        true,
+        false,
+        &["read", "write", "edit", "undo", "bash", "fd", "rg", "web_search", "todo", "wait", "memory", "subagent"];
+        "search only"
+    )]
+    #[test_case(
+        false,
+        false,
+        &["read", "write", "edit", "undo", "bash", "fd", "rg", "todo", "wait", "memory", "subagent"];
+        "no web tools"
+    )]
     #[tokio::test]
-    async fn active_tools_follow_web_tool_toggles() {
-        let base_dir = tempfile::tempdir().unwrap();
-        let cases = [
-            (
-                true,
-                true,
-                vec![
-                    "read",
-                    "write",
-                    "edit",
-                    "undo",
-                    "bash",
-                    "fd",
-                    "rg",
-                    "web_search",
-                    "web_fetch",
-                    "todo",
-                    "wait",
-                    "memory",
-                    "subagent",
-                ],
-            ),
-            (
-                false,
-                true,
-                vec![
-                    "read",
-                    "write",
-                    "edit",
-                    "undo",
-                    "bash",
-                    "fd",
-                    "rg",
-                    "web_fetch",
-                    "todo",
-                    "wait",
-                    "memory",
-                    "subagent",
-                ],
-            ),
-            (
-                true,
-                false,
-                vec![
-                    "read",
-                    "write",
-                    "edit",
-                    "undo",
-                    "bash",
-                    "fd",
-                    "rg",
-                    "web_search",
-                    "todo",
-                    "wait",
-                    "memory",
-                    "subagent",
-                ],
-            ),
-            (
-                false,
-                false,
-                vec![
-                    "read", "write", "edit", "undo", "bash", "fd", "rg", "todo", "wait", "memory", "subagent",
-                ],
-            ),
-        ];
-        for (search_enabled, fetch_enabled, expected) in cases {
-            let mut config = Config::default();
-            config.tools.web.search.enabled = search_enabled;
-            config.tools.web.fetch.enabled = fetch_enabled;
-            let assembly = active_tools(&config, base_dir.path()).await.unwrap();
-            let names: Vec<&str> = assembly.tools.iter().map(|tool| tool.name()).collect();
-            assert_eq!(names, expected, "search={search_enabled} fetch={fetch_enabled}");
-        }
+    async fn active_tools_follow_web_tool_toggles(search_enabled: bool, fetch_enabled: bool, expected: &[&str]) {
+        let base_dir = rho_test_support::TestDir::new();
+        let mut config = Config::default();
+        config.tools.web.search.enabled = search_enabled;
+        config.tools.web.fetch.enabled = fetch_enabled;
+        let assembly = active_tools(&config, &base_dir).await.unwrap();
+        let names: Vec<&str> = assembly.tools.iter().map(|tool| tool.name()).collect();
+        assert_eq!(names, expected);
     }
 }

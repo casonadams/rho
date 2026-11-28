@@ -7,21 +7,19 @@ use super::http::{
 };
 use crate::provider::adapter::ModelCompletionRequest;
 use crate::provider::error::HttpFailure;
+use test_case::test_case;
 
-#[test]
-fn is_selectable_runtime_model_filters_correctly() {
-    for model in ["gemini-2.5-pro", "gemini-3.7-flash", "claude-sonnet-4-6", "gpt-oss-1"] {
-        assert!(is_selectable_runtime_model(model));
-    }
-    for model in [
-        "gemini-image-gen",
-        "gemini-2.5 chat",
-        "MODEL_GEMINI_1",
-        "text-embedding-004",
-        "chat-bison-001",
-    ] {
-        assert!(!is_selectable_runtime_model(model));
-    }
+#[test_case("gemini-2.5-pro", true; "gemini pro")]
+#[test_case("gemini-3.7-flash", true; "gemini flash")]
+#[test_case("claude-sonnet-4-6", true; "claude")]
+#[test_case("gpt-oss-1", true; "gpt oss")]
+#[test_case("gemini-image-gen", false; "image model")]
+#[test_case("gemini-2.5 chat", false; "contains space")]
+#[test_case("MODEL_GEMINI_1", false; "internal enum name")]
+#[test_case("text-embedding-004", false; "embedding model")]
+#[test_case("chat-bison-001", false; "legacy model")]
+fn is_selectable_runtime_model_filters_correctly(model: &str, expected: bool) {
+    assert_eq!(is_selectable_runtime_model(model), expected);
 }
 
 #[test]
@@ -81,94 +79,60 @@ fn extract_project_id_from_nested_arrays() {
     assert_eq!(extract_project_id(&json_unmatched), None);
 }
 
-#[test]
-fn friendly_error_formats_quota_cases() {
-    let cases = [
-        (
-            Some(429),
-            r#"{"error":{"message":"Individual quota reached. Resets in 2h45m."}}"#,
-            "Resets in 2h45m",
-        ),
-        (
-            Some(429),
-            r#"{"error":{"message":"Resource has been exhausted (e.g. check quota)."}}"#,
-            "rate limit reached",
-        ),
-    ];
-    for (status, body, expected) in cases {
-        assert!(friendly_error(status, body).contains(expected));
-    }
+#[test_case(
+    Some(429),
+    r#"{"error":{"message":"Individual quota reached. Resets in 2h45m."}}"#,
+    "Resets in 2h45m";
+    "individual quota"
+)]
+#[test_case(
+    Some(429),
+    r#"{"error":{"message":"Resource has been exhausted (e.g. check quota)."}}"#,
+    "rate limit reached";
+    "resource exhausted"
+)]
+fn friendly_error_formats_quota_cases(status: Option<u16>, body: &str, expected: &str) {
+    assert!(friendly_error(status, body).contains(expected));
 }
 
-#[test]
-fn friendly_error_formats_auth_and_not_found_cases() {
-    let cases = [
-        (Some(401), "Unauthorized", "rho login antigravity"),
-        (
-            Some(403),
-            r#"{"error":{"message":"Permission denied"}}"#,
-            "access denied",
-        ),
-        (
-            Some(404),
-            r#"{"error":{"message":"Model not found"}}"#,
-            "Model not available",
-        ),
-    ];
-    for (status, body, expected) in cases {
-        assert!(friendly_error(status, body).contains(expected));
-    }
+#[test_case(Some(401), "Unauthorized", "rho login antigravity"; "unauthorized")]
+#[test_case(Some(403), r#"{"error":{"message":"Permission denied"}}"#, "access denied"; "forbidden")]
+#[test_case(Some(404), r#"{"error":{"message":"Model not found"}}"#, "Model not available"; "not found")]
+fn friendly_error_formats_auth_and_not_found_cases(status: Option<u16>, body: &str, expected: &str) {
+    assert!(friendly_error(status, body).contains(expected));
 }
 
-#[test]
-fn friendly_error_formats_server_and_network_error_cases() {
-    let cases = [
-        (
-            Some(503),
-            r#"{"error":{"message":"No capacity available"}}"#,
-            "no capacity right now",
-        ),
-        (
-            Some(500),
-            r#"{"error":{"message":"Internal server error"}}"#,
-            "API error (500)",
-        ),
-        (
-            None,
-            "Connection closed",
-            "Antigravity request failed: Connection closed",
-        ),
-        (
-            None,
-            "Antigravity request failed: timeout",
-            "Antigravity request failed: timeout",
-        ),
-    ];
-    for (status, body, expected) in cases {
-        assert!(friendly_error(status, body).contains(expected));
-    }
+#[test_case(Some(503), r#"{"error":{"message":"No capacity available"}}"#, "no capacity right now"; "no capacity")]
+#[test_case(Some(500), r#"{"error":{"message":"Internal server error"}}"#, "API error (500)"; "server error")]
+#[test_case(None, "Connection closed", "Antigravity request failed: Connection closed"; "network error")]
+#[test_case(
+    None,
+    "Antigravity request failed: timeout",
+    "Antigravity request failed: timeout";
+    "already prefixed network error"
+)]
+fn friendly_error_formats_server_and_network_error_cases(status: Option<u16>, body: &str, expected: &str) {
+    assert!(friendly_error(status, body).contains(expected));
 }
 
-#[test]
-fn friendly_error_keeps_backend_details() {
-    let cases = [
-        (
-            r#"{"error":{"message":"Invalid","details":[{"fieldViolations":[{"field":"model","description":"unknown"}]}]}}"#,
-            "Antigravity API error (400): Invalid (details: model: unknown)",
-        ),
-        (
-            r#"{"error":{"message":"Invalid","details":[]}}"#,
-            "Antigravity API error (400): Invalid (raw details: [])",
-        ),
-        (
-            r#"{"error":{"message":"Invalid"}}"#,
-            r#"Antigravity API error (400): Invalid (body: {"error":{"message":"Invalid"}})"#,
-        ),
-        ("plain failure", "Antigravity API error (400): plain failure"),
-    ];
-    for (body, expected) in cases {
-        assert_eq!(friendly_error(Some(400), body), expected, "{body}");
-    }
+#[test_case(
+    r#"{"error":{"message":"Invalid","details":[{"fieldViolations":[{"field":"model","description":"unknown"}]}]}}"#,
+    "Antigravity API error (400): Invalid (details: model: unknown)";
+    "field violations"
+)]
+#[test_case(
+    r#"{"error":{"message":"Invalid","details":[]}}"#,
+    "Antigravity API error (400): Invalid (raw details: [])";
+    "empty details"
+)]
+#[test_case(
+    r#"{"error":{"message":"Invalid"}}"#,
+    r#"Antigravity API error (400): Invalid (body: {"error":{"message":"Invalid"}})"#;
+    "no details"
+)]
+#[test_case("plain failure", "Antigravity API error (400): plain failure"; "plain text")]
+fn friendly_error_keeps_backend_details(body: &str, expected: &str) {
+    assert_eq!(friendly_error(Some(400), body), expected);
 }
 
 #[test]

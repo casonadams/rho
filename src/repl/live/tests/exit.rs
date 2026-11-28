@@ -1,21 +1,9 @@
 use crate::repl::interactive::{CompletionSet, CompletionSources, InteractiveHistory};
 use crate::repl::live::types::{EditorResources, IdleContext, LiveIo, LiveMessage};
+use crate::repl::test_session_and_engine;
 use crate::ui::interactive::NullBackend;
 use crate::ui::interactive::{QueueKind, QueuedMessage, TerminalController};
-
-async fn setup_live_session_and_engine(
-    dir: &std::path::Path,
-) -> (crate::repl::ReplSession, crate::engine::AgentEngine) {
-    let config = rho_harness_core::config::Config {
-        config_dir: dir.to_path_buf(),
-        sessions_dir: dir.join("sessions"),
-        ..Default::default()
-    };
-    let auth = crate::auth::AuthStore::default();
-    let session = crate::repl::ReplSession::new(config, auth, None);
-    let engine = session.new_engine(None).await.unwrap();
-    (session, engine)
-}
+use test_case::test_case;
 
 struct LiveFixture {
     controller: TerminalController<NullBackend>,
@@ -26,14 +14,14 @@ struct LiveFixture {
     completions: CompletionSet,
     session: crate::repl::ReplSession,
     engine: crate::engine::AgentEngine,
-    _temp: tempfile::TempDir,
+    _temp: rho_test_support::TestDir,
 }
 
 impl LiveFixture {
     async fn new(input: crate::repl::input_reader::TerminalInputReader) -> Self {
-        let temp = tempfile::tempdir().unwrap();
-        let history = InteractiveHistory::with_file(100, temp.path().join("h.txt")).unwrap();
-        let (session, engine) = setup_live_session_and_engine(temp.path()).await;
+        let temp = rho_test_support::TestDir::new();
+        let history = InteractiveHistory::with_file(100, temp.join("h.txt")).unwrap();
+        let (session, engine) = test_session_and_engine(&temp).await;
         let (ui, events) = crate::ui::interactive::InteractiveUi::channel();
         Self {
             controller: crate::repl::test_controller(),
@@ -128,20 +116,16 @@ async fn run_live_loop_with(
     fx.history.entries().to_vec()
 }
 
+#[test_case(
+    Some(QueuedMessage { text: "/exit".to_string(), kind: QueueKind::Steering }),
+    crate::repl::input_reader::TerminalInputReader::spawn_dummy();
+    "queued exit command"
+)]
+#[test_case(None, ctrl_d_input(); "ctrl d")]
 #[tokio::test]
-async fn test_run_live_loop_exit_paths_return_ok() {
-    let exit_message = QueuedMessage {
-        text: "/exit".to_string(),
-        kind: QueueKind::Steering,
-    };
-    let cases = [
-        (
-            Some(exit_message),
-            crate::repl::input_reader::TerminalInputReader::spawn_dummy(),
-        ),
-        (None, ctrl_d_input()),
-    ];
-    for (queued, input) in cases {
-        assert!(run_live_loop_with(queued, input).await.is_empty());
-    }
+async fn test_run_live_loop_exit_paths_return_ok(
+    queued: Option<QueuedMessage>,
+    input: crate::repl::input_reader::TerminalInputReader,
+) {
+    assert!(run_live_loop_with(queued, input).await.is_empty());
 }

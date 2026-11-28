@@ -166,28 +166,26 @@ pub(crate) async fn fetch_auth_server_metadata(issuer: &str) -> Result<AuthServe
 #[cfg(test)]
 mod tests {
     use super::*;
+    use test_case::test_case;
 
-    #[test]
-    fn parses_bearer_challenges() {
-        let cases = [
-            (
-                r#"Bearer resource_metadata="https://mcp.example.com/.well-known/oauth-protected-resource", scope="files:read files:write""#,
-                Some("https://mcp.example.com/.well-known/oauth-protected-resource"),
-                Some("files:read files:write"),
-            ),
-            (r#"Bearer error="invalid_token""#, None, None),
-            (
-                r#"Bearer realm="x",scope=read,resource_metadata="https://a/b""#,
-                Some("https://a/b"),
-                Some("read"),
-            ),
-            ("", None, None),
-        ];
-        for (header, metadata, scope) in cases {
-            let challenge = parse_challenge(header);
-            assert_eq!(challenge.resource_metadata.as_deref(), metadata, "{header}");
-            assert_eq!(challenge.scope.as_deref(), scope, "{header}");
-        }
+    #[test_case(
+        r#"Bearer resource_metadata="https://mcp.example.com/.well-known/oauth-protected-resource", scope="files:read files:write""#,
+        Some("https://mcp.example.com/.well-known/oauth-protected-resource"),
+        Some("files:read files:write");
+        "metadata and scope"
+    )]
+    #[test_case(r#"Bearer error="invalid_token""#, None, None; "error only")]
+    #[test_case(
+        r#"Bearer realm="x",scope=read,resource_metadata="https://a/b""#,
+        Some("https://a/b"),
+        Some("read");
+        "unquoted scope without spaces"
+    )]
+    #[test_case("", None, None; "empty header")]
+    fn parses_bearer_challenges(header: &str, metadata: Option<&str>, scope: Option<&str>) {
+        let challenge = parse_challenge(header);
+        assert_eq!(challenge.resource_metadata.as_deref(), metadata);
+        assert_eq!(challenge.scope.as_deref(), scope);
     }
 
     #[test]

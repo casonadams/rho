@@ -81,17 +81,17 @@ impl AppError {
 #[cfg(test)]
 mod tests {
     use super::AppError;
+    use test_case::test_case;
 
-    #[test]
-    fn only_a_full_context_needs_compaction_and_only_an_early_stop_can_run_on() {
-        let cases = [
-            (AppError::CompactionDue { used: 1 }, true, true),
-            (AppError::ContextOverflow("too long".into()), true, false),
-            (AppError::Network("reset".into()), false, false),
-        ];
-        for (error, needs_compaction, early_stop) in cases {
-            assert_eq!(error.needs_compaction(), needs_compaction, "{error:?}");
-            assert_eq!(error.is_early_stop(), early_stop, "{error:?}");
-        }
+    #[test_case(AppError::CompactionDue { used: 1 }, true, true; "compaction due")]
+    #[test_case(AppError::ContextOverflow("too long".into()), true, false; "context overflow")]
+    #[test_case(AppError::Network("reset".into()), false, false; "network error")]
+    fn only_a_full_context_needs_compaction_and_only_an_early_stop_can_run_on(
+        error: AppError,
+        needs_compaction: bool,
+        early_stop: bool,
+    ) {
+        assert_eq!(error.needs_compaction(), needs_compaction);
+        assert_eq!(error.is_early_stop(), early_stop);
     }
 }

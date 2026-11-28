@@ -11,7 +11,9 @@ use crate::ui::interactive::NullBackend;
 use crate::ui::interactive::{EditorState, FooterState, LayoutInput, ModalMode, TerminalController, layout};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use rho_harness_core::auth::StoredCredential;
-use rho_harness_core::config::{Config, McpConfig, McpServerConfig};
+use rho_harness_core::config::{Config, McpConfig, McpServerConfig, ModelRole};
+use rho_harness_core::provider::ModelRoute;
+use test_case::test_case;
 
 fn send_modal_key(c: &mut TerminalController<NullBackend>, code: KeyCode) -> ModalKeyResult {
     handle_modal_key(c, KeyEvent::new(code, KeyModifiers::NONE), &mut None).unwrap()
@@ -39,8 +41,8 @@ fn setup_model_selector_session(config_dir: std::path::PathBuf) -> crate::repl::
 
 #[test]
 fn model_selector_modal_filtering() {
-    let temp = tempfile::tempdir().unwrap();
-    let session = setup_model_selector_session(temp.path().to_path_buf());
+    let temp = rho_test_support::TestDir::new();
+    let session = setup_model_selector_session(temp.to_path_buf());
     let mut controller = crate::repl::test_controller();
 
     super::super::modal::open_model_selector(&session, &mut controller);
@@ -55,8 +57,8 @@ fn model_selector_modal_filtering() {
 
 #[test]
 fn model_selector_modal_selection() {
-    let temp = tempfile::tempdir().unwrap();
-    let session = setup_model_selector_session(temp.path().to_path_buf());
+    let temp = rho_test_support::TestDir::new();
+    let session = setup_model_selector_session(temp.to_path_buf());
     let mut controller = crate::repl::test_controller();
 
     super::super::modal::open_model_selector(&session, &mut controller);
@@ -78,8 +80,8 @@ fn model_selector_modal_selection() {
 #[test]
 fn model_selector_fills_in_as_provider_lists_arrive() {
     use rho_engine::provider::{DiscoveredModel, ProviderModels};
-    let temp = tempfile::tempdir().unwrap();
-    let mut session = setup_model_selector_session(temp.path().to_path_buf());
+    let temp = rho_test_support::TestDir::new();
+    let mut session = setup_model_selector_session(temp.to_path_buf());
     session.config.model.clear();
     session.catalog = rho_engine::provider::ModelCatalog::default();
     session.catalog.set("claude", ProviderModels::Loading);
@@ -197,47 +199,48 @@ fn settings_selector_modal_cycles_thinking_effort() {
     );
 }
 
-#[test]
-fn settings_selector_modal_toggles_thinking_output() {
+fn assert_settings_row_toggles(
+    digit: char,
+    index: usize,
+    toggled: ModalKeyResult,
+    marker: &str,
+    is_on: fn(&TerminalController<NullBackend>) -> bool,
+) {
     let mut controller = crate::repl::test_controller();
-    assert!(!controller.state().hide_thinking());
+    assert!(!is_on(&controller));
     super::super::modal::open_settings_selector(None, None, None, &mut controller);
-    let key4 = KeyEvent::new(KeyCode::Char('4'), KeyModifiers::NONE);
-    let _ = super::super::modal::handle_modal_key(&mut controller, key4, &mut None).unwrap();
-    assert_eq!(controller.state().active_modal().unwrap().selected, 3);
-    assert_eq!(
-        send_modal_key(&mut controller, KeyCode::Enter),
-        super::super::modal::ModalKeyResult::ThinkingOutputToggled { hidden: true }
-    );
-    assert!(controller.state().hide_thinking());
+    send_modal_char(&mut controller, digit);
+    assert_eq!(controller.state().active_modal().unwrap().selected, index);
+    assert_eq!(send_modal_key(&mut controller, KeyCode::Enter), toggled);
+    assert!(is_on(&controller));
     assert!(
-        controller.state().active_modal().unwrap().options[3]
+        controller.state().active_modal().unwrap().options[index]
             .description
             .as_ref()
             .unwrap()
-            .contains("Hidden")
+            .contains(marker)
+    );
+}
+
+#[test]
+fn settings_selector_modal_toggles_thinking_output() {
+    assert_settings_row_toggles(
+        '4',
+        3,
+        super::super::modal::ModalKeyResult::ThinkingOutputToggled { hidden: true },
+        "Hidden",
+        |c| c.state().hide_thinking(),
     );
 }
 
 #[test]
 fn settings_selector_modal_toggles_tools_expanded() {
-    let mut controller = crate::repl::test_controller();
-    assert!(!controller.state().tools_expanded());
-    super::super::modal::open_settings_selector(None, None, None, &mut controller);
-    let key5 = KeyEvent::new(KeyCode::Char('5'), KeyModifiers::NONE);
-    let _ = super::super::modal::handle_modal_key(&mut controller, key5, &mut None).unwrap();
-    assert_eq!(controller.state().active_modal().unwrap().selected, 4);
-    assert_eq!(
-        send_modal_key(&mut controller, KeyCode::Enter),
-        super::super::modal::ModalKeyResult::ToolOutputToggled { expanded: true }
-    );
-    assert!(controller.state().tools_expanded());
-    assert!(
-        controller.state().active_modal().unwrap().options[4]
-            .description
-            .as_ref()
-            .unwrap()
-            .contains("Expanded")
+    assert_settings_row_toggles(
+        '5',
+        4,
+        super::super::modal::ModalKeyResult::ToolOutputToggled { expanded: true },
+        "Expanded",
+        |c| c.state().tools_expanded(),
     );
 }
 
@@ -406,8 +409,8 @@ fn modal_test_env() -> (TerminalController<NullBackend>, crate::repl::live::batc
 #[tokio::test]
 async fn model_selector_selection_applies_model_switch_without_rebuild() {
     let _env = rho_test_support::EnvVarGuard::set("ANTHROPIC_API_KEY", "test-key-not-real");
-    let temp = tempfile::tempdir().unwrap();
-    let (mut session, mut engine) = setup_model_switch_env(temp.path()).await;
+    let temp = rho_test_support::TestDir::new();
+    let (mut session, mut engine) = setup_model_switch_env(&temp).await;
     let (mut controller, mut batch) = modal_test_env();
 
     super::super::modal::open_model_selector(&session, &mut controller);
@@ -433,8 +436,8 @@ async fn model_selector_selection_applies_model_switch_without_rebuild() {
 
 #[tokio::test]
 async fn model_selector_modal_with_save_as_default_emits_true_on_enter() {
-    let temp = tempfile::tempdir().unwrap();
-    let (session, _) = setup_model_switch_env(temp.path()).await;
+    let temp = rho_test_support::TestDir::new();
+    let (session, _) = setup_model_switch_env(&temp).await;
     let (mut controller, _) = modal_test_env();
 
     super::super::modal::open_model_selector_with_default(&session, &mut controller, true);
@@ -447,8 +450,8 @@ async fn model_selector_modal_with_save_as_default_emits_true_on_enter() {
 
 #[tokio::test]
 async fn settings_modal_actions_persist_to_disk() {
-    let temp = tempfile::tempdir().unwrap();
-    let (mut session, mut engine) = setup_model_switch_env(temp.path()).await;
+    let temp = rho_test_support::TestDir::new();
+    let (mut session, mut engine) = setup_model_switch_env(&temp).await;
     let (mut controller, mut batch) = modal_test_env();
 
     let actions = vec![
@@ -488,7 +491,7 @@ async fn settings_modal_actions_persist_to_disk() {
         );
     }
 
-    let config_path = temp.path().join("config.toml");
+    let config_path = temp.join("config.toml");
     let content = std::fs::read_to_string(&config_path).expect("config.toml written");
     let toml: toml::Value = toml::from_str(&content).unwrap();
 
@@ -510,8 +513,8 @@ async fn settings_modal_actions_persist_to_disk() {
 
 #[tokio::test]
 async fn init_live_state_hydrates_ui_preferences() {
-    let temp = tempfile::tempdir().unwrap();
-    let (mut session, engine) = setup_model_switch_env(temp.path()).await;
+    let temp = rho_test_support::TestDir::new();
+    let (mut session, engine) = setup_model_switch_env(&temp).await;
     session.config.ui.hide_thinking = Some(true);
     session.config.ui.tools_expanded = Some(true);
     session.config.show_label = true;
@@ -630,9 +633,9 @@ fn help_modal_esc_and_ctrl_c_dismiss() {
 // Login Modal Tests
 // =========================================================================
 
-fn setup_login_controller(provider: &str) -> (TerminalController<NullBackend>, tempfile::TempDir) {
-    let temp = tempfile::tempdir().unwrap();
-    let auth_file = temp.path().join("auth.json");
+fn setup_login_controller(provider: &str) -> (TerminalController<NullBackend>, rho_test_support::TestDir) {
+    let temp = rho_test_support::TestDir::new();
+    let auth_file = temp.join("auth.json");
     let mut auth_store = AuthStore::load(&auth_file).unwrap();
     auth_store.set_key("anthropic", "test-key").unwrap();
     let config = Config {
@@ -677,8 +680,8 @@ fn login_selector_marks_configured_providers_with_check() {
 
 #[test]
 fn login_selector_lists_each_signed_in_account() {
-    let temp = tempfile::tempdir().unwrap();
-    let mut auth_store = AuthStore::load(temp.path().join("auth.json")).unwrap();
+    let temp = rho_test_support::TestDir::new();
+    let mut auth_store = AuthStore::load(temp.join("auth.json")).unwrap();
     for (key, email) in [("claude", "me@home.com"), ("claude:me@work.com", "me@work.com")] {
         let login = rho_harness_core::auth::StoredCredential::OAuth {
             access_token: "tok".into(),
@@ -769,8 +772,8 @@ fn login_selector_cancels_on_esc() {
 
 #[tokio::test]
 async fn login_provider_selected_dispatches_with_input_pause_and_resume() {
-    let temp = tempfile::tempdir().unwrap();
-    let (mut session, mut engine) = setup_model_switch_env(temp.path()).await;
+    let temp = rho_test_support::TestDir::new();
+    let (mut session, mut engine) = setup_model_switch_env(&temp).await;
     let (mut controller, mut batch) = modal_test_env();
     let mut input = crate::repl::input_reader::TerminalInputReader::spawn_dummy();
 
@@ -1075,7 +1078,6 @@ fn tree_selector_ctrl_l_labels_checkpoint() {
 }
 
 fn select_role_option_by_label(session: &ReplSession, label: &str) -> ModalKeyResult {
-    use rho_harness_core::config::ModelRole;
     let mut controller = crate::repl::test_controller();
     super::super::modal::open_role_model_selector(session, &mut controller, &ModelRole::SMOL);
     let modal = controller.state_mut().active_modal_mut().unwrap();
@@ -1084,32 +1086,16 @@ fn select_role_option_by_label(session: &ReplSession, label: &str) -> ModalKeyRe
     handle_modal_key(&mut controller, enter, &mut None).unwrap()
 }
 
-#[test]
-fn role_selector_provider_named_none_selects_that_route() {
-    use rho_harness_core::config::ModelRole;
-    use rho_harness_core::provider::ModelRoute;
+#[test_case("none", &["gpt-x"], "none/gpt-x", ModelRoute::new("none", "gpt-x"); "provider named none")]
+#[test_case("claude", &["none"], "claude/none", ModelRoute::new("claude", "none"); "model named none")]
+fn role_selector_named_none_routes_select_that_route(provider: &str, models: &[&str], label: &str, route: ModelRoute) {
     let (_dir, mut session) = setup_claude_session();
-    session.catalog = crate::repl::interactive::models::catalog_with("none", &["gpt-x"]);
+    session.catalog = crate::repl::interactive::models::catalog_with(provider, models);
     assert_eq!(
-        select_role_option_by_label(&session, "none/gpt-x"),
+        select_role_option_by_label(&session, label),
         ModalKeyResult::RoleModelSelected {
             role: ModelRole::SMOL,
-            model: Some(ModelRoute::new("none", "gpt-x")),
-        }
-    );
-}
-
-#[test]
-fn role_selector_model_named_none_selects_that_route() {
-    use rho_harness_core::config::ModelRole;
-    use rho_harness_core::provider::ModelRoute;
-    let (_dir, mut session) = setup_claude_session();
-    session.catalog = crate::repl::interactive::models::catalog_with("claude", &["none"]);
-    assert_eq!(
-        select_role_option_by_label(&session, "claude/none"),
-        ModalKeyResult::RoleModelSelected {
-            role: ModelRole::SMOL,
-            model: Some(ModelRoute::new("claude", "none")),
+            model: Some(route),
         }
     );
 }
@@ -1135,9 +1121,9 @@ fn seed_claude_auth(auth_file: &std::path::Path) -> AuthStore {
     auth_store
 }
 
-fn setup_claude_session() -> (tempfile::TempDir, ReplSession) {
-    let temp_dir = tempfile::tempdir().unwrap();
-    let config_dir = temp_dir.path().to_path_buf();
+fn setup_claude_session() -> (rho_test_support::TestDir, ReplSession) {
+    let temp_dir = rho_test_support::TestDir::new();
+    let config_dir = temp_dir.to_path_buf();
     let auth_file = config_dir.join("auth.json");
     let auth_store = seed_claude_auth(&auth_file);
 
@@ -1215,47 +1201,41 @@ fn model_selector_selects_claude_model() {
     }
 }
 
-#[test]
-fn role_model_selector_lifecycle() {
-    use rho_harness_core::config::ModelRole;
+#[test_case(ModelRole::SMOL; "smol")]
+#[test_case(ModelRole::SLOW; "slow")]
+#[test_case(ModelRole::GUARD; "guard")]
+#[test_case(ModelRole::WIDGET; "widget")]
+#[test_case(ModelRole::parse("custom_role").unwrap(); "custom role")]
+fn role_model_selector_lifecycle(role: ModelRole) {
     let (_dir, session) = setup_claude_session();
     let mut controller = crate::repl::test_controller();
     let key = |controller: &mut TerminalController<NullBackend>, code| {
         handle_modal_key(controller, KeyEvent::new(code, KeyModifiers::NONE), &mut None).unwrap()
     };
-    let custom = ModelRole::parse("custom_role").unwrap();
-    for role in [
-        ModelRole::SMOL,
-        ModelRole::SLOW,
-        ModelRole::GUARD,
-        ModelRole::WIDGET,
-        custom,
-    ] {
-        super::super::modal::open_role_model_selector(&session, &mut controller, &role);
-        let modal = controller.state().active_modal().unwrap();
-        assert_eq!(modal.title, format!("Select {} Model", role.title()));
-        assert_eq!(modal.options[0].label, "None");
-        assert_eq!(key(&mut controller, KeyCode::Esc), ModalKeyResult::Handled);
-        assert!(controller.state().active_modal().is_none());
+    super::super::modal::open_role_model_selector(&session, &mut controller, &role);
+    let modal = controller.state().active_modal().unwrap();
+    assert_eq!(modal.title, format!("Select {} Model", role.title()));
+    assert_eq!(modal.options[0].label, "None");
+    assert_eq!(key(&mut controller, KeyCode::Esc), ModalKeyResult::Handled);
+    assert!(controller.state().active_modal().is_none());
 
-        super::super::modal::open_role_model_selector(&session, &mut controller, &role);
-        assert_eq!(
-            key(&mut controller, KeyCode::Enter),
-            ModalKeyResult::RoleModelSelected {
-                role: role.clone(),
-                model: None,
-            }
-        );
-
-        super::super::modal::open_role_model_selector(&session, &mut controller, &role);
-        key(&mut controller, KeyCode::Down);
-        match key(&mut controller, KeyCode::Enter) {
-            ModalKeyResult::RoleModelSelected { role: picked, model } => {
-                assert_eq!(picked, role);
-                assert!(model.is_some());
-            }
-            other => panic!("expected RoleModelSelected, got {other:?}"),
+    super::super::modal::open_role_model_selector(&session, &mut controller, &role);
+    assert_eq!(
+        key(&mut controller, KeyCode::Enter),
+        ModalKeyResult::RoleModelSelected {
+            role: role.clone(),
+            model: None,
         }
+    );
+
+    super::super::modal::open_role_model_selector(&session, &mut controller, &role);
+    key(&mut controller, KeyCode::Down);
+    match key(&mut controller, KeyCode::Enter) {
+        ModalKeyResult::RoleModelSelected { role: picked, model } => {
+            assert_eq!(picked, role);
+            assert!(model.is_some());
+        }
+        other => panic!("expected RoleModelSelected, got {other:?}"),
     }
 }
 
@@ -1286,8 +1266,8 @@ async fn turn_model_switch_applies_claude_model_to_config() {
 
 #[test]
 fn search_engine_selector_modal_lifecycle() {
-    let temp = tempfile::tempdir().unwrap();
-    let session = setup_model_selector_session(temp.path().to_path_buf());
+    let temp = rho_test_support::TestDir::new();
+    let session = setup_model_selector_session(temp.to_path_buf());
     let mut controller = crate::repl::test_controller();
 
     super::super::modal::open_search_engine_selector(&session, &mut controller);
@@ -1313,8 +1293,8 @@ fn search_engine_selector_modal_lifecycle() {
 
 #[test]
 fn test_repl_model_selection_format() {
-    let temp = tempfile::tempdir().unwrap();
-    let session = setup_model_selector_session(temp.path().to_path_buf());
+    let temp = rho_test_support::TestDir::new();
+    let session = setup_model_selector_session(temp.to_path_buf());
     let mut controller = crate::repl::test_controller();
 
     super::super::modal::open_model_selector(&session, &mut controller);

@@ -171,7 +171,7 @@ mod tests {
     #[tokio::test]
     async fn the_parent_lists_reviews_merges_and_discards_agent_worktrees() {
         let (dir, root) = create(&[("a.rs", "fn a() {}\n")]);
-        let store = WorktreeStore::new(dir.path().join("store"));
+        let store = WorktreeStore::new(dir.join("store"));
         let tool = WorktreeTool::new(&root, store.clone());
         let keep = store.create(&root, "subagent fix", None).await.unwrap().unwrap();
         write(&keep.path, "a.rs", "fn a() { fixed() }\n");
@@ -212,8 +212,8 @@ mod tests {
     #[tokio::test]
     async fn create_immediately_relocates_shared_workspace_tools_and_isolates_subagents() {
         let (dir, root) = create(&[("a.rs", "fn a() {}\n")]);
-        let store = WorktreeStore::new(dir.path().join("store"));
-        let session_base = dir.path().join("session-wt");
+        let store = WorktreeStore::new(dir.join("store"));
+        let session_base = dir.join("session-wt");
         let relocate_slot = std::sync::Arc::new(std::sync::Mutex::new(None));
 
         let parent_ws = crate::tools::WorkspaceDir::new(&root);

@@ -59,18 +59,14 @@ impl NameRegistry {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use test_case::test_case;
 
-    #[test]
-    fn wire_names_are_provider_safe() {
-        let cases = [
-            ("github", "create_issue", "github_create_issue"),
-            ("github-hosted", "get_me", "github-hosted_get_me"),
-            ("my.server", "tool name/v2", "my_server_tool_name_v2"),
-            ("", "", "___"),
-        ];
-        for (server, tool, expected) in cases {
-            assert_eq!(wire_name(server, tool), expected, "{server}/{tool}");
-        }
+    #[test_case("github", "create_issue", "github_create_issue"; "plain")]
+    #[test_case("github-hosted", "get_me", "github-hosted_get_me"; "dash kept")]
+    #[test_case("my.server", "tool name/v2", "my_server_tool_name_v2"; "unsafe chars replaced")]
+    #[test_case("", "", "___"; "empty")]
+    fn wire_names_are_provider_safe(server: &str, tool: &str, expected: &str) {
+        assert_eq!(wire_name(server, tool), expected);
     }
 
     #[test]

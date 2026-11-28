@@ -29,6 +29,7 @@ use tokio::sync::Mutex;
 const MAX_DIFF_CHARS: usize = 30_000;
 /// How many review findings `diff` and `merge` results list.
 pub const REVIEW_FINDINGS_SHOWN: usize = 30;
+pub const MERGE_STANDARD: &str = "Merge only changes that are DRY, follow SOLID principles, and add no code smells (duplication, dead code, needless complexity, weakened tests); fix or discard the rest.";
 
 /// Serializes `git worktree add/remove`, which update shared repository state.
 static WORKTREE_LOCK: Mutex<()> = Mutex::const_new(());
@@ -477,7 +478,7 @@ mod tests {
         write(&root, "a.rs", "uncommitted");
         write(&root, "target/debug/app", "bin");
         write(&root, "node_modules/x/index.js", "js");
-        let store = WorktreeStore::new(dir.path().join("store"));
+        let store = WorktreeStore::new(dir.join("store"));
 
         let wt = store.create(&root, "subagent perf audit", None).await.unwrap().unwrap();
 
@@ -514,8 +515,8 @@ mod tests {
 
     #[tokio::test]
     async fn outside_git_there_is_no_worktree() {
-        let dir = tempfile::tempdir().unwrap();
-        let store = WorktreeStore::new(dir.path().join("store"));
-        assert_eq!(store.create(dir.path(), "x", None).await.unwrap(), None);
+        let dir = crate::test_support::TestDir::new();
+        let store = WorktreeStore::new(dir.join("store"));
+        assert_eq!(store.create(&dir, "x", None).await.unwrap(), None);
     }
 }

@@ -360,6 +360,7 @@ mod tests {
     use rho_harness_core::presentation::{ActivityToken, SessionStatus, ToolLine, ToolStreamPort, WelcomeDisplay};
     use serde_json::json;
     use std::sync::Mutex;
+    use test_case::test_case;
 
     struct MockPresenter {
         next_result: Mutex<Option<Option<A2uiModalResult>>>,
@@ -460,63 +461,65 @@ mod tests {
         }
     }
 
-    fn choice_picker_options(req: &A2uiModalRequest) -> Vec<ChoiceOption> {
+    fn component_kinds(req: &A2uiModalRequest) -> impl Iterator<Item = &A2uiComponentKind> {
         req.messages
             .iter()
-            .find_map(|msg| match msg {
-                A2uiMessage::UpdateComponents(uc) => uc.components.iter().find_map(|c| match &c.kind {
-                    A2uiComponentKind::ChoicePicker { options, .. } => Some(options.clone()),
-                    _ => None,
-                }),
+            .filter_map(|msg| match msg {
+                A2uiMessage::UpdateComponents(uc) => Some(&uc.components),
+                _ => None,
+            })
+            .flatten()
+            .map(|c| &c.kind)
+    }
+
+    fn choice_picker_options(req: &A2uiModalRequest) -> Vec<ChoiceOption> {
+        component_kinds(req)
+            .find_map(|kind| match kind {
+                A2uiComponentKind::ChoicePicker { options, .. } => Some(options.clone()),
                 _ => None,
             })
             .expect("ChoicePicker present")
     }
 
+    fn output_of(result: &ToolResult) -> Value {
+        serde_json::from_str(&result.content).unwrap()
+    }
+
     #[tokio::test]
     async fn validation_rejects_empty_and_over_limit_inputs() {
-        let presenter = MockPresenter::returning(None);
-        let tool = AskTool::new(presenter);
-
-        let err = tool.execute(json!({ "questions": [] })).await.unwrap_err();
-        assert!(err.to_string().contains("at least 1 question"), "{err}");
-
+        let tool = AskTool::new(MockPresenter::returning(None));
         let too_many: Vec<Value> = (0..=MAX_QUESTIONS)
             .map(|i| json!({ "question": format!("Q{i}?") }))
             .collect();
-        let err = tool.execute(json!({ "questions": too_many })).await.unwrap_err();
-        assert!(err.to_string().contains("at most 5 questions"), "{err}");
-
         let too_many_choices: Vec<Value> = (0..=MAX_CHOICES)
             .map(|i| json!({ "label": format!("Opt {i}") }))
             .collect();
-        let err = tool
-            .execute(json!({
-                "questions": [{ "question": "Pick one", "choices": too_many_choices }]
-            }))
-            .await
-            .unwrap_err();
-        assert!(err.to_string().contains("maximum is 4"), "{err}");
-
-        let err = tool
-            .execute(json!({
-                "questions": [{
-                    "question": "Pick one",
-                    "choices": [{ "label": "A" }, { "label": "B" }],
-                    "recommended": 2
-                }]
-            }))
-            .await
-            .unwrap_err();
-        assert!(err.to_string().contains("out of range"), "{err}");
-
-        let err = tool
-            .execute(json!({
-                "questions": [{ "id": "db", "question": "A?" }, { "id": " db ", "question": "B?" }]
-            }))
-            .await
-            .unwrap_err();
-        assert!(err.to_string().contains("'db' is used twice"), "{err}");
+        let cases = [
+            (json!({ "questions": [] }), "at least 1 question"),
+            (json!({ "questions": too_many }), "at most 5 questions"),
+            (
+                json!({ "questions": [{ "question": "Pick one", "choices": too_many_choices }] }),
+                "maximum is 4",
+            ),
+            (
+                json!({
+                    "questions": [{
+                        "question": "Pick one",
+                        "choices": [{ "label": "A" }, { "label": "B" }],
+                        "recommended": 2
+                    }]
+                }),
+                "out of range",
+            ),
+            (
+                json!({ "questions": [{ "id": "db", "question": "A?" }, { "id": " db ", "question": "B?" }] }),
+                "'db' is used twice",
+            ),
+        ];
+        for (args, message) in cases {
+            let err = tool.execute(args).await.unwrap_err();
+            assert!(err.to_string().contains(message), "{err}");
+        }
     }
 
     #[tokio::test]
@@ -537,7 +540,7 @@ mod tests {
             .await
             .unwrap();
 
-        let output: Value = serde_json::from_str(&result.content).unwrap();
+        let output = output_of(&result);
         let answers: Vec<(&str, &str)> = output["answers"]
             .as_array()
             .unwrap()
@@ -573,7 +576,7 @@ mod tests {
         assert_eq!(options[0].label, BoundString::literal("SQLite"));
         assert_eq!(options[1].label, BoundString::literal("PostgreSQL (Recommended)"));
 
-        let output: Value = serde_json::from_str(&result.content).unwrap();
+        let output = output_of(&result);
         assert_eq!(output["outcome"], "submitted");
         assert_eq!(output["answers"][0]["status"], "answered");
         assert_eq!(output["answers"][0]["selected_index"], 1);
@@ -608,7 +611,7 @@ mod tests {
         assert_eq!(options[0].label, BoundString::literal("[REDACTED] (Recommended)"));
         assert_eq!(options[1].label, BoundString::literal("[REDACTED] (2)"));
 
-        let output: Value = serde_json::from_str(&result.content).unwrap();
+        let output = output_of(&result);
         assert_eq!(output["answers"][0]["selected_index"], 1);
         assert_eq!(output["answers"][0]["user_response"], raw_b);
     }
@@ -639,7 +642,7 @@ mod tests {
             .await
             .unwrap();
 
-        let output: Value = serde_json::from_str(&result.content).unwrap();
+        let output = output_of(&result);
         assert_eq!(output["answers"][0]["status"], "answered");
         assert_eq!(output["answers"][0]["selected_index"], Value::Null);
         assert_eq!(output["answers"][0]["user_response"], "DuckDB");
@@ -671,35 +674,32 @@ mod tests {
             .await
             .unwrap();
 
-        let output: Value = serde_json::from_str(&result.content).unwrap();
+        let output = output_of(&result);
         assert_eq!(output["answers"][0]["status"], "answered");
         assert_eq!(output["answers"][0]["selected_index"], 0);
         assert_eq!(output["answers"][0]["selected_indices"], json!([0, 2]));
         assert_eq!(output["answers"][0]["user_response"], "Auth, Metrics");
     }
 
+    #[test_case(None, "undelivered", "unanswered"; "undelivered")]
+    #[test_case(Some(A2uiModalResult::Cancelled), "cancelled", "unanswered"; "cancelled")]
+    #[test_case(Some(A2uiModalResult::TimedOut), "timed_out", "unanswered"; "timed out")]
+    #[test_case(Some(submitted(json!({ "answers": { "q1": "" } }))), "submitted", "skipped"; "skipped")]
     #[tokio::test]
-    async fn outcomes_cover_undelivered_cancelled_timed_out_and_skipped() {
-        for (modal_result, expected_outcome, expected_status) in [
-            (None, "undelivered", "unanswered"),
-            (Some(A2uiModalResult::Cancelled), "cancelled", "unanswered"),
-            (Some(A2uiModalResult::TimedOut), "timed_out", "unanswered"),
-            (
-                Some(submitted(json!({ "answers": { "q1": "" } }))),
-                "submitted",
-                "skipped",
-            ),
-        ] {
-            let presenter = MockPresenter::returning(modal_result);
-            let tool = AskTool::new(presenter);
-            let result = tool
-                .execute(json!({ "questions": [{ "question": "Optional note?" }] }))
-                .await
-                .unwrap();
-            let output: Value = serde_json::from_str(&result.content).unwrap();
-            assert_eq!(output["outcome"], expected_outcome);
-            assert_eq!(output["answers"][0]["status"], expected_status);
-        }
+    async fn outcomes_cover_undelivered_cancelled_timed_out_and_skipped(
+        modal_result: Option<A2uiModalResult>,
+        expected_outcome: &str,
+        expected_status: &str,
+    ) {
+        let presenter = MockPresenter::returning(modal_result);
+        let tool = AskTool::new(presenter);
+        let result = tool
+            .execute(json!({ "questions": [{ "question": "Optional note?" }] }))
+            .await
+            .unwrap();
+        let output = output_of(&result);
+        assert_eq!(output["outcome"], expected_outcome);
+        assert_eq!(output["answers"][0]["status"], expected_status);
     }
 
     #[tokio::test]
@@ -775,14 +775,9 @@ mod tests {
 
         assert!(!result.is_error, "{}", result.content);
         let request = &presenter.requests()[0];
-        let picker_multi_select = request
-            .messages
-            .iter()
-            .find_map(|msg| match msg {
-                A2uiMessage::UpdateComponents(uc) => uc.components.iter().find_map(|c| match &c.kind {
-                    A2uiComponentKind::ChoicePicker { multi_select, .. } => Some(*multi_select),
-                    _ => None,
-                }),
+        let picker_multi_select = component_kinds(request)
+            .find_map(|kind| match kind {
+                A2uiComponentKind::ChoicePicker { multi_select, .. } => Some(*multi_select),
                 _ => None,
             })
             .expect("ChoicePicker present");
@@ -829,15 +824,8 @@ mod tests {
 
         assert!(started.elapsed() < Duration::from_secs(1), "{:?}", started.elapsed());
         let requests = presenter.requests();
-        let labels: Vec<BoundString> = requests[0]
-            .messages
-            .iter()
-            .filter_map(|msg| match msg {
-                A2uiMessage::UpdateComponents(uc) => Some(&uc.components),
-                _ => None,
-            })
-            .flatten()
-            .filter_map(|c| match &c.kind {
+        let labels: Vec<BoundString> = component_kinds(&requests[0])
+            .filter_map(|kind| match kind {
                 A2uiComponentKind::ChoicePicker { options, .. } => Some(options[1].label.clone()),
                 _ => None,
             })

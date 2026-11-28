@@ -147,6 +147,7 @@ mod tests {
     use crate::tools::builtin_tools::rerooted;
     use crate::tools::lsp::LspTool;
     use serde_json::json;
+    use test_case::test_case;
 
     #[test]
     fn a_guard_dropped_outside_a_runtime_forgets_the_workspace_manager() {
@@ -240,14 +241,13 @@ mod tests {
         assert!(lsp.description().contains("cannot rename"));
     }
 
-    #[test]
-    fn lsp_keeps_rename_when_the_subagent_can_change_files() {
+    #[test_case("edit"; "edit")]
+    #[test_case("write"; "write")]
+    fn lsp_keeps_rename_when_the_subagent_can_change_files(writer: &'static str) {
         let dir = project();
-        for writer in ["edit", "write"] {
-            let tools = restrict_lsp(vec![named(writer), lsp_in(&dir)]);
-            let lsp = tools.iter().find(|t| t.name() == "lsp").unwrap();
-            assert!(lsp.parameters().to_string().contains("rename"), "{writer}");
-        }
+        let tools = restrict_lsp(vec![named(writer), lsp_in(&dir)]);
+        let lsp = tools.iter().find(|t| t.name() == "lsp").unwrap();
+        assert!(lsp.parameters().to_string().contains("rename"));
     }
 
     #[tokio::test]

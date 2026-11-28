@@ -1,6 +1,7 @@
 use crate::ui::interactive::layout::budget::{
     MAX_MODAL_HEIGHT_RATIO, MAX_WIDGET_HEIGHT_RATIO, NormalBudgetInput, compute_normal_budget,
 };
+use test_case::test_case;
 
 fn sample_budget_input(terminal_height: usize, total_editor_lines: usize, is_modal: bool) -> NormalBudgetInput {
     NormalBudgetInput {
@@ -43,13 +44,14 @@ fn test_modal_budget_scales_with_content_below_cap() {
     assert_eq!(budget.editor_max_lines, 6);
 }
 
-#[test]
-fn test_modal_budget_minimum_allocation_on_tiny_terminal() {
-    for height in [1, 2, 4, 8] {
-        let input = sample_budget_input(height, 20, true);
-        let budget = compute_normal_budget(&input);
-        assert!(budget.editor_max_lines >= 1);
-    }
+#[test_case(1; "one row")]
+#[test_case(2; "two rows")]
+#[test_case(4; "four rows")]
+#[test_case(8; "eight rows")]
+fn test_modal_budget_minimum_allocation_on_tiny_terminal(height: usize) {
+    let input = sample_budget_input(height, 20, true);
+    let budget = compute_normal_budget(&input);
+    assert!(budget.editor_max_lines >= 1);
 }
 
 #[test]

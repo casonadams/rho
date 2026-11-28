@@ -7,6 +7,7 @@ mod branch {
     use rho_harness_core::model::ChatMessage;
     use rho_harness_core::session::{CompactionMetadata, SessionManager};
     use std::sync::Arc;
+    use test_case::test_case;
 
     use crate::provider::adapter::MockAdapter;
 
@@ -90,27 +91,28 @@ mod branch {
         )
     }
 
+    #[test_case(0; "first turn")]
+    #[test_case(3; "last turn")]
+    #[test_case(99; "past the end")]
     #[tokio::test]
-    async fn rewind_that_keeps_every_turn_leaves_the_unfinished_turn_pending() {
-        for target in [0, 3, 99] {
-            let (engine, _dir) = test_engine("rewind-noop", None, None).await;
-            let session = &engine.session_manager;
-            finished_turns_then_unfinished(session, 2).await;
-            let before = history(session).await;
-            let budget = engine.context.budget(200_000, ContextLimitSource::Provider, 183_616);
-            budget.notice(150_000, |_| true);
+    async fn rewind_that_keeps_every_turn_leaves_the_unfinished_turn_pending(target: usize) {
+        let (engine, _dir) = test_engine("rewind-noop", None, None).await;
+        let session = &engine.session_manager;
+        finished_turns_then_unfinished(session, 2).await;
+        let before = history(session).await;
+        let budget = engine.context.budget(200_000, ContextLimitSource::Provider, 183_616);
+        budget.notice(150_000, |_| true);
 
-            let retained = engine.rewind_to_turn(target).await.unwrap();
+        let retained = engine.rewind_to_turn(target).await.unwrap();
 
-            assert_eq!(retained, 4, "target {target}");
-            assert_eq!(history(session).await, before, "target {target}");
-            let mut renoticed = false;
-            budget.notice(150_000, |_| {
-                renoticed = true;
-                true
-            });
-            assert!(!renoticed, "target {target}: notices were reset");
-        }
+        assert_eq!(retained, 4);
+        assert_eq!(history(session).await, before);
+        let mut renoticed = false;
+        budget.notice(150_000, |_| {
+            renoticed = true;
+            true
+        });
+        assert!(!renoticed, "notices were reset");
     }
 
     #[tokio::test]
@@ -416,7 +418,7 @@ mod common {
     use crate::engine::AgentEngine;
     use crate::engine::builder::AgentEngineBuilder;
     use crate::provider::adapter::ModelAdapter;
-    use crate::test_support::TestDir;
+    use crate::test_support::{CapturingPresenter, TestDir};
     use rho_harness_core::config::Config;
     use std::sync::Arc;
 
@@ -451,6 +453,22 @@ mod common {
     ) {
         sm.append_messages(sid, msgs).await.unwrap();
     }
+
+    pub fn assert_auto_compacted(presenter: &CapturingPresenter) {
+        let notices = presenter.notices.lock().unwrap().clone();
+        assert!(
+            notices.iter().any(|n| n.contains("Auto-compacted context")),
+            "{notices:?}"
+        );
+        assert!(
+            presenter
+                .spinner_messages
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|m| m == "Compacting...")
+        );
+    }
 }
 
 mod orchestrator {
@@ -461,8 +479,12 @@ mod orchestrator {
     use std::sync::Arc;
 
     use crate::auth::AuthStore;
+    use crate::engine::AgentEngine;
     use crate::engine::builder::AgentEngineBuilder;
+    use crate::engine::compactor::DemotionHook;
     use crate::provider::adapter::MockAdapter;
+    use crate::test_support::TestDir;
+    use test_case::test_case;
 
     fn tool_turn(cid: &str, tool: &str, path: &str, user: &str, done: &str) -> Vec<ChatMessage> {
         let call = ToolCall::new(cid, ToolFunction::new(tool, serde_json::json!({"path": path})));
@@ -698,10 +720,8 @@ mod orchestrator {
         }
     }
 
-    #[tokio::test]
-    async fn test_compact_session_forwards_evicted_messages_to_demotion_hook() {
-        let hook = std::sync::Arc::new(CapturingDemotionHook::default());
-        let dir = crate::test_support::TestDir::new();
+    async fn engine_with_demotion_hook(label: &str, hook: Arc<dyn DemotionHook>) -> (AgentEngine, TestDir) {
+        let dir = TestDir::with_prefix(&format!("compactor_{label}_"));
         let config = Config {
             sessions_dir: dir.join("sessions"),
             auth_file: dir.join("auth.json"),
@@ -712,10 +732,17 @@ mod orchestrator {
         let engine = AgentEngineBuilder::new(config, auth_store)
             .base_dir(dir.to_path_buf())
             .tools(Vec::new())
-            .demotion_hook(hook.clone())
+            .demotion_hook(hook)
             .build()
             .await
             .unwrap();
+        (engine, dir)
+    }
+
+    #[tokio::test]
+    async fn test_compact_session_forwards_evicted_messages_to_demotion_hook() {
+        let hook = Arc::new(CapturingDemotionHook::default());
+        let (engine, _dir) = engine_with_demotion_hook("forward", hook.clone()).await;
 
         let session_id = engine.session_manager.session_id.clone();
         populate_test_turns(&engine.session_manager, &session_id).await;
@@ -729,92 +756,30 @@ mod orchestrator {
         assert!(!demotions[0].1.is_empty());
     }
 
+    #[test_case(CapturingDemotionHook { fail: true, ..Default::default() }; "failing")]
+    #[test_case(CapturingDemotionHook { panic: true, ..Default::default() }; "panicking")]
     #[tokio::test]
-    async fn test_compact_session_failing_demotion_hook_does_not_abort_compaction() {
-        let hook = std::sync::Arc::new(CapturingDemotionHook {
-            fail: true,
-            ..Default::default()
-        });
-        let dir = crate::test_support::TestDir::new();
-        let config = Config {
-            sessions_dir: dir.join("sessions"),
-            auth_file: dir.join("auth.json"),
-            keep_recent_tokens: 10,
-            ..Default::default()
-        };
-        let auth_store = AuthStore::load(&config.auth_file).unwrap_or_default();
-        let engine = AgentEngineBuilder::new(config, auth_store)
-            .base_dir(dir.to_path_buf())
-            .tools(Vec::new())
-            .demotion_hook(hook)
-            .build()
-            .await
-            .unwrap();
-
+    async fn failing_or_panicking_demotion_hook_does_not_abort_compaction(hook: CapturingDemotionHook) {
+        let (engine, _dir) = engine_with_demotion_hook("broken_hook", Arc::new(hook)).await;
         let session_id = engine.session_manager.session_id.clone();
         populate_test_turns(&engine.session_manager, &session_id).await;
 
         let stats = engine.compact_session(None).await.unwrap();
-        assert!(stats.tokens_before > 0);
+        assert!(stats.tokens_before > 0, "hook aborted compaction");
     }
 
+    #[test_case(CapturingDemotionHook { fail: true, ..Default::default() }, "simulated hook failure"; "failing")]
+    #[test_case(CapturingDemotionHook { panic: true, ..Default::default() }, "demotion hook panicked"; "panicking")]
     #[tokio::test]
-    async fn test_compact_session_panicking_demotion_hook_does_not_abort_compaction() {
-        let hook = std::sync::Arc::new(CapturingDemotionHook {
-            panic: true,
-            ..Default::default()
-        });
-        let dir = crate::test_support::TestDir::new();
-        let config = Config {
-            sessions_dir: dir.join("sessions"),
-            auth_file: dir.join("auth.json"),
-            keep_recent_tokens: 10,
-            ..Default::default()
-        };
-        let auth_store = AuthStore::load(&config.auth_file).unwrap_or_default();
-        let engine = AgentEngineBuilder::new(config, auth_store)
-            .base_dir(dir.to_path_buf())
-            .tools(Vec::new())
-            .demotion_hook(hook)
-            .build()
-            .await
-            .unwrap();
-
-        let session_id = engine.session_manager.session_id.clone();
-        populate_test_turns(&engine.session_manager, &session_id).await;
-
-        let stats = engine.compact_session(None).await.unwrap();
-        assert!(stats.tokens_before > 0);
-    }
-
-    #[tokio::test]
-    async fn a_failing_demotion_hook_error_is_returned_to_the_caller() {
-        let hook: std::sync::Arc<dyn crate::engine::compactor::DemotionHook> =
-            std::sync::Arc::new(CapturingDemotionHook {
-                fail: true,
-                ..Default::default()
-            });
-
+    async fn failing_or_panicking_demotion_hook_is_returned_to_the_caller_as_an_error(
+        hook: CapturingDemotionHook,
+        expected: &str,
+    ) {
+        let hook: Arc<dyn DemotionHook> = Arc::new(hook);
         let result =
             crate::engine::compactor::orchestrator::dispatch_demote(Some(&hook), "session", &[ChatMessage::user("hi")])
                 .await;
-
-        assert_eq!(result, Err("simulated hook failure".to_string()));
-    }
-
-    #[tokio::test]
-    async fn a_panicking_demotion_hook_is_returned_to_the_caller_as_an_error() {
-        let hook: std::sync::Arc<dyn crate::engine::compactor::DemotionHook> =
-            std::sync::Arc::new(CapturingDemotionHook {
-                panic: true,
-                ..Default::default()
-            });
-
-        let result =
-            crate::engine::compactor::orchestrator::dispatch_demote(Some(&hook), "session", &[ChatMessage::user("hi")])
-                .await;
-
-        assert_eq!(result, Err("demotion hook panicked".to_string()));
+        assert_eq!(result, Err(expected.to_string()));
     }
 
     #[tokio::test]
@@ -893,22 +858,6 @@ mod recovery {
         }
     }
 
-    fn assert_recovery_presenter(presenter: &CapturingPresenter) {
-        let notices = presenter.notices.lock().unwrap().clone();
-        assert!(
-            notices.iter().any(|n| n.contains("Auto-compacted context")),
-            "{notices:?}"
-        );
-        assert!(
-            presenter
-                .spinner_messages
-                .lock()
-                .unwrap()
-                .iter()
-                .any(|m| m == "Compacting...")
-        );
-    }
-
     fn recovery_engine(dir: &std::path::Path, model: Arc<MockAdapter>) -> crate::engine::AgentEngine {
         engine_with(
             dir,
@@ -968,7 +917,7 @@ mod recovery {
             .unwrap();
         assert_eq!(output.status, crate::engine::metrics::TerminalStatus::Completed);
         assert_eq!(output.final_text, "answered after compacting");
-        assert_recovery_presenter(&presenter);
+        common::assert_auto_compacted(&presenter);
         let last = model.requests().pop().unwrap();
         let asked = format!("{:?}", last.messages.last());
         assert!(asked.contains("New prompt that overflows initially"), "{asked}");
@@ -1010,7 +959,7 @@ mod recovery {
             output.requests, 2,
             "the step before the overflow and the answer after it"
         );
-        assert_recovery_presenter(&presenter);
+        common::assert_auto_compacted(&presenter);
         let sm = &engine.session_manager;
         assert!(sm.load_checkpoint().await.unwrap().is_none());
         let mut messages = sm.load_messages().await.unwrap();
@@ -1073,7 +1022,7 @@ mod recovery {
             .unwrap();
 
         assert_eq!(output.final_text, "done without overflowing");
-        assert_recovery_presenter(&presenter);
+        common::assert_auto_compacted(&presenter);
         let requests = model.requests();
         assert_eq!(
             requests.len(),
@@ -1295,20 +1244,7 @@ mod auto_compact {
         }
     }
 
-    fn assert_compaction_presenter(presenter: &CapturingPresenter) {
-        let notices = presenter.notices.lock().unwrap().clone();
-        assert!(notices.iter().any(|n| n.contains("Auto-compacted context")));
-        assert!(
-            presenter
-                .spinner_messages
-                .lock()
-                .unwrap()
-                .iter()
-                .any(|m| m == "Compacting...")
-        );
-    }
-
-    fn proactive_engine(dir: &std::path::Path, reserve_tokens: usize) -> crate::engine::AgentEngine {
+    fn auto_compact_engine(dir: &std::path::Path, reserve_tokens: usize) -> crate::engine::AgentEngine {
         let app_config = Config {
             model: "mock-model".to_string(),
             reserve_tokens,
@@ -1333,7 +1269,7 @@ mod auto_compact {
     #[tokio::test]
     async fn a_turn_that_compacts_before_starting_still_sends_its_prompt() {
         let dir = crate::test_support::TestDir::new();
-        let engine = proactive_engine(&dir, 127_980);
+        let engine = auto_compact_engine(&dir, 127_980);
         let session_id = engine.session_manager.session_id.clone();
         populate_proactive_history(&engine.session_manager, &session_id).await;
 
@@ -1345,7 +1281,7 @@ mod auto_compact {
         assert_eq!(output.status, crate::engine::metrics::TerminalStatus::Completed);
         assert_eq!(output.final_text, "turn response");
         assert_eq!(output.requests, 1);
-        assert_compaction_presenter(&presenter);
+        common::assert_auto_compacted(&presenter);
         assert_compaction_node_present(&engine.session_manager).await;
     }
 
@@ -1372,17 +1308,6 @@ mod auto_compact {
     ) {
         record_test_turn_usage(engine, tokens);
         engine.compact_if_full(presenter, history, 0, false).await.unwrap();
-    }
-
-    fn threshold_engine(dir: &std::path::Path) -> crate::engine::AgentEngine {
-        let app_config = Config {
-            model: "mock-model".to_string(),
-            keep_recent_tokens: 5,
-            auth_file: dir.join("auth.json"),
-            ..Config::default()
-        };
-        let model = Arc::new(MockAdapter::text("response"));
-        mock_engine(model, MockEngineConfig::new(dir, app_config))
     }
 
     async fn seed_threshold_history(engine: &crate::engine::AgentEngine) -> Vec<rho_harness_core::model::ChatMessage> {
@@ -1434,7 +1359,7 @@ mod auto_compact {
     #[tokio::test]
     async fn test_stale_usage_does_not_compact_history_that_pruning_shrank() {
         let dir = crate::test_support::TestDir::new();
-        let engine = threshold_engine(&dir);
+        let engine = auto_compact_engine(&dir, Config::default().reserve_tokens);
         seed_large_read_history(&engine).await;
         record_test_turn_usage(&engine, 120_000);
 
@@ -1471,7 +1396,7 @@ mod auto_compact {
     #[tokio::test]
     async fn test_proactive_auto_compaction_at_reserve_threshold() {
         let dir = crate::test_support::TestDir::new();
-        let engine = threshold_engine(&dir);
+        let engine = auto_compact_engine(&dir, Config::default().reserve_tokens);
         let history = seed_threshold_history(&engine).await;
         let presenter = Arc::new(CapturingPresenter::default());
 
@@ -1486,7 +1411,7 @@ mod auto_compact {
     #[tokio::test]
     async fn test_proactive_compaction_counts_cached_prompt_tokens() {
         let dir = crate::test_support::TestDir::new();
-        let engine = threshold_engine(&dir);
+        let engine = auto_compact_engine(&dir, Config::default().reserve_tokens);
         let history = seed_threshold_history(&engine).await;
         let presenter = Arc::new(CapturingPresenter::default());
         let usage = crate::engine::metrics::StructuralUsage {
@@ -1513,6 +1438,7 @@ mod turn_compaction {
     use crate::engine::tracking::CompactionTiming;
     use rho_harness_core::error::AppError;
     use std::convert::Infallible;
+    use test_case::test_case;
 
     fn early_stop() -> AppError {
         AppError::CompactionDue { used: 1 }
@@ -1529,31 +1455,22 @@ mod turn_compaction {
         made
     }
 
+    #[test_case(AppError::Network("reset".into()), true, None, CompactionTiming::Early; "other error ends the turn")]
+    #[test_case(early_stop(), true, Some(MadeRoom::Compacted(())), CompactionTiming::Early; "early stop compacts")]
+    #[test_case(overflow(), true, Some(MadeRoom::Compacted(())), CompactionTiming::Early; "overflow compacts")]
+    #[test_case(early_stop(), false, Some(MadeRoom::RunOn), CompactionTiming::OnOverflow; "early stop runs on")]
+    #[test_case(overflow(), false, None, CompactionTiming::Early; "unfolded overflow ends the turn")]
     #[tokio::test]
-    async fn a_full_context_compacts_or_runs_on_and_other_errors_end_the_turn() {
-        let cases = [
-            (AppError::Network("reset".into()), true, None, CompactionTiming::Early),
-            (
-                early_stop(),
-                true,
-                Some(MadeRoom::Compacted(())),
-                CompactionTiming::Early,
-            ),
-            (overflow(), true, Some(MadeRoom::Compacted(())), CompactionTiming::Early),
-            (early_stop(), false, Some(MadeRoom::RunOn), CompactionTiming::OnOverflow),
-            (overflow(), false, None, CompactionTiming::Early),
-        ];
-        for (error, folds, expected, timing) in cases {
-            let mut turn = TurnCompaction::default();
-            let label = format!("{error:?} folds={folds}");
-            assert_eq!(make_room(&mut turn, error, folds).await, expected, "{label}");
-            assert_eq!(turn.timing(), timing, "{label}");
-            assert_eq!(
-                turn.has_compacted(),
-                matches!(expected, Some(MadeRoom::Compacted(_))),
-                "{label}"
-            );
-        }
+    async fn a_full_context_compacts_or_runs_on_and_other_errors_end_the_turn(
+        error: AppError,
+        folds: bool,
+        expected: Option<MadeRoom<()>>,
+        timing: CompactionTiming,
+    ) {
+        let mut turn = TurnCompaction::default();
+        assert_eq!(make_room(&mut turn, error, folds).await, expected);
+        assert_eq!(turn.timing(), timing);
+        assert_eq!(turn.has_compacted(), matches!(expected, Some(MadeRoom::Compacted(_))));
     }
 
     #[tokio::test]

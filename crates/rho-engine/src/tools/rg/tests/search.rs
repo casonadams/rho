@@ -1,4 +1,5 @@
 use super::{fixture, search};
+use crate::test_support::assert_smart_case;
 use crate::tools::rg::RgOutputMode;
 
 #[tokio::test]
@@ -37,21 +38,20 @@ async fn results_are_grouped_by_file_and_ordered_by_path_then_line() {
 #[tokio::test]
 async fn pattern_is_smart_case() {
     let dir = fixture();
-    let lower = search(&dir, "todo", |_| {}).await;
-    assert_eq!(lower.content, "1 match in 1 file\n\nREADME.md\n2:todo list");
-
-    let upper = search(&dir, "TODO", |_| {}).await;
-    assert_eq!(upper.content, "No matches found");
-
-    let mixed = search(&dir, "Todo", |_| {}).await;
-    assert_eq!(mixed.content, "No matches found");
+    assert_smart_case(
+        async |pattern| search(&dir, pattern, |_| {}).await,
+        ["todo", "TODO", "Todo"],
+        "1 match in 1 file\n\nREADME.md\n2:todo list",
+        "No matches found",
+    )
+    .await;
 }
 
 #[tokio::test]
 async fn context_shows_surrounding_lines_and_separates_detached_blocks() {
     let dir = fixture();
     let body = "a\nneedle one\nb\nc\nd\ne\nf\nneedle two\ng\nneedle three\nh\n";
-    std::fs::write(dir.path().join("ctx.txt"), body).unwrap();
+    std::fs::write(dir.join("ctx.txt"), body).unwrap();
     let result = search(&dir, "needle", |args| args.context = Some(1)).await;
     assert_eq!(
         result.content.lines().collect::<Vec<_>>(),
@@ -76,7 +76,7 @@ async fn context_shows_surrounding_lines_and_separates_detached_blocks() {
 async fn context_is_capped_and_ignored_outside_content_mode() {
     let dir = fixture();
     let body = format!("{}needle\n", "x\n".repeat(30));
-    std::fs::write(dir.path().join("deep.txt"), body).unwrap();
+    std::fs::write(dir.join("deep.txt"), body).unwrap();
     let capped = search(&dir, "needle", |args| args.context = Some(50)).await;
     assert!(capped.content.contains("\n21-x\n"), "{}", capped.content);
     assert!(!capped.content.contains("\n20-x\n"), "{}", capped.content);
@@ -92,7 +92,7 @@ async fn context_is_capped_and_ignored_outside_content_mode() {
 #[tokio::test]
 async fn multiline_matches_span_lines_only_when_enabled() {
     let dir = fixture();
-    std::fs::write(dir.path().join("span.txt"), "fn open(\n    a: u8,\n) {}\n").unwrap();
+    std::fs::write(dir.join("span.txt"), "fn open(\n    a: u8,\n) {}\n").unwrap();
     let single = search(&dir, r"open\(\n\s+a", |_| {}).await;
     assert_eq!(single.content, "No matches found");
 
@@ -105,7 +105,7 @@ async fn binary_files_are_skipped() {
     let dir = fixture();
     let mut blob = b"\x00binary\x00".to_vec();
     blob.extend_from_slice(b"needle\n");
-    std::fs::write(dir.path().join("blob.bin"), blob).unwrap();
+    std::fs::write(dir.join("blob.bin"), blob).unwrap();
     let result = search(&dir, "needle", |_| {}).await;
     assert_eq!(result.content, "No matches found");
 }
@@ -114,9 +114,9 @@ async fn binary_files_are_skipped() {
 async fn oversized_files_are_skipped_but_large_ones_are_searched() {
     let dir = fixture();
     let over = format!("{}\nneedle\n", "padding ".repeat(130_000));
-    std::fs::write(dir.path().join("over.txt"), over).unwrap();
+    std::fs::write(dir.join("over.txt"), over).unwrap();
     let under = format!("{}\nneedle\n", "padding ".repeat(100_000));
-    std::fs::write(dir.path().join("under.txt"), under).unwrap();
+    std::fs::write(dir.join("under.txt"), under).unwrap();
 
     let result = search(&dir, "needle", |_| {}).await;
     assert!(result.content.contains("\nunder.txt\n"));

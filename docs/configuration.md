@@ -365,7 +365,11 @@ happen.
   code is exempt from the `unwrap`, `console.log`, placeholder, secret, length
   and nesting rules. The review is static: it does not run tests, linters, or
   cognitive-complexity checks, so run those. Findings never block a merge: send
-  them to the subagent by continuing it, or fix them after merging.
+  them to the subagent by continuing it, or fix them after merging. The hand-off
+  that lists a subagent's or workflow's changes also states the merge bar: merge
+  only changes that are DRY, follow SOLID principles, and add no code smells
+  (duplication, dead code, needless complexity, weakened tests); fix or discard
+  the rest.
 - **Worktree cleanup**: the checkout is disposable; each round's work is
   committed to the worktree's branch, and its details are kept in
   `.git/rho/worktrees/<id>.json`, so a checkout removed by the OS's temp

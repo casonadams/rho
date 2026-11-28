@@ -253,18 +253,26 @@ fn with_artifact_path(stub: String, text: &str) -> String {
     }
 }
 
-pub(super) fn prune_read_result(text: &str, meta: Option<&ToolCallMeta>, line_threshold: usize) -> Option<String> {
-    if is_read_error(text) {
-        return None;
-    }
+fn counted_stub_over_threshold(
+    label: &str,
+    text: &str,
+    meta: Option<&ToolCallMeta>,
+    line_threshold: usize,
+) -> Option<String> {
     let line_count = text.lines().count();
     if line_count <= line_threshold {
         return None;
     }
     let size_str = crate::tools::truncate::format_size(text.len());
-    let target = meta.map(|m| m.target.as_str()).unwrap_or("");
-    let stub = counted_stub("read", target, line_count, &size_str);
-    Some(with_artifact_path(stub, text))
+    let target = meta.map_or("", |m| m.target.as_str());
+    Some(counted_stub(label, target, line_count, &size_str))
+}
+
+pub(super) fn prune_read_result(text: &str, meta: Option<&ToolCallMeta>, line_threshold: usize) -> Option<String> {
+    if is_read_error(text) {
+        return None;
+    }
+    counted_stub_over_threshold("read", text, meta, line_threshold).map(|stub| with_artifact_path(stub, text))
 }
 
 pub(super) fn prune_search_result(
@@ -276,13 +284,7 @@ pub(super) fn prune_search_result(
     if is_search_error(text) {
         return None;
     }
-    let line_count = text.lines().count();
-    if line_count <= line_threshold {
-        return None;
-    }
-    let size_str = crate::tools::truncate::format_size(text.len());
-    let target = meta.map(|m| m.target.as_str()).unwrap_or("");
-    Some(counted_stub(tool_name, target, line_count, &size_str))
+    counted_stub_over_threshold(tool_name, text, meta, line_threshold)
 }
 
 fn prune_fetch_result(text: &str, target: &str, line_count: usize, size_str: &str) -> Option<String> {

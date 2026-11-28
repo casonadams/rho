@@ -112,9 +112,9 @@ mod tests {
 
     #[test]
     fn test_spill_artifact_creates_readable_file() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = crate::test_support::TestDir::new();
         let content = "Hello, world of lossless artifact spilling!\nLine 2";
-        let path = spill_artifact(dir.path(), content).unwrap();
+        let path = spill_artifact(&dir, content).unwrap();
 
         assert!(path.exists());
         assert_eq!(std::fs::read_to_string(&path).unwrap(), content);
@@ -132,53 +132,52 @@ mod tests {
 
     #[test]
     fn test_cleanup_artifacts_by_age_and_size() {
-        let dir = tempfile::tempdir().unwrap();
-        let path1 = dir.path().join("a1.log");
-        let path2 = dir.path().join("a2.log");
-        let path3 = dir.path().join("a3.log");
+        let dir = crate::test_support::TestDir::new();
+        let path1 = dir.join("a1.log");
+        let path2 = dir.join("a2.log");
+        let path3 = dir.join("a3.log");
 
         std::fs::write(&path1, vec![b'a'; 1000]).unwrap();
         std::fs::write(&path2, vec![b'b'; 1000]).unwrap();
         std::fs::write(&path3, vec![b'c'; 1000]).unwrap();
 
-        let removed = cleanup_artifacts(dir.path(), Duration::from_secs(3600), 1500, Duration::ZERO).unwrap();
+        let removed = cleanup_artifacts(&dir, Duration::from_secs(3600), 1500, Duration::ZERO).unwrap();
         assert!(removed >= 1);
 
-        let files = collect_artifact_files(dir.path()).unwrap();
+        let files = collect_artifact_files(&dir).unwrap();
         let total_remaining: u64 = files.iter().map(|f| f.size).sum();
         assert!(total_remaining <= 2000);
     }
 
     #[test]
     fn recent_files_are_spared_even_when_over_the_size_cap() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = crate::test_support::TestDir::new();
         for name in ["a.log", "b.log", "c.log"] {
-            std::fs::write(dir.path().join(name), vec![b'x'; 1000]).unwrap();
+            std::fs::write(dir.join(name), vec![b'x'; 1000]).unwrap();
         }
 
-        let removed =
-            cleanup_artifacts(dir.path(), Duration::from_secs(3600), 1500, Duration::from_secs(3600)).unwrap();
+        let removed = cleanup_artifacts(&dir, Duration::from_secs(3600), 1500, Duration::from_secs(3600)).unwrap();
 
         assert_eq!(removed, 0);
-        assert_eq!(collect_artifact_files(dir.path()).unwrap().len(), 3);
+        assert_eq!(collect_artifact_files(&dir).unwrap().len(), 3);
     }
 
     #[cfg(unix)]
     #[test]
     fn cleanup_never_follows_a_symlinked_directory_or_symlinked_files() {
-        let root = tempfile::tempdir().unwrap();
-        let victim_dir = root.path().join("victim");
+        let root = crate::test_support::TestDir::new();
+        let victim_dir = root.join("victim");
         std::fs::create_dir(&victim_dir).unwrap();
         let victim_file = victim_dir.join("notes.txt");
         std::fs::write(&victim_file, "precious").unwrap();
 
-        let log_dir = root.path().join("rho-bash");
+        let log_dir = root.join("rho-bash");
         std::os::unix::fs::symlink(&victim_dir, &log_dir).unwrap();
         let removed = cleanup_artifacts(&log_dir, Duration::ZERO, 0, Duration::ZERO).unwrap();
         assert_eq!(removed, 0);
         assert!(victim_file.exists());
 
-        let real_dir = root.path().join("real");
+        let real_dir = root.join("real");
         std::fs::create_dir(&real_dir).unwrap();
         std::os::unix::fs::symlink(&victim_file, real_dir.join("link.log")).unwrap();
         let removed = cleanup_artifacts(&real_dir, Duration::ZERO, 0, Duration::ZERO).unwrap();
@@ -188,11 +187,11 @@ mod tests {
 
     #[test]
     fn test_collect_artifact_files_returns_files() {
-        let dir = tempfile::tempdir().unwrap();
-        let file = dir.path().join("f1.log");
+        let dir = crate::test_support::TestDir::new();
+        let file = dir.join("f1.log");
         std::fs::write(&file, "test data").unwrap();
 
-        let files = collect_artifact_files(dir.path()).unwrap();
+        let files = collect_artifact_files(&dir).unwrap();
         assert_eq!(files.len(), 1);
         assert_eq!(files[0].path, file);
         assert_eq!(files[0].size, 9);

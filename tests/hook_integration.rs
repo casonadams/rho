@@ -9,6 +9,7 @@ use rho_engine::provider::adapter::{MockAdapter, ModelStreamEvent};
 use rho_harness_core::model::{ToolCall, ToolFunction};
 use serde_json::json;
 use std::sync::Arc;
+use test_case::test_case;
 
 fn write_hook_script(hooks_dir: &std::path::Path, event_name: &str, body: &str) {
     std::fs::create_dir_all(hooks_dir).unwrap();
@@ -86,26 +87,17 @@ async fn test_hook_rewrites_tool_args() {
     assert_eq!(output.final_text, "done reading");
 }
 
+#[test_case(".agents/hooks", r#"echo '{"action":"skip","reason":"manual skip"}'"#, "file.txt", "handled skip"; "agents skip")]
+#[test_case(".rho/hooks", r#"echo '{"action":"stop","reason":"legacy hook triggered"}'"#, "foo.txt", "finished normally"; "legacy rho stop")]
 #[tokio::test]
-async fn test_hooked_read_turns_finish_with_expected_text() {
-    let cases = [
-        (
-            ".agents/hooks",
-            r#"echo '{"action":"skip","reason":"manual skip"}'"#,
-            "file.txt",
-            "handled skip",
-        ),
-        (
-            ".rho/hooks",
-            r#"echo '{"action":"stop","reason":"legacy hook triggered"}'"#,
-            "foo.txt",
-            "finished normally",
-        ),
-    ];
-    for (hooks_dir, body, read_path, final_text) in cases {
-        let output = run_hooked_read(hooks_dir, body, &[("foo.txt", "hello")], read_path, final_text)
-            .await
-            .unwrap();
-        assert_eq!(output.final_text, final_text);
-    }
+async fn test_hooked_read_turns_finish_with_expected_text(
+    hooks_dir: &str,
+    body: &str,
+    read_path: &str,
+    final_text: &str,
+) {
+    let output = run_hooked_read(hooks_dir, body, &[("foo.txt", "hello")], read_path, final_text)
+        .await
+        .unwrap();
+    assert_eq!(output.final_text, final_text);
 }

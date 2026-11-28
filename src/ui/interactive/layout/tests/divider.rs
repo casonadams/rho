@@ -2,6 +2,7 @@ use super::base_input;
 use crate::ui::block::visible_width;
 use crate::ui::interactive::layout::{InteractiveLayout, LayoutInput, layout};
 use crate::ui::interactive::{Activity, EditorState, FooterState, ModalMode, ModalState};
+use test_case::test_case;
 
 fn render(editor: &EditorState, footer: &FooterState, modal: Option<&ModalState>, width: usize) -> InteractiveLayout {
     layout(LayoutInput {
@@ -64,13 +65,16 @@ fn top_divider_shows_name_and_version_when_label_enabled() {
     assert!(wide.top_divider.contains(rho_harness_core::build_info::divider_label()));
 }
 
+#[test_case(25; "wide")]
+#[test_case(6; "narrow")]
+fn top_divider_without_label_fills_the_width(width: usize) {
+    let layout = render(&EditorState::default(), &FooterState::default(), None, width);
+    assert_eq!(visible_width(&layout.top_divider), width);
+    assert!(!layout.top_divider.contains("rho"));
+}
+
 #[test]
 fn top_divider_without_label_is_plain_dashes() {
-    for width in [25, 6] {
-        let layout = render(&EditorState::default(), &FooterState::default(), None, width);
-        assert_eq!(visible_width(&layout.top_divider), width);
-        assert!(!layout.top_divider.contains("rho"));
-    }
     let layout = render(&EditorState::default(), &FooterState::default(), None, 25);
     assert_eq!(layout.top_divider.matches('─').count(), 25);
 }
@@ -116,32 +120,24 @@ fn top_divider_busy_renders_spinner_and_activity_matching_thinking_color() {
     assert_eq!(stripped, 60, "busy divider must match terminal width");
 }
 
-#[test]
-fn top_divider_busy_degrades_with_width() {
+#[test_case(20, &["working", "\u{280b}", "── \u{280b} working "], &["rho"]; "spinner and label")]
+#[test_case(10, &["\u{280b}"], &["working"]; "spinner only")]
+#[test_case(7, &["── \u{280b} ──"], &["working"]; "spinner between dashes")]
+#[test_case(5, &[], &["\u{280b}"]; "dashes only")]
+fn top_divider_busy_degrades_with_width(width: usize, present: &[&str], absent: &[&str]) {
     let footer = FooterState {
         activity: Activity::Working,
         show_label: true,
         ..FooterState::default()
     };
-    let cases: [(usize, &[&str], &[&str]); 4] = [
-        (20, &["working", "\u{280b}", "── \u{280b} working "], &["rho"]),
-        (10, &["\u{280b}"], &["working"]),
-        (7, &["── \u{280b} ──"], &["working"]),
-        (5, &[], &["\u{280b}"]),
-    ];
-    for (width, present, absent) in cases {
-        let layout = render(&EditorState::default(), &footer, None, width);
-        for needle in present {
-            assert!(layout.top_divider.contains(needle), "width {width} missing {needle:?}");
-        }
-        for needle in absent {
-            assert!(
-                !layout.top_divider.contains(needle),
-                "width {width} unexpectedly has {needle:?}"
-            );
-        }
-        assert_eq!(visible_width(&layout.top_divider), width);
+    let layout = render(&EditorState::default(), &footer, None, width);
+    for needle in present {
+        assert!(layout.top_divider.contains(needle), "missing {needle:?}");
     }
+    for needle in absent {
+        assert!(!layout.top_divider.contains(needle), "unexpectedly has {needle:?}");
+    }
+    assert_eq!(visible_width(&layout.top_divider), width);
 }
 
 #[test]

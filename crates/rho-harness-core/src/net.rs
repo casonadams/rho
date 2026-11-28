@@ -110,83 +110,70 @@ pub fn validate_url(raw_url: &str, allow_private_network: bool) -> Result<Url> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use test_case::test_case;
 
-    #[test]
-    fn classifies_private_hosts() {
-        let private = [
-            "localhost",
-            "api.localhost",
-            "service.local",
-            "127.0.0.1",
-            "10.0.1.2",
-            "192.168.1.1",
-            "172.16.0.5",
-            "169.254.169.254",
-            "0.0.0.0",
-            "::1",
-            "::",
-            "[::1]",
-            "[::ffff:127.0.0.1]",
-            "[::ffff:10.0.0.1]",
-            "[::ffff:192.168.1.1]",
-            "fc00::1",
-            "fd12:3456:789a::1",
-            "fe80::1",
-            "100.64.0.1",
-            "100.127.255.254",
-            "224.0.0.1",
-            "255.255.255.255",
-            "240.0.0.1",
-            "192.0.0.8",
-            "198.18.0.1",
-            "198.19.255.255",
-            "ff02::1",
-            "[64:ff9b::7f00:1]",
-            "64:ff9b::a9fe:a9fe",
-            "64:ff9b::c0a8:101",
-            "64:ff9b:1::1",
-            "[2002:7f00:1::1]",
-            "2002:a9fe:a9fe::",
-            "2002:0a00:0001::5",
-            "2001:0:4136:e378:8000:63bf:3fff:fdd2",
-        ];
-        for host in private {
-            assert!(is_private_host(host), "{host}");
-        }
+    #[test_case("localhost"; "localhost")]
+    #[test_case("api.localhost"; "localhost subdomain")]
+    #[test_case("service.local"; "mdns local")]
+    #[test_case("127.0.0.1"; "ipv4 loopback")]
+    #[test_case("10.0.1.2"; "ipv4 private 10")]
+    #[test_case("192.168.1.1"; "ipv4 private 192 168")]
+    #[test_case("172.16.0.5"; "ipv4 private 172 16")]
+    #[test_case("169.254.169.254"; "ipv4 link local metadata")]
+    #[test_case("0.0.0.0"; "ipv4 unspecified")]
+    #[test_case("::1"; "ipv6 loopback")]
+    #[test_case("::"; "ipv6 unspecified")]
+    #[test_case("[::1]"; "bracketed ipv6 loopback")]
+    #[test_case("[::ffff:127.0.0.1]"; "mapped ipv4 loopback")]
+    #[test_case("[::ffff:10.0.0.1]"; "mapped ipv4 private 10")]
+    #[test_case("[::ffff:192.168.1.1]"; "mapped ipv4 private 192 168")]
+    #[test_case("fc00::1"; "ipv6 unique local fc")]
+    #[test_case("fd12:3456:789a::1"; "ipv6 unique local fd")]
+    #[test_case("fe80::1"; "ipv6 link local")]
+    #[test_case("100.64.0.1"; "cgnat low")]
+    #[test_case("100.127.255.254"; "cgnat high")]
+    #[test_case("224.0.0.1"; "ipv4 multicast")]
+    #[test_case("255.255.255.255"; "ipv4 broadcast")]
+    #[test_case("240.0.0.1"; "ipv4 reserved")]
+    #[test_case("192.0.0.8"; "ietf protocol assignments")]
+    #[test_case("198.18.0.1"; "benchmarking low")]
+    #[test_case("198.19.255.255"; "benchmarking high")]
+    #[test_case("ff02::1"; "ipv6 multicast")]
+    #[test_case("[64:ff9b::7f00:1]"; "nat64 loopback")]
+    #[test_case("64:ff9b::a9fe:a9fe"; "nat64 link local")]
+    #[test_case("64:ff9b::c0a8:101"; "nat64 private")]
+    #[test_case("64:ff9b:1::1"; "nat64 local use prefix")]
+    #[test_case("[2002:7f00:1::1]"; "6to4 loopback")]
+    #[test_case("2002:a9fe:a9fe::"; "6to4 link local")]
+    #[test_case("2002:0a00:0001::5"; "6to4 private")]
+    #[test_case("2001:0:4136:e378:8000:63bf:3fff:fdd2"; "teredo")]
+    fn classifies_private_hosts(host: &str) {
+        assert!(is_private_host(host));
     }
 
-    #[test]
-    fn classifies_public_hosts() {
-        for host in [
-            "example.com",
-            "93.184.216.34",
-            "2606:4700:4700::1111",
-            "100.128.0.1",
-            "198.17.255.255",
-            "198.20.0.1",
-            "192.0.1.1",
-            "64:ff9b::5db8:d822",
-            "2002:5db8:d822::1",
-            "2001:4860:4860::8888",
-        ] {
-            assert!(!is_private_host(host), "{host}");
-        }
+    #[test_case("example.com"; "public domain")]
+    #[test_case("93.184.216.34"; "public ipv4")]
+    #[test_case("2606:4700:4700::1111"; "public ipv6")]
+    #[test_case("100.128.0.1"; "just above cgnat")]
+    #[test_case("198.17.255.255"; "just below benchmarking")]
+    #[test_case("198.20.0.1"; "just above benchmarking")]
+    #[test_case("192.0.1.1"; "just above ietf protocol assignments")]
+    #[test_case("64:ff9b::5db8:d822"; "nat64 public")]
+    #[test_case("2002:5db8:d822::1"; "6to4 public")]
+    #[test_case("2001:4860:4860::8888"; "public 2001 ipv6")]
+    fn classifies_public_hosts(host: &str) {
+        assert!(!is_private_host(host));
     }
 
-    #[test]
-    fn validates_url_security_rules() {
-        let cases = [
-            ("https://example.com/api", false, true),
-            ("http://127.0.0.1:8080", false, false),
-            ("http://[::ffff:127.0.0.1]:8080", false, false),
-            ("http://[fd00::1]:8080", false, false),
-            ("http://127.0.0.1:8080", true, true),
-            ("file:///etc/passwd", false, false),
-            ("http://user:pass@example.com/data", false, false),
-            ("http://admin@example.com/", false, false),
-        ];
-        for (url, allow, ok) in cases {
-            assert_eq!(validate_url(url, allow).is_ok(), ok);
-        }
+    #[test_case("https://example.com/api", false, true; "public https")]
+    #[test_case("http://127.0.0.1:8080", false, false; "loopback blocked")]
+    #[test_case("http://[::ffff:127.0.0.1]:8080", false, false; "mapped loopback blocked")]
+    #[test_case("http://[fd00::1]:8080", false, false; "unique local blocked")]
+    #[test_case("http://127.0.0.1:8080", true, true; "loopback allowed when private permitted")]
+    #[test_case("file:///etc/passwd", false, false; "file scheme rejected")]
+    #[test_case("http://user:pass@example.com/data", false, false; "credentials rejected")]
+    #[test_case("http://admin@example.com/", false, false; "username rejected")]
+    fn validates_url_security_rules(url: &str, allow: bool, ok: bool) {
+        assert_eq!(validate_url(url, allow).is_ok(), ok);
     }
 }

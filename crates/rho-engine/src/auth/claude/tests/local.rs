@@ -1,6 +1,6 @@
 use crate::auth::claude::local::*;
+use crate::test_support::TestDir;
 use rho_harness_core::auth::StoredCredential;
-use tempfile::tempdir;
 
 #[test]
 fn test_parse_credentials_iso_date() {
@@ -133,8 +133,8 @@ fn assert_detected_oauth(cred: StoredCredential) {
 
 #[tokio::test]
 async fn test_detect_credentials_from_paths_async_success() {
-    let dir = tempdir().unwrap();
-    let (creds_path, config_path) = (dir.path().join(".credentials.json"), dir.path().join(".claude.json"));
+    let dir = TestDir::new();
+    let (creds_path, config_path) = (dir.join(".credentials.json"), dir.join(".claude.json"));
     std::fs::write(
         &creds_path,
         r#"{"claudeAiOauth": {"accessToken": "test-access", "refreshToken": "test-refresh", "expiresAt": 1800000000000}}"#,

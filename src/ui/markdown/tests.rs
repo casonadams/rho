@@ -1,45 +1,25 @@
+use crate::ui::block::strip_ansi;
 use crate::ui::markdown::highlight::highlight_code_line;
 use crate::ui::markdown::renderer::MarkdownRenderer;
 use crate::ui::markdown::{CodeHighlighter, render_inline_elements};
 use crate::ui::theme::Theme;
+use test_case::test_case;
 
-#[test]
-fn test_bold_rendering() {
+#[test_case("This is **important** text", &["important", "\x1b[1m"], &["**"]; "bold")]
+#[test_case("This is *italic* text", &["italic", "\x1b[3m"], &[]; "italic")]
+#[test_case("Run `cargo test` now", &["cargo test", "\x1b[36m"], &["`"]; "inline code")]
+#[test_case("formula: a * b * c and glob: *.rs", &["a * b * c", "*.rs"], &["\x1b[3m"]; "literal asterisks")]
+#[test_case("<!-- AGENT_RUN_COMPLETE -->", &["<!-- AGENT_RUN_COMPLETE -->"], &[]; "html comment")]
+#[test_case("<custom-tag>data</custom-tag>", &["<custom-tag>", "data", "</custom-tag>"], &[]; "custom tag")]
+fn inline_elements_render_styles_and_keep_literal_markup(input: &str, contains: &[&str], absent: &[&str]) {
     let theme = Theme::default();
-    let res = render_inline_elements("This is **important** text", &theme);
-    assert!(!res.contains("**") && res.contains("important") && res.contains("\x1b[1m"));
-}
-
-#[test]
-fn test_italic_rendering() {
-    let theme = Theme::default();
-    let res = render_inline_elements("This is *italic* text", &theme);
-    assert!(res.contains("italic") && res.contains("\x1b[3m"));
-}
-
-#[test]
-fn inline_code_complete_rendering() {
-    let theme = Theme::default();
-    let complete = render_inline_elements("Run `cargo test` now", &theme);
-    assert!(complete.contains("cargo test") && !complete.contains('`') && complete.contains("\x1b[36m"));
-}
-
-#[test]
-fn test_math_and_wildcard_asterisks_not_corrupted() {
-    let theme = Theme::default();
-    let res = render_inline_elements("formula: a * b * c and glob: *.rs", &theme);
-    assert!(res.contains("a * b * c"));
-    assert!(res.contains("*.rs"));
-    assert!(!res.contains("\x1b[3m"));
-}
-
-#[test]
-fn html_comment_and_inline_tags_preserved() {
-    let theme = Theme::default();
-    let res = render_inline_elements("<!-- AGENT_RUN_COMPLETE -->", &theme);
-    assert!(res.contains("<!-- AGENT_RUN_COMPLETE -->"));
-    let res_tag = render_inline_elements("<custom-tag>data</custom-tag>", &theme);
-    assert!(res_tag.contains("<custom-tag>") && res_tag.contains("data") && res_tag.contains("</custom-tag>"));
+    let rendered = render_inline_elements(input, &theme);
+    for item in contains {
+        assert!(rendered.contains(item), "{item:?} missing from {rendered:?}");
+    }
+    for item in absent {
+        assert!(!rendered.contains(item), "{item:?} found in {rendered:?}");
+    }
 }
 
 #[test]
@@ -326,31 +306,14 @@ fn streamed_line_prefix_is_emitted_before_the_newline() {
     );
 }
 
-#[test]
-fn test_flush_emits_newline_when_line_uncompleted() {
+#[test_case("Hello world", "Hello world", "\n"; "unterminated")]
+#[test_case("Hello world\n", "Hello world\n", ""; "terminated")]
+fn flush_emits_newline_only_for_an_unterminated_line(input: &str, token: &str, flushed: &str) {
     let theme = Theme::default();
     let mut md = MarkdownRenderer::new();
-
-    let token = md.render_token("Hello world", &theme);
-    assert_eq!(token, "Hello world");
-
-    let flushed = md.flush(&theme);
-    assert_eq!(flushed, "\n");
-
-    let second_flush = md.flush(&theme);
-    assert_eq!(second_flush, "");
-}
-
-#[test]
-fn test_flush_does_not_emit_redundant_newline_when_already_terminated() {
-    let theme = Theme::default();
-    let mut md = MarkdownRenderer::new();
-
-    let token = md.render_token("Hello world\n", &theme);
-    assert_eq!(token, "Hello world\n");
-
-    let flushed = md.flush(&theme);
-    assert_eq!(flushed, "");
+    assert_eq!(md.render_token(input, &theme), token);
+    assert_eq!(md.flush(&theme), flushed);
+    assert_eq!(md.flush(&theme), "");
 }
 
 fn has_table_border(out: &str) -> bool {
@@ -380,16 +343,16 @@ fn test_warmup_syntax_highlighter_completes() {
     super::warmup_syntax_highlighter();
 }
 
-#[test]
-fn horizontal_rule_spans_the_render_width() {
+#[test_case(30; "narrow")]
+#[test_case(57; "odd width")]
+#[test_case(120; "wide")]
+fn horizontal_rule_spans_the_render_width(width: usize) {
     let theme = Theme::default();
-    for width in [30usize, 57, 120] {
-        let mut md = MarkdownRenderer::new();
-        md.set_width(width);
-        let plain = crate::ui::block::strip_ansi(&md.render_text("above\n\n---\n\nbelow\n", &theme));
-        let rules: Vec<&str> = plain.lines().filter(|line| line.contains('─')).collect();
-        assert_eq!(rules, ["─".repeat(width)], "width {width}");
-    }
+    let mut md = MarkdownRenderer::new();
+    md.set_width(width);
+    let plain = strip_ansi(&md.render_text("above\n\n---\n\nbelow\n", &theme));
+    let rules: Vec<&str> = plain.lines().filter(|line| line.contains('─')).collect();
+    assert_eq!(rules, ["─".repeat(width)]);
 }
 
 fn render_streamed(chunks: &[&str], width: usize, theme: &Theme) -> String {
@@ -400,63 +363,41 @@ fn render_streamed(chunks: &[&str], width: usize, theme: &Theme) -> String {
     out
 }
 
-#[test]
-fn line_prefixes_split_across_chunks_render_like_whole_lines() {
+#[test_case(&["above\n\n--", "-\n\nbelow\n"]; "dash rule")]
+#[test_case(&["above\n\n*", "*", "*\n\nbelow\n"]; "star rule")]
+#[test_case(&["above\n\n_", "_", "_\n\nbelow\n"]; "underscore rule")]
+#[test_case(&["- a\n ", " ", "- nested\n"]; "nested dash item")]
+#[test_case(&["- a\n  ", "* nested\n"]; "nested star item")]
+#[test_case(&["**", "bold** start of a line\n"]; "bold line start")]
+fn line_prefixes_split_across_chunks_render_like_whole_lines(chunks: &[&str]) {
     let theme = Theme::default();
-    let cases: [&[&str]; 6] = [
-        &["above\n\n--", "-\n\nbelow\n"],
-        &["above\n\n*", "*", "*\n\nbelow\n"],
-        &["above\n\n_", "_", "_\n\nbelow\n"],
-        &["- a\n ", " ", "- nested\n"],
-        &["- a\n  ", "* nested\n"],
-        &["**", "bold** start of a line\n"],
-    ];
-    for chunks in cases {
-        let whole = chunks.concat();
-        let mut md = MarkdownRenderer::new();
-        md.set_width(40);
-        let expected = crate::ui::block::strip_ansi(&md.render_text(&whole, &theme));
-        let streamed = crate::ui::block::strip_ansi(&render_streamed(chunks, 40, &theme));
-        assert_eq!(streamed.trim_end(), expected.trim_end(), "{chunks:?}");
-    }
+    let whole = chunks.concat();
+    let mut md = MarkdownRenderer::new();
+    md.set_width(40);
+    let expected = strip_ansi(&md.render_text(&whole, &theme));
+    let streamed = strip_ansi(&render_streamed(chunks, 40, &theme));
+    assert_eq!(streamed.trim_end(), expected.trim_end());
 }
 
-#[test]
-fn inline_markdown_streams_like_the_whole_line_at_every_split() {
+#[test_case("See [the docs](https://example.com/a) now", "See the docs (https://example.com/a) now"; "link")]
+#[test_case("Go to <https://example.com> now", "Go to https://example.com now"; "autolink")]
+#[test_case("A [bracket] and [x](y(z)) end", "A [bracket] and x (y(z)) end"; "brackets and nested parens")]
+#[test_case(
+    "snake_case_name and _emph_ and __dunder__ here",
+    "snake_case_name and emph and dunder here";
+    "underscores"
+)]
+#[test_case("old ~~gone~~ and ~/.config and ~x~ kept", "old gone and ~/.config and ~x~ kept"; "strikethrough")]
+#[test_case("mix **bold _it_** and `co_de [a](b)` end", "mix bold it and co_de [a](b) end"; "nested emphasis and code")]
+#[test_case("***both*** then *one*", "both then one"; "bold italic")]
+fn inline_markdown_streams_like_the_whole_line_at_every_split(text: &str, plain: &str) {
     let theme = Theme::default();
-    let cases = [
-        (
-            "See [the docs](https://example.com/a) now",
-            "See the docs (https://example.com/a) now",
-        ),
-        ("Go to <https://example.com> now", "Go to https://example.com now"),
-        ("A [bracket] and [x](y(z)) end", "A [bracket] and x (y(z)) end"),
-        (
-            "snake_case_name and _emph_ and __dunder__ here",
-            "snake_case_name and emph and dunder here",
-        ),
-        (
-            "old ~~gone~~ and ~/.config and ~x~ kept",
-            "old gone and ~/.config and ~x~ kept",
-        ),
-        (
-            "mix **bold _it_** and `co_de [a](b)` end",
-            "mix bold it and co_de [a](b) end",
-        ),
-        ("***both*** then *one*", "both then one"),
-    ];
-    for (text, plain) in cases {
-        let line = format!("{text}\n");
-        let mut whole = MarkdownRenderer::new();
-        let expected = whole.render_text(&line, &theme);
-        assert_eq!(crate::ui::block::strip_ansi(&expected).trim_end(), plain, "{text:?}");
-        for split in (1..line.len()).filter(|&i| line.is_char_boundary(i)) {
-            let streamed = render_streamed(&[&line[..split], &line[split..]], 0, &theme);
-            assert_eq!(
-                crate::ui::block::strip_ansi(&streamed),
-                crate::ui::block::strip_ansi(&expected),
-                "{text:?} split at {split}"
-            );
-        }
+    let line = format!("{text}\n");
+    let mut whole = MarkdownRenderer::new();
+    let expected = whole.render_text(&line, &theme);
+    assert_eq!(strip_ansi(&expected).trim_end(), plain);
+    for split in (1..line.len()).filter(|&i| line.is_char_boundary(i)) {
+        let streamed = render_streamed(&[&line[..split], &line[split..]], 0, &theme);
+        assert_eq!(strip_ansi(&streamed), strip_ansi(&expected), "split at {split}");
     }
 }

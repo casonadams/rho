@@ -1,9 +1,10 @@
 use crate::ui::interactive::NullBackend;
 use crate::ui::interactive::{
-    InteractionOption, InteractionPrompt, InteractionResponder, InteractionResponse, ModalMode, OptionLayout,
-    TerminalController, UiEvent,
+    InteractionOption, InteractionPrompt, InteractionResponder, InteractionResponse, ModalMode, ModalState,
+    OptionLayout, TerminalController, UiEvent,
 };
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use test_case::test_case;
 use tokio::sync::oneshot;
 
 struct NavFixture {
@@ -34,11 +35,26 @@ impl NavFixture {
     }
 
     fn send(&mut self, code: KeyCode) {
-        self.send_key(KeyEvent::new(code, KeyModifiers::NONE));
+        self.send_key(key(code));
     }
 
     fn send_key(&mut self, key: KeyEvent) {
         let _ = super::super::modal::handle_modal_key(&mut self.controller, key, &mut self.pending).unwrap();
+    }
+}
+
+type Step = (KeyEvent, usize);
+
+fn key(code: KeyCode) -> KeyEvent {
+    KeyEvent::new(code, KeyModifiers::NONE)
+}
+
+fn assert_steps(layout: OptionLayout, steps: &[Step], observed: fn(&ModalState) -> usize) {
+    let mut fix = NavFixture::new(layout);
+    for (step_key, expected) in steps {
+        fix.send_key(*step_key);
+        let modal = fix.controller.state().active_modal().unwrap();
+        assert_eq!(observed(modal), *expected);
     }
 }
 
@@ -63,44 +79,32 @@ fn sample_prompt(layout: OptionLayout) -> InteractionPrompt {
     }
 }
 
-#[test]
-fn test_horizontal_mode_right_and_l_navigate_forward() {
-    let mut fix = NavFixture::new(OptionLayout::Horizontal);
-    fix.send(KeyCode::Right);
-    assert_eq!(fix.controller.state().active_modal().unwrap().selected, 1);
-    fix.send(KeyCode::Char('l'));
-    assert_eq!(fix.controller.state().active_modal().unwrap().selected, 2);
+#[test_case(&[(key(KeyCode::Right), 1), (key(KeyCode::Char('l')), 2)]; "right then l")]
+#[test_case(
+    &[
+        (key(KeyCode::Right), 1),
+        (key(KeyCode::Right), 2),
+        (key(KeyCode::Left), 1),
+        (key(KeyCode::Char('h')), 0),
+    ];
+    "left then h"
+)]
+fn horizontal_mode_arrow_and_vi_keys_move_selection(steps: &[Step]) {
+    assert_steps(OptionLayout::Horizontal, steps, |m| m.selected);
 }
 
-#[test]
-fn test_horizontal_mode_left_and_h_navigate_backward() {
-    let mut fix = NavFixture::new(OptionLayout::Horizontal);
-    fix.send(KeyCode::Right);
-    fix.send(KeyCode::Right);
-    fix.send(KeyCode::Left);
-    assert_eq!(fix.controller.state().active_modal().unwrap().selected, 1);
-    fix.send(KeyCode::Char('h'));
-    assert_eq!(fix.controller.state().active_modal().unwrap().selected, 0);
-}
-
-#[test]
-fn test_horizontal_mode_down_and_j_scroll_body() {
-    let mut fix = NavFixture::new(OptionLayout::Horizontal);
-    fix.send(KeyCode::Down);
-    assert_eq!(fix.controller.state().active_modal().unwrap().body_scroll, 1);
-    fix.send(KeyCode::Char('j'));
-    assert_eq!(fix.controller.state().active_modal().unwrap().body_scroll, 2);
-}
-
-#[test]
-fn test_horizontal_mode_up_and_k_scroll_body() {
-    let mut fix = NavFixture::new(OptionLayout::Horizontal);
-    fix.send(KeyCode::Down);
-    fix.send(KeyCode::Down);
-    fix.send(KeyCode::Up);
-    assert_eq!(fix.controller.state().active_modal().unwrap().body_scroll, 1);
-    fix.send(KeyCode::Char('k'));
-    assert_eq!(fix.controller.state().active_modal().unwrap().body_scroll, 0);
+#[test_case(&[(key(KeyCode::Down), 1), (key(KeyCode::Char('j')), 2)]; "down then j")]
+#[test_case(
+    &[
+        (key(KeyCode::Down), 1),
+        (key(KeyCode::Down), 2),
+        (key(KeyCode::Up), 1),
+        (key(KeyCode::Char('k')), 0),
+    ];
+    "up then k"
+)]
+fn horizontal_mode_arrow_and_vi_keys_scroll_body(steps: &[Step]) {
+    assert_steps(OptionLayout::Horizontal, steps, |m| m.body_scroll);
 }
 
 #[test]
@@ -155,20 +159,11 @@ fn test_input_mode_isolation_types_characters_without_scrolling() {
     ));
 }
 
-#[test]
-fn test_modal_tab_navigation() {
-    let mut fix = NavFixture::new(OptionLayout::Vertical);
-    fix.send(KeyCode::Tab);
-    assert_eq!(fix.controller.state().active_modal().unwrap().selected, 1);
-    fix.send_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::SHIFT));
-    assert_eq!(fix.controller.state().active_modal().unwrap().selected, 0);
-}
-
-#[test]
-fn test_modal_backtab_navigation() {
-    let mut fix = NavFixture::new(OptionLayout::Vertical);
-    fix.send(KeyCode::Tab);
-    assert_eq!(fix.controller.state().active_modal().unwrap().selected, 1);
-    fix.send_key(KeyEvent::new(KeyCode::BackTab, KeyModifiers::NONE));
-    assert_eq!(fix.controller.state().active_modal().unwrap().selected, 0);
+#[test_case(
+    &[(key(KeyCode::Tab), 1), (KeyEvent::new(KeyCode::Tab, KeyModifiers::SHIFT), 0)];
+    "shift tab"
+)]
+#[test_case(&[(key(KeyCode::Tab), 1), (key(KeyCode::BackTab), 0)]; "backtab")]
+fn modal_tab_keys_move_selection_backward(steps: &[Step]) {
+    assert_steps(OptionLayout::Vertical, steps, |m| m.selected);
 }

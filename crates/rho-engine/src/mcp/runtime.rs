@@ -374,6 +374,20 @@ impl McpRuntime {
     }
 
     pub(crate) fn adopt(&self, server: &str, result: std::result::Result<ServerSnapshot, McpDiagnostic>) {
+        self.apply_snapshot(server, result, ServerState::Unavailable);
+    }
+
+    pub(crate) async fn refresh(&self, server: &str) {
+        let result = self.fetch_snapshot(server).await;
+        self.apply_snapshot(server, result, ServerState::Stale);
+    }
+
+    fn apply_snapshot(
+        &self,
+        server: &str,
+        result: std::result::Result<ServerSnapshot, McpDiagnostic>,
+        failed_state: fn(String) -> ServerState,
+    ) {
         match result {
             Ok(snapshot) => {
                 let entries = self.entries(server, snapshot.tools);
@@ -381,21 +395,7 @@ impl McpRuntime {
             }
             Err(diagnostic) => {
                 self.catalog
-                    .set_server_state(server, ServerState::Unavailable(diagnostic.message()));
-                self.report(diagnostic);
-            }
-        }
-    }
-
-    pub(crate) async fn refresh(&self, server: &str) {
-        match self.fetch_snapshot(server).await {
-            Ok(snapshot) => {
-                let entries = self.entries(server, snapshot.tools);
-                self.catalog.replace_server_tools(server, entries);
-            }
-            Err(diagnostic) => {
-                self.catalog
-                    .set_server_state(server, ServerState::Stale(diagnostic.message()));
+                    .set_server_state(server, failed_state(diagnostic.message()));
                 self.report(diagnostic);
             }
         }

@@ -1,4 +1,4 @@
-use super::super::*;
+use super::search;
 use rho_test_support::TestDir;
 use std::os::unix::fs::PermissionsExt;
 
@@ -12,19 +12,7 @@ async fn files_that_could_not_be_searched_are_reported_not_silently_skipped() {
     if std::fs::File::open(&locked).is_ok() {
         return;
     }
-    let args = RgArgs {
-        pattern: "needle".to_string(),
-        path: None,
-        file_type: None,
-        hidden: None,
-        output_mode: None,
-        context: None,
-        multiline: None,
-        offset: None,
-        limit: None,
-    };
-
-    let result = RgTool::new(&*dir).execute(args).await.unwrap();
+    let result = search(&dir, "needle", |_| {}).await;
 
     assert!(result.content.contains("a.txt"), "{}", result.content);
     assert!(

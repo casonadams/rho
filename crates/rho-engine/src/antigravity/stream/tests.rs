@@ -1,6 +1,7 @@
 use super::sse_parser;
 use crate::provider::adapter::{FinishReason, ModelStreamEvent};
 use rho_harness_core::error::AppError;
+use test_case::test_case;
 
 fn assert_tool_call_event(event: &Result<ModelStreamEvent, AppError>) {
     if let Ok(ModelStreamEvent::ToolCall(call)) = event {
@@ -70,21 +71,16 @@ fn feed_payloads(payloads: &[&str]) -> Vec<Result<ModelStreamEvent, AppError>> {
     sse_parser().feed(body.as_bytes())
 }
 
-#[test]
-fn finish_reasons_map_to_their_canonical_reason() {
-    let cases = [
-        ("STOP", FinishReason::Stop),
-        ("MAX_TOKENS", FinishReason::Length),
-        ("SAFETY", FinishReason::ContentFilter),
-    ];
-    for (reason, expected) in cases {
-        let line = format!(r#"{{"response":{{"candidates":[{{"finishReason":"{reason}"}}]}}}}"#);
-        let events = feed_payloads(&[&line]);
-        assert!(
-            matches!(events.last(), Some(Ok(ModelStreamEvent::Finish(r))) if *r == expected),
-            "{reason}: {events:?}"
-        );
-    }
+#[test_case("STOP", FinishReason::Stop; "stop")]
+#[test_case("MAX_TOKENS", FinishReason::Length; "max tokens")]
+#[test_case("SAFETY", FinishReason::ContentFilter; "safety")]
+fn finish_reasons_map_to_their_canonical_reason(reason: &str, expected: FinishReason) {
+    let line = format!(r#"{{"response":{{"candidates":[{{"finishReason":"{reason}"}}]}}}}"#);
+    let events = feed_payloads(&[&line]);
+    assert!(
+        matches!(events.last(), Some(Ok(ModelStreamEvent::Finish(r))) if *r == expected),
+        "{events:?}"
+    );
 }
 
 #[test]

@@ -380,16 +380,22 @@ where
 #[cfg(all(test, unix))]
 mod tests {
     use super::*;
+    use rho_test_support::TestDir;
     const NO_DIRENV: crate::tools::bash::DirenvOptions = crate::tools::bash::DirenvOptions {
         enabled: false,
         timeout_ms: 1_000,
     };
 
+    async fn spawn_test_command(dir: &Path, command: &str) -> (StreamingCommand, Receiver<String>) {
+        setup_command_child(dir, command, NO_DIRENV, None)
+            .await
+            .unwrap_or_else(|_| panic!("failed to spawn test command"))
+    }
+
     #[tokio::test(start_paused = true)]
     async fn background_job_is_killed_after_max_runtime() {
-        let Ok((cmd, rx)) = setup_command_child(&std::env::temp_dir(), "sleep 1000", NO_DIRENV, None).await else {
-            panic!("failed to spawn test command");
-        };
+        let dir = TestDir::new();
+        let (cmd, rx) = spawn_test_command(&dir, "sleep 1000").await;
         let boxes = crate::mailbox::Mailboxes::default();
         let inbox = boxes.open(&"max-runtime-owner".into(), None);
         let job = inbox.start_job("bash-max".into(), "sleep 1000".into());
@@ -403,12 +409,10 @@ mod tests {
 
     #[tokio::test]
     async fn a_background_job_stopped_because_its_session_ended_is_killed_and_reports_nothing() {
-        let dir = tempfile::tempdir().unwrap();
-        let pid_file = dir.path().join("pid.txt");
+        let dir = TestDir::new();
+        let pid_file = dir.join("pid.txt");
         let command = format!("echo $$ > '{}' && sleep 30 & wait", pid_file.display());
-        let Ok((cmd, rx)) = setup_command_child(dir.path(), &command, NO_DIRENV, None).await else {
-            panic!("failed to spawn test command");
-        };
+        let (cmd, rx) = spawn_test_command(&dir, &command).await;
         let boxes = crate::mailbox::Mailboxes::default();
         let inbox = boxes.open(&"ended-session-owner".into(), None);
         let job = inbox.start_job("bash-ended".into(), command.clone());
@@ -446,9 +450,8 @@ mod tests {
     #[tokio::test]
     async fn a_finished_background_job_shows_the_model_text_without_terminal_colors() {
         let command = "printf '\\033[31mred\\033[0m done\\n'";
-        let Ok((cmd, rx)) = setup_command_child(&std::env::temp_dir(), command, NO_DIRENV, None).await else {
-            panic!("failed to spawn test command");
-        };
+        let dir = TestDir::new();
+        let (cmd, rx) = spawn_test_command(&dir, command).await;
         let boxes = crate::mailbox::Mailboxes::default();
         let inbox = boxes.open(&"color-owner".into(), None);
         let job = inbox.start_job("bash-color".into(), command.into());
@@ -478,9 +481,8 @@ mod tests {
     async fn a_background_job_with_long_output_reports_it_windowed_with_its_log() {
         let logs = rho_test_support::TestDir::new();
         let command = "seq 1 5000";
-        let Ok((cmd, rx)) = setup_command_child(&std::env::temp_dir(), command, NO_DIRENV, None).await else {
-            panic!("failed to spawn test command");
-        };
+        let dir = TestDir::new();
+        let (cmd, rx) = spawn_test_command(&dir, command).await;
         let boxes = crate::mailbox::Mailboxes::default();
         let inbox = boxes.open(&"long-output-owner".into(), None);
         let job = inbox.start_job("bash-long".into(), command.into());

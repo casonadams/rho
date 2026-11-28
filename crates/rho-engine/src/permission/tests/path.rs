@@ -6,6 +6,9 @@ use crate::permission::path::{
 use rho_test_support::EnvVarGuard;
 use serde_json::json;
 use std::path::{Path, PathBuf};
+use test_case::test_case;
+
+type Check = fn(&str, Option<&Path>) -> bool;
 
 #[test]
 fn path_module_system_safety() {
@@ -13,48 +16,30 @@ fn path_module_system_safety() {
     assert!(!is_safe_system_path("/tmp/foo"));
 }
 
-#[test]
-fn working_dir_containment_and_protected_paths() {
+#[test_case(is_path_outside_working_dir, &["src/main.rs", "src/../src/lib.rs", "/dev/null"], false; "inside working dir")]
+#[test_case(
+    is_path_outside_working_dir,
+    &["/etc/passwd", "../sibling/file", "a/../../etc/passwd"],
+    true;
+    "outside working dir"
+)]
+#[test_case(
+    is_protected_path,
+    &[".git/config", ".GIT/config", "src/.Git/HEAD", ".RHO/permission.toml", "src/../.git/config"],
+    true;
+    "protected vcs and rho dirs"
+)]
+#[test_case(is_protected_path, &["src/git.rs"], false; "git named source file")]
+#[test_case(
+    is_protected_path,
+    &[".env", ".Env.local", ".config/rho/permission.toml", "/ws/.config/rho/permission.toml"],
+    true;
+    "protected env and config"
+)]
+fn working_dir_containment_and_protected_paths(check: Check, paths: &[&str], expected: bool) {
     let ws = Some(Path::new("/ws"));
-    type Check = fn(&str, Option<&Path>) -> bool;
-    let cases: [(Check, &[&str], bool); 5] = [
-        (
-            is_path_outside_working_dir,
-            &["src/main.rs", "src/../src/lib.rs", "/dev/null"],
-            false,
-        ),
-        (
-            is_path_outside_working_dir,
-            &["/etc/passwd", "../sibling/file", "a/../../etc/passwd"],
-            true,
-        ),
-        (
-            is_protected_path,
-            &[
-                ".git/config",
-                ".GIT/config",
-                "src/.Git/HEAD",
-                ".RHO/permission.toml",
-                "src/../.git/config",
-            ],
-            true,
-        ),
-        (is_protected_path, &["src/git.rs"], false),
-        (
-            is_protected_path,
-            &[
-                ".env",
-                ".Env.local",
-                ".config/rho/permission.toml",
-                "/ws/.config/rho/permission.toml",
-            ],
-            true,
-        ),
-    ];
-    for (check, paths, expected) in cases {
-        for &path in paths {
-            assert_eq!(check(path, ws), expected, "{path}");
-        }
+    for &path in paths {
+        assert_eq!(check(path, ws), expected, "{path}");
     }
 }
 
@@ -145,18 +130,18 @@ fn path_values_carry_absolute_then_cwd_relative() {
 
 #[test]
 fn credential_store_follows_rust_ai_home_config_dir() {
-    let dir = tempfile::tempdir().unwrap();
-    let auth = dir.path().join("auth.json");
+    let dir = crate::test_support::TestDir::new();
+    let auth = dir.join("auth.json");
     std::fs::write(&auth, "{}").unwrap();
-    let _env = EnvVarGuard::set("RUST_AI_HOME", &dir.path().to_string_lossy());
+    let _env = EnvVarGuard::set("RUST_AI_HOME", &dir.to_string_lossy());
     assert!(is_credential_path(&auth.display().to_string(), None));
 }
 
 #[test]
 fn leading_env_variables_resolve_before_the_credential_check() {
-    let dir = tempfile::tempdir().unwrap();
-    std::fs::write(dir.path().join("auth.json"), "{}").unwrap();
-    let _env = EnvVarGuard::set("RHO_HOME", &dir.path().to_string_lossy());
+    let dir = crate::test_support::TestDir::new();
+    std::fs::write(dir.join("auth.json"), "{}").unwrap();
+    let _env = EnvVarGuard::set("RHO_HOME", &dir.to_string_lossy());
     let hits = ["$RHO_HOME/auth.json", "${RHO_HOME}/auth.json"].map(|raw| is_credential_path(raw, None));
     let lookalikes = ["$RHO_HOME_X/auth.json", "$RHO_HOMEauth.json", "x$RHO_HOME/auth.json"]
         .map(|raw| is_credential_path(raw, None));

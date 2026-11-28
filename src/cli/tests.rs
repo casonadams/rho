@@ -1,3 +1,5 @@
+use test_case::test_case;
+
 #[test]
 fn rpc_request_roundtrip() {
     use rho_harness_core::rpc::protocol::{RpcCommand, RpcRequest};
@@ -47,18 +49,33 @@ fn test_cli_model_parsing() {
     assert_eq!(cli.provider.as_deref(), Some("anthropic"));
 }
 
-#[test]
-fn mode_accepts_only_known_values() {
+#[test_case("interactive"; "interactive")]
+#[test_case("rpc"; "rpc")]
+#[test_case("json"; "json")]
+fn mode_accepts_known_values(mode: &str) {
     use clap::Parser;
     use rho_harness_core::config::cli::Cli;
 
-    for mode in ["interactive", "rpc", "json"] {
-        assert_eq!(Cli::try_parse_from(["rho", "--mode", mode]).unwrap().mode, mode);
-    }
+    assert_eq!(Cli::try_parse_from(["rho", "--mode", mode]).unwrap().mode, mode);
+}
+
+#[test]
+fn mode_defaults_to_interactive() {
+    use clap::Parser;
+    use rho_harness_core::config::cli::Cli;
+
     assert_eq!(Cli::try_parse_from(["rho"]).unwrap().mode, "interactive");
-    for mode in ["JSON", "jsonl", "bogus", ""] {
-        assert!(Cli::try_parse_from(["rho", "--mode", mode]).is_err(), "{mode:?}");
-    }
+}
+
+#[test_case("JSON"; "uppercase json")]
+#[test_case("jsonl"; "jsonl")]
+#[test_case("bogus"; "bogus")]
+#[test_case(""; "empty")]
+fn mode_rejects_unknown_values(mode: &str) {
+    use clap::Parser;
+    use rho_harness_core::config::cli::Cli;
+
+    assert!(Cli::try_parse_from(["rho", "--mode", mode]).is_err());
 }
 
 #[tokio::test]
@@ -67,15 +84,15 @@ async fn test_handle_command_mcp_lifecycle() {
     use crate::auth::AuthStore;
     use crate::config::Config;
     use crate::config::cli::{Commands, McpCommands};
-    use tempfile::tempdir;
+    use rho_test_support::TestDir;
 
-    let temp = tempdir().unwrap();
+    let temp = TestDir::new();
     let config = Config {
-        config_dir: temp.path().to_path_buf(),
+        config_dir: temp.to_path_buf(),
         ..Default::default()
     };
     std::fs::write(config.config_dir.join("config.toml"), "").unwrap();
-    let mut auth_store = AuthStore::load(temp.path().join("auth.json")).unwrap();
+    let mut auth_store = AuthStore::load(temp.join("auth.json")).unwrap();
 
     let res = handle_command(
         Commands::Mcp {
@@ -122,11 +139,11 @@ async fn models_command_lists_live_models_and_reports_failures() {
     use crate::config::cli::Commands;
     use rho_engine::provider::DiscoveredModel;
 
-    let temp = tempfile::tempdir().unwrap();
+    let temp = rho_test_support::TestDir::new();
     let listing = r#"{"data":[{"id":"acme-2","context_length":131072}]}"#;
     let base = serve_once(&[("200 OK", listing), ("401 Unauthorized", "{}")]);
     let mut config = Config {
-        config_dir: temp.path().to_path_buf(),
+        config_dir: temp.to_path_buf(),
         provider: "acme".to_string(),
         model: "acme-2".to_string(),
         allow_private_network: true,
@@ -139,7 +156,7 @@ async fn models_command_lists_live_models_and_reports_failures() {
             ..Default::default()
         },
     );
-    let mut auth_store = AuthStore::load(temp.path().join("auth.json")).unwrap();
+    let mut auth_store = AuthStore::load(temp.join("auth.json")).unwrap();
 
     assert!(handle_command(Commands::Models, &config, &mut auth_store).await.is_ok());
     let failure = handle_command(Commands::Models, &config, &mut auth_store)
@@ -222,17 +239,17 @@ async fn test_handle_command_config_variants() {
     use crate::auth::AuthStore;
     use crate::config::Config;
     use crate::config::cli::Commands;
-    use tempfile::tempdir;
+    use rho_test_support::TestDir;
 
-    let temp = tempdir().unwrap();
+    let temp = TestDir::new();
     let config = Config {
-        config_dir: temp.path().to_path_buf(),
+        config_dir: temp.to_path_buf(),
         model: "gpt-4o".to_string(),
         provider: "openai".to_string(),
         ..Default::default()
     };
     std::fs::write(config.config_dir.join("config.toml"), "").unwrap();
-    let mut auth_store = AuthStore::load(temp.path().join("auth.json")).unwrap();
+    let mut auth_store = AuthStore::load(temp.join("auth.json")).unwrap();
 
     let res = handle_command(Commands::Config { key: None, value: None }, &config, &mut auth_store).await;
     assert!(res.is_ok());

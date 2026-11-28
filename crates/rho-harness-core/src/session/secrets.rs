@@ -185,6 +185,7 @@ impl SecretGuard {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use test_case::test_case;
 
     fn owned(secrets: &[&str]) -> Vec<String> {
         secrets.iter().map(|secret| (*secret).to_string()).collect()
@@ -229,34 +230,21 @@ mod tests {
         assert!(guard.record_scan(false).is_err());
     }
 
-    #[test]
-    fn chunked_search_finds_secrets_anywhere_including_across_chunk_boundaries() {
+    #[test_case(String::new(), false; "empty")]
+    #[test_case("x".repeat(100), false; "absent")]
+    #[test_case(format!("secret-value{}", "x".repeat(50)), true; "at start")]
+    #[test_case(format!("{}secret-value{}", "x".repeat(13), "x".repeat(40)), true; "across boundary")]
+    #[test_case(format!("{}secret-value", "x".repeat(77)), true; "at end")]
+    #[test_case(format!("{}\u{e9}-secret", "\u{e9}".repeat(9)), true; "multibyte across boundary")]
+    #[test_case(format!("{}secret-valu", "x".repeat(20)), false; "near miss")]
+    fn chunked_search_finds_secrets_anywhere_including_across_chunk_boundaries(haystack: String, expected: bool) {
         let needles = owned(&["secret-value", "\u{e9}-secret"]);
-        let cases = [
-            ("empty", String::new(), false),
-            ("absent", "x".repeat(100), false),
-            ("at start", format!("secret-value{}", "x".repeat(50)), true),
-            (
-                "across boundary",
-                format!("{}secret-value{}", "x".repeat(13), "x".repeat(40)),
-                true,
-            ),
-            ("at end", format!("{}secret-value", "x".repeat(77)), true),
-            (
-                "multibyte across boundary",
-                format!("{}\u{e9}-secret", "\u{e9}".repeat(9)),
-                true,
-            ),
-            ("near miss", format!("{}secret-valu", "x".repeat(20)), false),
-        ];
-        for (name, haystack, expected) in cases {
-            for chunk in [1, 7, 16, 1024] {
-                assert_eq!(
-                    reader_contains_any(haystack.as_bytes(), &needles, chunk).unwrap(),
-                    expected,
-                    "{name} chunk {chunk}"
-                );
-            }
+        for chunk in [1, 7, 16, 1024] {
+            assert_eq!(
+                reader_contains_any(haystack.as_bytes(), &needles, chunk).unwrap(),
+                expected,
+                "chunk {chunk}"
+            );
         }
     }
 }

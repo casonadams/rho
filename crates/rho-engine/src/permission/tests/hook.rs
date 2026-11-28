@@ -1,8 +1,9 @@
+use crate::test_support::TestDir;
 use rho_harness_core::presentation::types::InteractionResponse;
 use rho_test_support::EnvVarGuard;
 use serde_json::json;
+use std::path::Path;
 use std::sync::Arc;
-use tempfile::tempdir;
 
 use super::mock::MockHookPresenter;
 use crate::permission::guard::GuardEvaluator;
@@ -13,13 +14,36 @@ use crate::tools::edit::EditTool;
 use crate::tools::engine_tool::EngineTool;
 use crate::tools::write::WriteTool;
 
+fn workspace_hook(dir: &Path, presenter: Arc<MockHookPresenter>) -> PermissionHook {
+    PermissionHook::with_policy(Some(dir.to_path_buf()), presenter, build_policy(None, None))
+}
+
+fn guarded_hook(dir: &Path, presenter: Arc<MockHookPresenter>, guard_model: Arc<MockAdapter>) -> PermissionHook {
+    workspace_hook(dir, presenter).with_guard(GuardEvaluator::new(guard_model))
+}
+
+async fn check_bash(hook: &PermissionHook, command: &str) -> PermissionAction {
+    hook.check_permission("bash", &json!({ "command": command })).await
+}
+
+fn last_prompt_body(presenter: &MockHookPresenter) -> String {
+    presenter.last_prompt.lock().unwrap().clone().unwrap().body
+}
+
+fn assert_headless_denial(verdict: PermissionAction) {
+    assert!(
+        matches!(&verdict, PermissionAction::Deny(msg) if msg.contains("cannot prompt in headless mode")),
+        "{verdict:?}"
+    );
+}
+
 #[tokio::test]
 async fn test_allowed_call_runs_silently() {
-    let dir = tempdir().unwrap();
+    let dir = TestDir::new();
     let presenter = Arc::new(MockHookPresenter::new(true, None));
     let scope = parse_scope_from_str("[permission.bash]\n\"git *\" = \"allow\"\n").unwrap();
     let policy = build_policy(Some(scope), None);
-    let hook = PermissionHook::with_policy(Some(dir.path().to_path_buf()), presenter.clone(), policy);
+    let hook = PermissionHook::with_policy(Some(dir.to_path_buf()), presenter.clone(), policy);
 
     let verdict = hook.check_permission("bash", &json!({"command": "git status"})).await;
     assert_eq!(verdict, PermissionAction::Proceed);
@@ -28,7 +52,7 @@ async fn test_allowed_call_runs_silently() {
 
 #[tokio::test]
 async fn test_denied_call_skipped_with_reason() {
-    let dir = tempdir().unwrap();
+    let dir = TestDir::new();
     let scope = parse_scope_from_str(
         r#"
 [permission.bash]
@@ -38,11 +62,9 @@ async fn test_denied_call_skipped_with_reason() {
     .unwrap();
     let policy = build_policy(None, Some(scope));
     let presenter = Arc::new(MockHookPresenter::new(true, None));
-    let hook = PermissionHook::with_policy(Some(dir.path().to_path_buf()), presenter, policy);
+    let hook = PermissionHook::with_policy(Some(dir.to_path_buf()), presenter, policy);
 
-    let verdict = hook
-        .check_permission("bash", &json!({"command": "rm -rf /tmp/test"}))
-        .await;
+    let verdict = check_bash(&hook, "rm -rf /tmp/test").await;
     assert_eq!(
         verdict,
         PermissionAction::Deny("denied by permission rule 'bash|rm -rf *'".to_string())
@@ -51,20 +73,18 @@ async fn test_denied_call_skipped_with_reason() {
 
 #[tokio::test]
 async fn a_hook_for_a_worktree_treats_the_worktree_as_the_workspace() {
-    let main = tempdir().unwrap();
-    let worktree = tempdir().unwrap();
+    let main = TestDir::new();
+    let worktree = TestDir::new();
     let presenter = Arc::new(MockHookPresenter::new(false, None));
-    let hook = PermissionHook::with_policy(Some(main.path().to_path_buf()), presenter, build_policy(None, None));
-    let agent = hook.for_working_dir(worktree.path().to_path_buf());
+    let hook = workspace_hook(&main, presenter);
+    let agent = hook.for_working_dir(worktree.to_path_buf());
     let write = |path: std::path::PathBuf| json!({ "path": path.to_string_lossy(), "content": "x" });
 
-    let inside = agent
-        .check_permission("write", &write(worktree.path().join("a.rs")))
-        .await;
+    let inside = agent.check_permission("write", &write(worktree.join("a.rs"))).await;
     let relative = agent
         .check_permission("write", &json!({ "path": "src/a.rs", "content": "x" }))
         .await;
-    let into_main = agent.check_permission("write", &write(main.path().join("a.rs"))).await;
+    let into_main = agent.check_permission("write", &write(main.join("a.rs"))).await;
 
     assert_eq!(inside, PermissionAction::Proceed);
     assert_eq!(relative, PermissionAction::Proceed);
@@ -73,39 +93,26 @@ async fn a_hook_for_a_worktree_treats_the_worktree_as_the_workspace() {
 
 #[tokio::test]
 async fn test_ask_in_headless_mode_fails_closed() {
-    let dir = tempdir().unwrap();
-    let presenter = Arc::new(MockHookPresenter::new(false, None));
-    let policy = build_policy(None, None);
-    let hook = PermissionHook::with_policy(Some(dir.path().to_path_buf()), presenter, policy);
+    let dir = TestDir::new();
+    let hook = workspace_hook(&dir, Arc::new(MockHookPresenter::new(false, None)));
 
-    let verdict = hook
-        .check_permission("bash", &json!({"command": "touch test.txt"}))
-        .await;
-    match verdict {
-        PermissionAction::Deny(msg) => {
-            assert!(msg.contains("cannot prompt in headless mode"));
-        }
-        other => panic!("expected deny in headless mode, got {other:?}"),
-    }
+    assert_headless_denial(check_bash(&hook, "touch test.txt").await);
 }
 
 #[tokio::test]
 async fn test_ask_interactive_allow_action() {
-    let dir = tempdir().unwrap();
+    let dir = TestDir::new();
     let presenter = Arc::new(MockHookPresenter::new(true, Some(InteractionResponse::Selected(0))));
-    let policy = build_policy(None, None);
-    let hook = PermissionHook::with_policy(Some(dir.path().to_path_buf()), presenter.clone(), policy);
+    let hook = workspace_hook(&dir, presenter.clone());
 
-    let verdict = hook
-        .check_permission("bash", &json!({"command": "touch test.txt"}))
-        .await;
+    let verdict = check_bash(&hook, "touch test.txt").await;
     assert_eq!(verdict, PermissionAction::Proceed);
     assert!(presenter.last_prompt.lock().unwrap().is_some());
 }
 
 #[tokio::test]
 async fn test_ask_interactive_edit_action() {
-    let dir = tempdir().unwrap();
+    let dir = TestDir::new();
     let presenter = Arc::new(MockHookPresenter::new(
         true,
         Some(InteractionResponse::SelectedWithInput {
@@ -113,12 +120,9 @@ async fn test_ask_interactive_edit_action() {
             text: "echo edited".to_string(),
         }),
     ));
-    let policy = build_policy(None, None);
-    let hook = PermissionHook::with_policy(Some(dir.path().to_path_buf()), presenter, policy);
+    let hook = workspace_hook(&dir, presenter);
 
-    let verdict = hook
-        .check_permission("bash", &json!({"command": "touch original.txt"}))
-        .await;
+    let verdict = check_bash(&hook, "touch original.txt").await;
     match verdict {
         PermissionAction::RewriteArgs(args) => {
             assert_eq!(args.get("command").and_then(|c| c.as_str()), Some("echo edited"));
@@ -135,31 +139,27 @@ fn assert_permission_persisted(path: &std::path::Path, content: &str) {
 
 #[tokio::test]
 async fn test_ask_interactive_always_allow_persists_and_updates_policy() {
-    let global_dir = tempdir().unwrap();
-    let _env = EnvVarGuard::set("RHO_HOME", &global_dir.path().to_string_lossy());
+    let global_dir = TestDir::new();
+    let _env = EnvVarGuard::set("RHO_HOME", &global_dir.to_string_lossy());
 
-    let project_dir = tempdir().unwrap();
+    let project_dir = TestDir::new();
     let presenter = Arc::new(MockHookPresenter::new(true, Some(InteractionResponse::Selected(2))));
-    let hook = PermissionHook::new(Some(project_dir.path().to_path_buf()), presenter.clone());
+    let hook = PermissionHook::new(Some(project_dir.to_path_buf()), presenter.clone());
 
-    let verdict = hook
-        .check_permission("bash", &json!({"command": "touch persist_test"}))
-        .await;
+    let verdict = check_bash(&hook, "touch persist_test").await;
     assert_eq!(verdict, PermissionAction::Proceed);
-    assert_permission_persisted(global_dir.path(), "touch persist_test");
+    assert_permission_persisted(&global_dir, "touch persist_test");
 
     // Second execution should now be allowed automatically
-    let verdict2 = hook
-        .check_permission("bash", &json!({"command": "touch persist_test"}))
-        .await;
+    let verdict2 = check_bash(&hook, "touch persist_test").await;
     assert_eq!(verdict2, PermissionAction::Proceed);
 }
 
 #[tokio::test]
 async fn malformed_global_policy_is_announced_when_the_hook_loads() {
-    let global_dir = tempdir().unwrap();
-    std::fs::write(global_dir.path().join("permission.toml"), "[permission\n").unwrap();
-    let _env = EnvVarGuard::set("RHO_HOME", &global_dir.path().to_string_lossy());
+    let global_dir = TestDir::new();
+    std::fs::write(global_dir.join("permission.toml"), "[permission\n").unwrap();
+    let _env = EnvVarGuard::set("RHO_HOME", &global_dir.to_string_lossy());
 
     let presenter = Arc::new(crate::test_support::CapturingPresenter::default());
     let _hook = PermissionHook::new(None, presenter.clone());
@@ -171,10 +171,10 @@ async fn malformed_global_policy_is_announced_when_the_hook_loads() {
 
 #[tokio::test]
 async fn test_ask_interactive_always_allow_custom_pattern_persists() {
-    let global_dir = tempdir().unwrap();
-    let _env = EnvVarGuard::set("RHO_HOME", &global_dir.path().to_string_lossy());
+    let global_dir = TestDir::new();
+    let _env = EnvVarGuard::set("RHO_HOME", &global_dir.to_string_lossy());
 
-    let project_dir = tempdir().unwrap();
+    let project_dir = TestDir::new();
     let presenter = Arc::new(MockHookPresenter::new(
         true,
         Some(InteractionResponse::SelectedWithInput {
@@ -182,18 +182,16 @@ async fn test_ask_interactive_always_allow_custom_pattern_persists() {
             text: "touch custom_*".to_string(),
         }),
     ));
-    let hook = PermissionHook::new(Some(project_dir.path().to_path_buf()), presenter.clone());
+    let hook = PermissionHook::new(Some(project_dir.to_path_buf()), presenter.clone());
 
-    let verdict = hook
-        .check_permission("bash", &json!({"command": "touch custom_foo"}))
-        .await;
+    let verdict = check_bash(&hook, "touch custom_foo").await;
     assert_eq!(verdict, PermissionAction::Proceed);
-    assert_permission_persisted(global_dir.path(), "touch custom_*");
+    assert_permission_persisted(&global_dir, "touch custom_*");
 }
 
 #[tokio::test]
 async fn test_ask_interactive_deny_with_reason() {
-    let dir = tempdir().unwrap();
+    let dir = TestDir::new();
     let presenter = Arc::new(MockHookPresenter::new(
         true,
         Some(InteractionResponse::SelectedWithInput {
@@ -201,12 +199,9 @@ async fn test_ask_interactive_deny_with_reason() {
             text: "not safe".to_string(),
         }),
     ));
-    let policy = build_policy(None, None);
-    let hook = PermissionHook::with_policy(Some(dir.path().to_path_buf()), presenter, policy);
+    let hook = workspace_hook(&dir, presenter);
 
-    let verdict = hook
-        .check_permission("bash", &json!({"command": "touch denied.txt"}))
-        .await;
+    let verdict = check_bash(&hook, "touch denied.txt").await;
     assert_eq!(
         verdict,
         PermissionAction::Deny("Operation denied by user: not safe".to_string())
@@ -215,14 +210,11 @@ async fn test_ask_interactive_deny_with_reason() {
 
 #[tokio::test]
 async fn test_ask_interactive_cancel() {
-    let dir = tempdir().unwrap();
+    let dir = TestDir::new();
     let presenter = Arc::new(MockHookPresenter::new(true, Some(InteractionResponse::Cancelled)));
-    let policy = build_policy(None, None);
-    let hook = PermissionHook::with_policy(Some(dir.path().to_path_buf()), presenter, policy);
+    let hook = workspace_hook(&dir, presenter);
 
-    let verdict = hook
-        .check_permission("bash", &json!({"command": "touch cancel.txt"}))
-        .await;
+    let verdict = check_bash(&hook, "touch cancel.txt").await;
     assert_eq!(
         verdict,
         PermissionAction::Deny("Operation cancelled by user.".to_string())
@@ -231,121 +223,80 @@ async fn test_ask_interactive_cancel() {
 
 #[tokio::test]
 async fn test_guard_evaluator_auto_allows_safe_command() {
-    let dir = tempdir().unwrap();
+    let dir = TestDir::new();
     let presenter = Arc::new(MockHookPresenter::new(true, None));
-    let policy = build_policy(None, None);
-
-    let guard_mock = Arc::new(MockAdapter::text(
+    let guard_model = Arc::new(MockAdapter::text(
         r#"{"safe": true, "reason": "Local directory creation"}"#,
     ));
-    let guard = GuardEvaluator::new(guard_mock);
-    let hook = PermissionHook::with_policy(Some(dir.path().to_path_buf()), presenter.clone(), policy).with_guard(guard);
+    let hook = guarded_hook(&dir, presenter.clone(), guard_model);
 
-    let verdict = hook
-        .check_permission("bash", &json!({"command": "mkdir -p src/foo"}))
-        .await;
+    let verdict = check_bash(&hook, "mkdir -p src/foo").await;
     assert_eq!(verdict, PermissionAction::Proceed);
     assert!(presenter.last_prompt.lock().unwrap().is_none());
 }
 
 #[tokio::test]
 async fn test_guard_evaluator_prompts_unsafe_command_with_reason() {
-    let dir = tempdir().unwrap();
+    let dir = TestDir::new();
     let presenter = Arc::new(MockHookPresenter::new(true, Some(InteractionResponse::Selected(0))));
-    let policy = build_policy(None, None);
-
-    let guard_mock = Arc::new(MockAdapter::text(
+    let guard_model = Arc::new(MockAdapter::text(
         r#"{"safe": false, "action": "Pushes local commits to remote main", "reason": "Git push modifies remote repository"}"#,
     ));
-    let guard = GuardEvaluator::new(guard_mock);
-    let hook = PermissionHook::with_policy(Some(dir.path().to_path_buf()), presenter.clone(), policy).with_guard(guard);
+    let hook = guarded_hook(&dir, presenter.clone(), guard_model);
 
-    let verdict = hook
-        .check_permission("bash", &json!({"command": "git push origin main"}))
-        .await;
+    let verdict = check_bash(&hook, "git push origin main").await;
     assert_eq!(verdict, PermissionAction::Proceed);
-    let prompt = presenter.last_prompt.lock().unwrap().clone().unwrap();
-    assert!(prompt.body.contains("Notice: Pushes local commits to remote main"));
-    assert!(prompt.body.contains("Risk: Git push modifies remote repository"));
-    assert!(prompt.body.contains("\n\n\x1b[2mgit push origin main\x1b[0m\n"));
+    let body = last_prompt_body(&presenter);
+    assert!(body.contains("Notice: Pushes local commits to remote main"));
+    assert!(body.contains("Risk: Git push modifies remote repository"));
+    assert!(body.contains("\n\n\x1b[2mgit push origin main\x1b[0m\n"));
 }
 
 #[tokio::test]
 async fn test_guard_evaluator_critical_danger_intercepts_without_model() {
-    let dir = tempdir().unwrap();
+    let dir = TestDir::new();
     let presenter = Arc::new(MockHookPresenter::new(true, Some(InteractionResponse::Cancelled)));
-    let policy = build_policy(None, None);
+    let hook = guarded_hook(&dir, presenter.clone(), Arc::new(MockAdapter::default()));
 
-    let guard_mock = Arc::new(MockAdapter::default());
-    let guard = GuardEvaluator::new(guard_mock);
-    let hook = PermissionHook::with_policy(Some(dir.path().to_path_buf()), presenter.clone(), policy).with_guard(guard);
-
-    let _ = hook
-        .check_permission("bash", &json!({"command": "git reset --hard HEAD~1"}))
-        .await;
-    let prompt = presenter.last_prompt.lock().unwrap().clone().unwrap();
-    assert!(
-        prompt
-            .body
-            .contains("Notice: Resets git working tree and index discarding uncommitted changes")
-    );
-    assert!(
-        prompt
-            .body
-            .contains("Risk: Irreversible loss of git working tree state")
-    );
-    assert!(prompt.body.contains("\n\n\x1b[2mgit reset --hard HEAD~1\x1b[0m\n"));
+    let _ = check_bash(&hook, "git reset --hard HEAD~1").await;
+    let body = last_prompt_body(&presenter);
+    assert!(body.contains("Notice: Resets git working tree and index discarding uncommitted changes"));
+    assert!(body.contains("Risk: Irreversible loss of git working tree state"));
+    assert!(body.contains("\n\n\x1b[2mgit reset --hard HEAD~1\x1b[0m\n"));
 }
 
 #[tokio::test]
 async fn test_guard_evaluator_error_falls_back_to_prompt() {
-    let dir = tempdir().unwrap();
+    let dir = TestDir::new();
     let presenter = Arc::new(MockHookPresenter::new(true, Some(InteractionResponse::Cancelled)));
-    let policy = build_policy(None, None);
+    let hook = guarded_hook(&dir, presenter.clone(), Arc::new(MockAdapter::default()));
 
-    let guard_mock = Arc::new(MockAdapter::default());
-    let guard = GuardEvaluator::new(guard_mock);
-    let hook = PermissionHook::with_policy(Some(dir.path().to_path_buf()), presenter.clone(), policy).with_guard(guard);
-
-    let _ = hook.check_permission("bash", &json!({"command": "npm publish"})).await;
-    let prompt = presenter.last_prompt.lock().unwrap().clone().unwrap();
-    assert!(prompt.body.contains("npm publish"));
+    let _ = check_bash(&hook, "npm publish").await;
+    assert!(last_prompt_body(&presenter).contains("npm publish"));
 }
 
 #[tokio::test]
 async fn test_guard_evaluator_headless_denies_unsafe_command() {
-    let dir = tempdir().unwrap();
+    let dir = TestDir::new();
     let presenter = Arc::new(MockHookPresenter::new(false, None));
-    let policy = build_policy(None, None);
-
-    let guard_mock = Arc::new(MockAdapter::text(
+    let guard_model = Arc::new(MockAdapter::text(
         r#"{"safe": false, "reason": "Cluster deletion is unsafe"}"#,
     ));
-    let guard = GuardEvaluator::new(guard_mock);
-    let hook = PermissionHook::with_policy(Some(dir.path().to_path_buf()), presenter.clone(), policy).with_guard(guard);
+    let hook = guarded_hook(&dir, presenter, guard_model);
 
-    let verdict = hook
-        .check_permission("bash", &json!({"command": "kubectl delete pod foo"}))
-        .await;
-    match verdict {
-        PermissionAction::Deny(msg) => {
-            assert!(msg.contains("cannot prompt in headless mode"));
-        }
-        other => panic!("expected deny in headless mode, got {other:?}"),
-    }
+    assert_headless_denial(check_bash(&hook, "kubectl delete pod foo").await);
 }
 
 #[tokio::test]
 async fn test_external_write_prompts_and_completes_on_allow() {
-    let ws_dir = tempdir().unwrap();
-    let ext_dir = tempdir().unwrap();
-    let ext_file = ext_dir.path().join("hook_written.txt");
+    let ws_dir = TestDir::new();
+    let ext_dir = TestDir::new();
+    let ext_file = ext_dir.join("hook_written.txt");
 
     let presenter = Arc::new(MockHookPresenter::new(true, Some(InteractionResponse::Selected(0))));
-    let policy = build_policy(None, None);
-    let hook = PermissionHook::with_policy(Some(ws_dir.path().to_path_buf()), presenter.clone(), policy);
+    let hook = workspace_hook(&ws_dir, presenter.clone());
 
-    let write_tool = WriteTool::new(ws_dir.path());
+    let write_tool = WriteTool::new(&ws_dir);
     let args = json!({
         "path": ext_file.to_string_lossy(),
         "content": "external write through hook"
@@ -365,16 +316,15 @@ async fn test_external_write_prompts_and_completes_on_allow() {
 
 #[tokio::test]
 async fn test_external_edit_prompts_and_completes_on_allow() {
-    let ws_dir = tempdir().unwrap();
-    let ext_dir = tempdir().unwrap();
-    let ext_file = ext_dir.path().join("hook_edited.txt");
+    let ws_dir = TestDir::new();
+    let ext_dir = TestDir::new();
+    let ext_file = ext_dir.join("hook_edited.txt");
     std::fs::write(&ext_file, "before edit\n").unwrap();
 
     let presenter = Arc::new(MockHookPresenter::new(true, Some(InteractionResponse::Selected(0))));
-    let policy = build_policy(None, None);
-    let hook = PermissionHook::with_policy(Some(ws_dir.path().to_path_buf()), presenter.clone(), policy);
+    let hook = workspace_hook(&ws_dir, presenter.clone());
 
-    let edit_tool = EditTool::new(ws_dir.path());
+    let edit_tool = EditTool::new(&ws_dir);
     let args = json!({
         "path": ext_file.to_string_lossy(),
         "edits": [{
@@ -394,22 +344,20 @@ async fn test_external_edit_prompts_and_completes_on_allow() {
 
 #[tokio::test]
 async fn test_always_allow_save_failure_denies_instead_of_running() {
-    let dir = tempdir().unwrap();
-    let blocker = dir.path().join("not-a-dir");
+    let dir = TestDir::new();
+    let blocker = dir.join("not-a-dir");
     std::fs::write(&blocker, "").unwrap();
     let _env = EnvVarGuard::set("RHO_HOME", &blocker.to_string_lossy());
 
     let presenter = Arc::new(MockHookPresenter::new(true, Some(InteractionResponse::Selected(2))));
-    let hook = PermissionHook::new(Some(dir.path().to_path_buf()), presenter.clone());
-    let verdict = hook
-        .check_permission("bash", &json!({"command": "touch never_run"}))
-        .await;
+    let hook = PermissionHook::new(Some(dir.to_path_buf()), presenter.clone());
+    let verdict = check_bash(&hook, "touch never_run").await;
 
     assert!(
         matches!(&verdict, PermissionAction::Deny(msg) if msg.contains("Failed to save always-allow rule")),
         "{verdict:?}"
     );
-    assert!(!dir.path().join("never_run").exists());
+    assert!(!dir.join("never_run").exists());
 }
 
 struct OverlapPresenter {
@@ -466,17 +414,13 @@ impl rho_harness_core::presentation::presenter::Presenter for OverlapPresenter {
 #[tokio::test]
 async fn test_concurrent_asks_prompt_one_at_a_time() {
     use std::sync::atomic::Ordering::SeqCst;
-    let dir = tempdir().unwrap();
+    let dir = TestDir::new();
     let presenter = Arc::new(OverlapPresenter {
         in_flight: Default::default(),
         max_in_flight: Default::default(),
         prompts: Default::default(),
     });
-    let hook = PermissionHook::with_policy(
-        Some(dir.path().to_path_buf()),
-        presenter.clone(),
-        build_policy(None, None),
-    );
+    let hook = PermissionHook::with_policy(Some(dir.to_path_buf()), presenter.clone(), build_policy(None, None));
     let args = json!({"command": "make deploy"});
 
     let (a, b, c) = tokio::join!(

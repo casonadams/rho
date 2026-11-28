@@ -17,7 +17,6 @@ pub use instructions::{
 };
 pub use prompt::{assemble_base_system_prompt, build_agent_grounding, escape_xml, format_turn_prompt};
 pub use rho_harness_core::prompts::DEFAULT_SYSTEM_PROMPT;
-pub use transclusion::expand_transclusions;
 
 #[derive(Debug, Clone)]
 pub struct ProjectContext {

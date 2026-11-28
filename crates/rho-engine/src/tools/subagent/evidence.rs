@@ -176,44 +176,38 @@ pub fn evidence(
 mod tests {
     use super::*;
     use serde_json::json;
+    use test_case::test_case;
 
     fn outcome(tool: &str, args: Value, status: OutcomeStatus, output: &str) -> ToolOutcome {
         ToolOutcome::new(tool, &args, status, output)
     }
 
-    #[test]
-    fn outcomes_name_their_target_and_first_error_line() {
-        let cases = [
-            (
-                outcome("read", json!({ "path": "a.rs" }), OutcomeStatus::Ok, "body"),
-                "ok      read a.rs",
-            ),
-            (
-                outcome(
-                    "edit",
-                    json!({ "path": "b.rs" }),
-                    OutcomeStatus::Error,
-                    "\noldText not found\nmore",
-                ),
-                "error   edit b.rs \u{2014} oldText not found",
-            ),
-            (
-                outcome(
-                    "bash",
-                    json!({ "command": "rm -rf x\necho" }),
-                    OutcomeStatus::Denied,
-                    "Denied by rule",
-                ),
-                "denied  bash rm -rf x \u{2014} Denied by rule",
-            ),
-            (
-                outcome("web_search", json!({}), OutcomeStatus::Ok, ""),
-                "ok      web_search",
-            ),
-        ];
-        for (outcome, expected) in cases {
-            assert_eq!(outcome.line(), expected);
-        }
+    #[test_case("read", json!({ "path": "a.rs" }), OutcomeStatus::Ok, "body", "ok      read a.rs"; "ok read")]
+    #[test_case(
+        "edit",
+        json!({ "path": "b.rs" }),
+        OutcomeStatus::Error,
+        "\noldText not found\nmore",
+        "error   edit b.rs \u{2014} oldText not found";
+        "edit error"
+    )]
+    #[test_case(
+        "bash",
+        json!({ "command": "rm -rf x\necho" }),
+        OutcomeStatus::Denied,
+        "Denied by rule",
+        "denied  bash rm -rf x \u{2014} Denied by rule";
+        "denied bash"
+    )]
+    #[test_case("web_search", json!({}), OutcomeStatus::Ok, "", "ok      web_search"; "no target")]
+    fn outcomes_name_their_target_and_first_error_line(
+        tool: &str,
+        args: Value,
+        status: OutcomeStatus,
+        output: &str,
+        expected: &str,
+    ) {
+        assert_eq!(outcome(tool, args, status, output).line(), expected);
     }
 
     #[test]

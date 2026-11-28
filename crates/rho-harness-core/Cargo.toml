@@ -36,3 +36,4 @@ serde_json.workspace = true
 rho-test-support.workspace = true
 futures.workspace = true
 tokio = { workspace = true, features = ["time", "test-util"] }
+test-case.workspace = true

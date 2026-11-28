@@ -19,6 +19,7 @@ pub(crate) fn format_thinking_block(thinking_text: &str, theme: &Theme, width: u
 mod tests {
     use super::*;
     use crate::ui::block::strip_ansi;
+    use test_case::test_case;
 
     fn stream(tokens: &[&str], width: usize, theme: &Theme) -> String {
         let mut renderer = StreamRenderer::new(StreamKind::Thinking, theme);
@@ -69,19 +70,18 @@ mod tests {
         assert!(block.contains(&format!("\x1b[0m{dim}")));
     }
 
-    #[test]
-    fn streamed_tokens_match_committed_block() {
+    #[test_case(0; "unbounded")]
+    #[test_case(12; "narrow")]
+    #[test_case(80; "wide")]
+    fn streamed_tokens_match_committed_block(width: usize) {
         let theme = Theme::default();
         let text = "Considering **options** here.\n\n- first item\n- second item\n\nDone thinking.";
         let tokens: Vec<String> = text.split_inclusive(' ').map(String::from).collect();
         let refs: Vec<&str> = tokens.iter().map(String::as_str).collect();
-        for width in [0, 12, 80] {
-            assert_eq!(
-                format!("\n{}\n", strip_ansi(&stream(&refs, width, &theme))),
-                strip_ansi(&format_thinking_block(text, &theme, width)),
-                "width {width}"
-            );
-        }
+        assert_eq!(
+            format!("\n{}\n", strip_ansi(&stream(&refs, width, &theme))),
+            strip_ansi(&format_thinking_block(text, &theme, width))
+        );
     }
 
     #[test]

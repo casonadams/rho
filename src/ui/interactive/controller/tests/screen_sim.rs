@@ -345,9 +345,19 @@ mod regressions {
             .collect()
     }
 
+    type UiEvents = tokio::sync::mpsc::UnboundedReceiver<crate::ui::interactive::UiEvent>;
+
+    fn renderer_channel() -> (crate::ui::TerminalRenderer, UiEvents) {
+        let (ui, events) = crate::ui::interactive::InteractiveUi::channel();
+        (crate::ui::TerminalRenderer::with_ui(ui), events)
+    }
+
+    fn blank_controller(width: usize, height: usize) -> TerminalController<ScreenBackend> {
+        TerminalController::new(ScreenBackend::new(width, height), InteractiveState::default()).unwrap()
+    }
+
     fn controller_with_transcript(width: usize, height: usize) -> TerminalController<ScreenBackend> {
-        let mut controller =
-            TerminalController::new(ScreenBackend::new(width, height), InteractiveState::default()).unwrap();
+        let mut controller = blank_controller(width, height);
         controller
             .push_transcript_item(TranscriptItem::UserMessage("review the recent changes please".into()))
             .unwrap();
@@ -433,11 +443,12 @@ mod regressions {
 
     mod spacing {
         use super::*;
+        use test_case::test_case;
 
         /// The committed tool card renders `"\n" + block`, so the standard
         /// separation is exactly one unfilled blank row between the preceding
         /// content and the card's filled top padding.
-        fn assert_one_blank_above_committed_card(controller: &TerminalController<ScreenBackend>) {
+        fn assert_one_blank_above_committed_card(controller: &TerminalController<ScreenBackend>, case: &str) {
             let screen = controller.backend.text();
             let header_row = screen
                 .iter()
@@ -462,17 +473,14 @@ mod regressions {
             assert_eq!(
                 blank_rows,
                 1,
-                "expected exactly one blank row above the card\n{}",
+                "{case}: expected exactly one blank row above the card\n{}",
                 controller.backend.dump()
             );
         }
 
         /// Drives the real presenter (markdown stream + tool events) through the
         /// event channel with the same drain ordering the live batch uses.
-        fn drive_renderer_to_controller(
-            events: &mut tokio::sync::mpsc::UnboundedReceiver<crate::ui::interactive::UiEvent>,
-            controller: &mut TerminalController<ScreenBackend>,
-        ) {
+        fn drive_renderer_to_controller(events: &mut UiEvents, controller: &mut TerminalController<ScreenBackend>) {
             let mut pending = crate::ui::interactive::PendingUiBatch::new(16 * 1024);
             while let Ok(event) = events.try_recv() {
                 pending.push(event);
@@ -512,9 +520,53 @@ mod regressions {
             }
         }
 
+        fn stream_tool_output(
+            renderer: &crate::ui::TerminalRenderer,
+            events: &mut UiEvents,
+            controller: &mut TerminalController<ScreenBackend>,
+            name: &str,
+            args: &serde_json::Value,
+            output: &str,
+        ) {
+            renderer.start_tool_run(name, args);
+            for line in output.split_inclusive('\n') {
+                renderer.tool_chunk(line);
+            }
+            drive_renderer_to_controller(events, controller);
+        }
+
+        fn finish_thinking_block(
+            renderer: &crate::ui::TerminalRenderer,
+            events: &mut UiEvents,
+            controller: &mut TerminalController<ScreenBackend>,
+            text: &str,
+        ) {
+            renderer.finish_thinking(text);
+            renderer.write_output("\n");
+            drive_renderer_to_controller(events, controller);
+        }
+
+        fn assert_card_stable_on_commit(
+            controller: &TerminalController<ScreenBackend>,
+            live: &[String],
+            committed: &[String],
+        ) {
+            assert_eq!(
+                live.len(),
+                committed.len(),
+                "card height changed\n{}",
+                controller.backend.dump()
+            );
+            for (live_row, committed_row) in live.iter().zip(committed) {
+                if !live_row.contains("Elapsed ") {
+                    assert_eq!(live_row, committed_row);
+                }
+            }
+        }
+
         fn commit_bash_after_stream(
             controller: &mut TerminalController<ScreenBackend>,
-            events: &mut tokio::sync::mpsc::UnboundedReceiver<crate::ui::interactive::UiEvent>,
+            events: &mut UiEvents,
             renderer: &crate::ui::TerminalRenderer,
         ) {
             renderer.start_tool_run("bash", &serde_json::json!({"command": "cargo test"}));
@@ -531,7 +583,7 @@ mod regressions {
 
         fn stream_through_presenter(
             controller: &mut TerminalController<ScreenBackend>,
-            events: &mut tokio::sync::mpsc::UnboundedReceiver<crate::ui::interactive::UiEvent>,
+            events: &mut UiEvents,
             renderer: &crate::ui::TerminalRenderer,
             message: &str,
             thinking: &[&str],
@@ -555,15 +607,12 @@ mod regressions {
                     renderer.print_thinking_token(token);
                     drive_renderer_to_controller(events, controller);
                 }
-                renderer.finish_thinking(&thinking.concat());
-                renderer.write_output("\n");
-                drive_renderer_to_controller(events, controller);
+                finish_thinking_block(renderer, events, controller, &thinking.concat());
             }
         }
 
         fn real_presenter_scenario(message: &str, thinking: &[&str]) -> TerminalController<ScreenBackend> {
-            let (ui, mut events) = crate::ui::interactive::InteractiveUi::channel();
-            let renderer = crate::ui::TerminalRenderer::with_ui(ui);
+            let (renderer, mut events) = renderer_channel();
             let mut controller = controller_with_transcript(80, 24);
             controller.set_block_style(crate::ui::theme::BlockStyle::Solid).unwrap();
             controller.state_mut().editor_mut().set_text("");
@@ -572,31 +621,13 @@ mod regressions {
             controller
         }
 
-        #[test]
-        fn committed_bash_card_keeps_single_blank_after_paragraph() {
-            let controller = real_presenter_scenario("Here is the plan step one.", &[]);
-            assert_one_blank_above_committed_card(&controller);
-            assert_screen_region_aligned(&controller);
-        }
-
-        #[test]
-        fn committed_bash_card_keeps_single_blank_after_code_fence() {
-            let controller = real_presenter_scenario("Here is the plan:\n```sh\ncargo test\n```\n", &[]);
-            assert_one_blank_above_committed_card(&controller);
-            assert_screen_region_aligned(&controller);
-        }
-
-        #[test]
-        fn committed_bash_card_keeps_single_blank_after_trailing_blank_line() {
-            let controller = real_presenter_scenario("Step one done.\n\n", &[]);
-            assert_one_blank_above_committed_card(&controller);
-            assert_screen_region_aligned(&controller);
-        }
-
-        #[test]
-        fn committed_bash_card_keeps_single_blank_after_thinking() {
-            let controller = real_presenter_scenario("", &["Let me check the tests first. "]);
-            assert_one_blank_above_committed_card(&controller);
+        #[test_case("Here is the plan step one.", &[]; "paragraph")]
+        #[test_case("Here is the plan:\n```sh\ncargo test\n```\n", &[]; "code fence")]
+        #[test_case("Step one done.\n\n", &[]; "trailing blank line")]
+        #[test_case("", &["Let me check the tests first. "]; "thinking")]
+        fn committed_bash_card_keeps_single_blank_after_streamed_content(message: &str, thinking: &[&str]) {
+            let controller = real_presenter_scenario(message, thinking);
+            assert_one_blank_above_committed_card(&controller, "after streamed content");
             assert_screen_region_aligned(&controller);
         }
 
@@ -611,31 +642,28 @@ mod regressions {
             controller
                 .push_transcript_item(TranscriptItem::Notice("Compaction: 1.2k tokens billed\n".into()))
                 .unwrap();
-            let (ui, mut events) = crate::ui::interactive::InteractiveUi::channel();
-            let renderer = crate::ui::TerminalRenderer::with_ui(ui);
+            let (renderer, mut events) = renderer_channel();
             stream_through_presenter(&mut controller, &mut events, &renderer, "", &[]);
             commit_bash_after_stream(&mut controller, &mut events, &renderer);
-            assert_one_blank_above_committed_card(&controller);
+            assert_one_blank_above_committed_card(&controller, "after user message and notice");
             assert_screen_region_aligned(&controller);
         }
 
         #[test]
         fn committed_bash_card_keeps_single_blank_after_previous_bash_card() {
-            let (ui, mut events) = crate::ui::interactive::InteractiveUi::channel();
-            let renderer = crate::ui::TerminalRenderer::with_ui(ui);
+            let (renderer, mut events) = renderer_channel();
             let mut controller = controller_with_transcript(80, 24);
             controller.set_block_style(crate::ui::theme::BlockStyle::Solid).unwrap();
             controller.state_mut().editor_mut().set_text("");
             commit_bash_after_stream(&mut controller, &mut events, &renderer);
             commit_bash_after_stream(&mut controller, &mut events, &renderer);
-            assert_one_blank_above_committed_card(&controller);
+            assert_one_blank_above_committed_card(&controller, "after previous bash card");
             assert_screen_region_aligned(&controller);
         }
 
         #[test]
         fn stream_after_tool_preserves_word_without_premature_newline() {
-            let (ui, mut events) = crate::ui::interactive::InteractiveUi::channel();
-            let renderer = crate::ui::TerminalRenderer::with_ui(ui);
+            let (renderer, mut events) = renderer_channel();
             let mut controller = controller_with_transcript(80, 24);
             controller.set_block_style(crate::ui::theme::BlockStyle::Solid).unwrap();
             controller.state_mut().editor_mut().set_text("");
@@ -664,8 +692,7 @@ mod regressions {
 
         #[test]
         fn streamed_word_ending_at_the_right_edge_wraps_without_a_blank_row() {
-            let (ui, mut events) = crate::ui::interactive::InteractiveUi::channel();
-            let renderer = crate::ui::TerminalRenderer::with_ui(ui);
+            let (renderer, mut events) = renderer_channel();
             let mut controller = controller_with_transcript(40, 24);
             renderer.set_width(40);
             controller.state_mut().editor_mut().set_text("");
@@ -692,17 +719,19 @@ mod regressions {
 
         #[test]
         fn write_card_tails_streamed_content_and_keeps_it_when_the_call_runs() {
-            let (ui, mut events) = crate::ui::interactive::InteractiveUi::channel();
-            let renderer = crate::ui::TerminalRenderer::with_ui(ui);
+            let (renderer, mut events) = renderer_channel();
             let mut controller = controller_with_transcript(80, 24);
             controller.state_mut().editor_mut().set_text("");
             let content: String = (1..=12).map(|i| format!("line {i:02}\n")).collect();
 
-            renderer.start_tool_run("write", &serde_json::json!({"path": "notes.txt"}));
-            for line in content.split_inclusive('\n') {
-                renderer.tool_chunk(line);
-            }
-            drive_renderer_to_controller(&mut events, &mut controller);
+            stream_tool_output(
+                &renderer,
+                &mut events,
+                &mut controller,
+                "write",
+                &serde_json::json!({"path": "notes.txt"}),
+                &content,
+            );
             let streamed = controller.backend.text();
             assert!(
                 streamed.iter().any(|l| l.contains("line 12")),
@@ -726,8 +755,7 @@ mod regressions {
 
         #[test]
         fn write_card_is_the_same_card_live_and_committed() {
-            let (ui, mut events) = crate::ui::interactive::InteractiveUi::channel();
-            let renderer = crate::ui::TerminalRenderer::with_ui(ui);
+            let (renderer, mut events) = renderer_channel();
             let mut controller = controller_with_transcript(70, 30);
             controller.state_mut().editor_mut().set_text("");
             let content: String = (1..=14)
@@ -737,11 +765,14 @@ mod regressions {
                 .collect();
             let args = serde_json::json!({"path": "/tmp/x/demo.rs", "text": content});
 
-            renderer.start_tool_run("write", &serde_json::json!({"path": "/tmp/x/demo.rs"}));
-            for line in content.split_inclusive('\n') {
-                renderer.tool_chunk(line);
-            }
-            drive_renderer_to_controller(&mut events, &mut controller);
+            stream_tool_output(
+                &renderer,
+                &mut events,
+                &mut controller,
+                "write",
+                &serde_json::json!({"path": "/tmp/x/demo.rs"}),
+                &content,
+            );
             let live = card_rows(&controller.backend.text());
 
             renderer.finish_tool_line(
@@ -752,32 +783,17 @@ mod regressions {
             drive_renderer_to_controller(&mut events, &mut controller);
             let committed = card_rows(&controller.backend.text());
 
-            assert_eq!(
-                live.len(),
-                committed.len(),
-                "card height changed\n{}",
-                controller.backend.dump()
-            );
-            for (live_row, committed_row) in live.iter().zip(&committed) {
-                if !live_row.contains("Elapsed ") {
-                    assert_eq!(live_row, committed_row);
-                }
-            }
+            assert_card_stable_on_commit(&controller, &live, &committed);
         }
 
         fn assert_bash_live_card_matches_committed(line_count: usize) {
-            let (ui, mut events) = crate::ui::interactive::InteractiveUi::channel();
-            let renderer = crate::ui::TerminalRenderer::with_ui(ui);
+            let (renderer, mut events) = renderer_channel();
             let mut controller = controller_with_transcript(70, 30);
             controller.state_mut().editor_mut().set_text("");
             let output: String = (1..=line_count).map(|i| format!("test case_{i} ... ok\n")).collect();
             let args = serde_json::json!({"command": "cargo test"});
 
-            renderer.start_tool_run("bash", &args);
-            for line in output.split_inclusive('\n') {
-                renderer.tool_chunk(line);
-            }
-            drive_renderer_to_controller(&mut events, &mut controller);
+            stream_tool_output(&renderer, &mut events, &mut controller, "bash", &args, &output);
             let live = card_rows(&controller.backend.text());
 
             renderer.finish_tool_line(
@@ -794,17 +810,7 @@ mod regressions {
                 controller.backend.dump()
             );
             assert!(committed.iter().any(|l| l.contains("Took ")));
-            assert_eq!(
-                live.len(),
-                committed.len(),
-                "card height changed\n{}",
-                controller.backend.dump()
-            );
-            for (live_row, committed_row) in live.iter().zip(&committed) {
-                if !live_row.contains("Elapsed ") {
-                    assert_eq!(live_row, committed_row);
-                }
-            }
+            assert_card_stable_on_commit(&controller, &live, &committed);
         }
 
         #[test]
@@ -852,8 +858,7 @@ mod regressions {
                     .unwrap();
                 let streamed = streamed.lock().unwrap().clone();
 
-                let (ui, mut events) = crate::ui::interactive::InteractiveUi::channel();
-                let renderer = crate::ui::TerminalRenderer::with_ui(ui);
+                let (renderer, mut events) = renderer_channel();
                 let mut controller = controller_with_transcript(70, 30);
                 controller.state_mut().editor_mut().set_text("");
                 let args = serde_json::json!({ "command": command });
@@ -953,8 +958,7 @@ mod regressions {
 
         #[test]
         fn streamed_thinking_persists_across_terminal_resize_and_toggles_visibility() {
-            let (ui, mut events) = crate::ui::interactive::InteractiveUi::channel();
-            let renderer = crate::ui::TerminalRenderer::with_ui(ui);
+            let (renderer, mut events) = renderer_channel();
             let mut controller = controller_with_transcript(80, 24);
             controller.set_block_style(crate::ui::theme::BlockStyle::Solid).unwrap();
             controller.state_mut().editor_mut().set_text("");
@@ -965,9 +969,7 @@ mod regressions {
             drive_renderer_to_controller(&mut events, &mut controller);
 
             // Finish thinking phase
-            renderer.finish_thinking("analyzing problem depth");
-            renderer.write_output("\n");
-            drive_renderer_to_controller(&mut events, &mut controller);
+            finish_thinking_block(&renderer, &mut events, &mut controller, "analyzing problem depth");
 
             // 2. Stream assistant text
             renderer.print_token("Here is the solution.");
@@ -1024,8 +1026,7 @@ mod regressions {
 
         #[test]
         fn streamed_thinking_followed_by_blocked_tool_starts_box_on_fresh_line() {
-            let (ui, mut events) = crate::ui::interactive::InteractiveUi::channel();
-            let renderer = crate::ui::TerminalRenderer::with_ui(ui);
+            let (renderer, mut events) = renderer_channel();
             let mut controller = controller_with_transcript(80, 24);
             controller
                 .set_block_style(crate::ui::theme::BlockStyle::Border)
@@ -1035,9 +1036,7 @@ mod regressions {
 
             let text = "without recording other staged changes.";
             renderer.print_thinking_token(text);
-            renderer.finish_thinking(text);
-            renderer.write_output("\n");
-            drive_renderer_to_controller(&mut events, &mut controller);
+            finish_thinking_block(&renderer, &mut events, &mut controller, text);
 
             renderer.finish_tool_line(
                 rho_harness_core::presentation::ToolLine::new("bash", serde_json::json!({"command": "rm -rf *"}))
@@ -1066,8 +1065,7 @@ mod regressions {
 
         #[test]
         fn streamed_thinking_wraps_long_prose_on_word_boundaries_live() {
-            let (ui, mut events) = crate::ui::interactive::InteractiveUi::channel();
-            let renderer = crate::ui::TerminalRenderer::with_ui(ui);
+            let (renderer, mut events) = renderer_channel();
             let mut controller = controller_with_transcript(40, 24);
             renderer.set_width(40);
             controller.state_mut().editor_mut().set_text("");
@@ -1075,9 +1073,7 @@ mod regressions {
             let text =
                 "The initial step involves preparing to write the output, signaling the start of a synchronous update.";
             renderer.print_thinking_token(text);
-            renderer.finish_thinking(text);
-            renderer.write_output("\n");
-            drive_renderer_to_controller(&mut events, &mut controller);
+            finish_thinking_block(&renderer, &mut events, &mut controller, text);
 
             let screen = controller.backend.text();
             assert!(screen.iter().any(|l| l.contains("The initial step")));
@@ -1090,8 +1086,7 @@ mod regressions {
 
         #[test]
         fn streamed_thinking_token_by_token_wraps_on_word_boundaries() {
-            let (ui, mut events) = crate::ui::interactive::InteractiveUi::channel();
-            let renderer = crate::ui::TerminalRenderer::with_ui(ui);
+            let (renderer, mut events) = renderer_channel();
             let mut controller = controller_with_transcript(40, 24);
             renderer.set_width(40);
             controller.state_mut().editor_mut().set_text("");
@@ -1103,9 +1098,7 @@ mod regressions {
                 renderer.print_thinking_token(" ");
                 drive_renderer_to_controller(&mut events, &mut controller);
             }
-            renderer.finish_thinking(text);
-            renderer.write_output("\n");
-            drive_renderer_to_controller(&mut events, &mut controller);
+            finish_thinking_block(&renderer, &mut events, &mut controller, text);
 
             let screen = controller.backend.text();
             assert!(screen.iter().any(|l| l.contains("The initial step")));
@@ -1118,8 +1111,7 @@ mod regressions {
 
         #[test]
         fn streamed_thinking_preserves_natural_line_breaks_on_screen() {
-            let (ui, mut events) = crate::ui::interactive::InteractiveUi::channel();
-            let renderer = crate::ui::TerminalRenderer::with_ui(ui);
+            let (renderer, mut events) = renderer_channel();
             let mut controller = controller_with_transcript(80, 24);
             renderer.set_width(80);
             controller.state_mut().editor_mut().set_text("");
@@ -1129,9 +1121,7 @@ mod regressions {
                 renderer.print_thinking_token(token);
                 drive_renderer_to_controller(&mut events, &mut controller);
             }
-            renderer.finish_thinking(text);
-            renderer.write_output("\n");
-            drive_renderer_to_controller(&mut events, &mut controller);
+            finish_thinking_block(&renderer, &mut events, &mut controller, text);
 
             let screen = controller.backend.text();
             assert!(screen.iter().any(|l| l.contains("Step 1: check files")));
@@ -1141,8 +1131,7 @@ mod regressions {
 
         #[test]
         fn streamed_thinking_preserves_blank_line_paragraphs_on_screen() {
-            let (ui, mut events) = crate::ui::interactive::InteractiveUi::channel();
-            let renderer = crate::ui::TerminalRenderer::with_ui(ui);
+            let (renderer, mut events) = renderer_channel();
             let mut controller = controller_with_transcript(80, 24);
             renderer.set_width(80);
             controller.state_mut().editor_mut().set_text("");
@@ -1152,9 +1141,7 @@ mod regressions {
                 renderer.print_thinking_token(token);
                 drive_renderer_to_controller(&mut events, &mut controller);
             }
-            renderer.finish_thinking(text);
-            renderer.write_output("\n");
-            drive_renderer_to_controller(&mut events, &mut controller);
+            finish_thinking_block(&renderer, &mut events, &mut controller, text);
 
             let screen = controller.backend.text();
             let p1_idx = screen
@@ -1171,8 +1158,7 @@ mod regressions {
 
         #[test]
         fn streamed_thinking_wraps_and_preserves_natural_line_breaks() {
-            let (ui, mut events) = crate::ui::interactive::InteractiveUi::channel();
-            let renderer = crate::ui::TerminalRenderer::with_ui(ui);
+            let (renderer, mut events) = renderer_channel();
             let mut controller = controller_with_transcript(30, 24);
             renderer.set_width(30);
             controller.state_mut().editor_mut().set_text("");
@@ -1186,9 +1172,7 @@ mod regressions {
                 renderer.print_thinking_token(token);
                 drive_renderer_to_controller(&mut events, &mut controller);
             }
-            renderer.finish_thinking(text);
-            renderer.write_output("\n");
-            drive_renderer_to_controller(&mut events, &mut controller);
+            finish_thinking_block(&renderer, &mut events, &mut controller, text);
 
             let screen = controller.backend.text();
             assert!(screen.iter().any(|l| l.contains("This is a long line")));
@@ -1204,21 +1188,18 @@ mod regressions {
 
         fn drive_thinking_phase(
             renderer: &crate::ui::TerminalRenderer,
-            events: &mut tokio::sync::mpsc::UnboundedReceiver<crate::ui::interactive::UiEvent>,
+            events: &mut UiEvents,
             controller: &mut TerminalController<ScreenBackend>,
             phase: &str,
         ) {
             renderer.print_thinking_token(phase);
             drive_renderer_to_controller(events, controller);
-            renderer.finish_thinking(phase);
-            renderer.write_output("\n");
-            drive_renderer_to_controller(events, controller);
+            finish_thinking_block(renderer, events, controller, phase);
         }
 
         #[test]
         fn multi_step_turn_records_discrete_thinking_phases_in_transcript() {
-            let (ui, mut events) = crate::ui::interactive::InteractiveUi::channel();
-            let renderer = crate::ui::TerminalRenderer::with_ui(ui);
+            let (renderer, mut events) = renderer_channel();
             let mut controller = controller_with_transcript(80, 24);
             controller.set_block_style(crate::ui::theme::BlockStyle::Solid).unwrap();
             controller.state_mut().editor_mut().set_text("");
@@ -1263,8 +1244,7 @@ mod regressions {
 
         #[test]
         fn window_resize_reflows_bordered_boxes_and_chrome_cleanly() {
-            let mut controller =
-                TerminalController::new(ScreenBackend::new(80, 24), InteractiveState::default()).unwrap();
+            let mut controller = blank_controller(80, 24);
             controller
                 .push_transcript_item(TranscriptItem::UserMessage("review recent changes".into()))
                 .unwrap();
@@ -1294,8 +1274,7 @@ mod regressions {
 
         #[test]
         fn resize_to_detects_backend_dimension_changes_when_event_stale() {
-            let mut controller =
-                TerminalController::new(ScreenBackend::new(80, 24), InteractiveState::default()).unwrap();
+            let mut controller = blank_controller(80, 24);
             controller
                 .push_transcript_item(TranscriptItem::UserMessage("test message".into()))
                 .unwrap();
@@ -1314,8 +1293,7 @@ mod regressions {
 
         #[test]
         fn refresh_size_reflows_unnotified_width_expansion() {
-            let mut controller =
-                TerminalController::new(ScreenBackend::new(80, 24), InteractiveState::default()).unwrap();
+            let mut controller = blank_controller(80, 24);
             controller
                 .push_transcript_item(TranscriptItem::UserMessage("test message".into()))
                 .unwrap();
@@ -1344,8 +1322,7 @@ mod regressions {
 
         #[test]
         fn resize_after_reply_taller_than_screen_shows_each_line_once() {
-            let mut controller =
-                TerminalController::new(ScreenBackend::new(60, 12), InteractiveState::default()).unwrap();
+            let mut controller = blank_controller(60, 12);
             controller
                 .push_transcript_item(TranscriptItem::UserMessage("long answer please".into()))
                 .unwrap();
@@ -1364,8 +1341,7 @@ mod regressions {
 
         #[test]
         fn resize_reflows_history_already_in_scrollback() {
-            let mut controller =
-                TerminalController::new(ScreenBackend::new(60, 12), InteractiveState::default()).unwrap();
+            let mut controller = blank_controller(60, 12);
             controller
                 .push_transcript_item(TranscriptItem::UserMessage("first question".into()))
                 .unwrap();

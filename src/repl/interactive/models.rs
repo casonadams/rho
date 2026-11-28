@@ -136,6 +136,7 @@ pub(crate) fn catalog_with(provider: &str, ids: &[&str]) -> ModelCatalog {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use test_case::test_case;
 
     fn listed(id: &str, tokens: Option<usize>) -> DiscoveredModel {
         DiscoveredModel {
@@ -185,23 +186,17 @@ mod tests {
         );
     }
 
-    #[test]
-    fn each_login_offers_its_providers_models() {
+    #[test_case(&["claude", "claude:me@work.com"], &["claude:me@work.com", "chatgpt", "claude"]; "both logins")]
+    #[test_case(&["claude:me@work.com"], &["claude:me@work.com", "chatgpt"]; "work login only")]
+    fn each_login_offers_its_providers_models(logins: &[&str], expected: &[&str]) {
         let catalog = ModelCatalog::default();
         catalog.set("claude", ProviderModels::Ready(vec![listed("claude-opus-5", None)]));
         catalog.set("chatgpt", ProviderModels::Ready(vec![listed("gpt-6", None)]));
-        let both = ["claude", "claude:me@work.com"].map(Connection::parse);
-        let work_only = [Connection::parse("claude:me@work.com")];
-        let cases: [(&[Connection], Vec<&str>); 2] = [
-            (&both, vec!["claude:me@work.com", "chatgpt", "claude"]),
-            (&work_only, vec!["claude:me@work.com", "chatgpt"]),
-        ];
-        for (logins, expected) in cases {
-            let models = discover_models(&config("claude:me@work.com", "claude-opus-5"), &catalog, logins);
-            let providers: Vec<&str> = models.iter().map(|m| m.provider.as_str()).collect();
-            assert_eq!(providers, expected, "{logins:?}");
-            assert_eq!(models[0].canonical_id(), "claude:me@work.com/claude-opus-5");
-        }
+        let logins: Vec<Connection> = logins.iter().copied().map(Connection::parse).collect();
+        let models = discover_models(&config("claude:me@work.com", "claude-opus-5"), &catalog, &logins);
+        let providers: Vec<&str> = models.iter().map(|m| m.provider.as_str()).collect();
+        assert_eq!(providers, expected);
+        assert_eq!(models[0].canonical_id(), "claude:me@work.com/claude-opus-5");
     }
 
     #[test]

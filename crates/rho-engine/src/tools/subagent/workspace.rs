@@ -147,20 +147,15 @@ pub(crate) async fn bash_file_arguments(root: &Path, command: &str) -> Vec<Strin
 #[cfg(test)]
 mod tests {
     use super::*;
+    use test_case::test_case;
 
-    #[test]
-    fn paths_normalize_to_one_spelling_relative_to_the_root() {
-        let root = Path::new("/repo");
-        let cases = [
-            ("src/a.rs", "src/a.rs"),
-            ("./src/a.rs", "src/a.rs"),
-            ("/repo/src/a.rs", "src/a.rs"),
-            ("src/../src/a.rs", "src/a.rs"),
-            ("/elsewhere/b.rs", "/elsewhere/b.rs"),
-        ];
-        for (raw, expected) in cases {
-            assert_eq!(normalize(root, raw), expected, "{raw}");
-        }
+    #[test_case("src/a.rs", "src/a.rs"; "relative")]
+    #[test_case("./src/a.rs", "src/a.rs"; "dot prefix")]
+    #[test_case("/repo/src/a.rs", "src/a.rs"; "absolute inside root")]
+    #[test_case("src/../src/a.rs", "src/a.rs"; "parent component")]
+    #[test_case("/elsewhere/b.rs", "/elsewhere/b.rs"; "absolute outside root")]
+    fn paths_normalize_to_one_spelling_relative_to_the_root(raw: &str, expected: &str) {
+        assert_eq!(normalize(Path::new("/repo"), raw), expected);
     }
 
     #[test]
@@ -179,8 +174,8 @@ mod tests {
 
     #[test]
     fn large_files_are_fingerprinted_by_content() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("big.bin");
+        let dir = crate::test_support::TestDir::new();
+        let path = dir.join("big.bin");
         let mut bytes = vec![7u8; 17 * 1024 * 1024];
         std::fs::write(&path, &bytes).unwrap();
         let first = fingerprint(&path);
@@ -189,32 +184,32 @@ mod tests {
 
         assert!(first.is_some());
         assert_ne!(fingerprint(&path), first);
-        assert_eq!(fingerprint(dir.path()), None, "directories have no fingerprint");
+        assert_eq!(fingerprint(&dir), None, "directories have no fingerprint");
     }
 
     #[tokio::test]
     async fn stale_paths_are_those_whose_content_changed_or_appeared() {
-        let dir = tempfile::tempdir().unwrap();
-        std::fs::write(dir.path().join("same.rs"), "a").unwrap();
-        std::fs::write(dir.path().join("edited.rs"), "a").unwrap();
+        let dir = crate::test_support::TestDir::new();
+        std::fs::write(dir.join("same.rs"), "a").unwrap();
+        std::fs::write(dir.join("edited.rs"), "a").unwrap();
         let names: BTreeSet<String> = ["same.rs", "edited.rs", "later.rs"].map(String::from).into();
-        let recorded = versions(dir.path(), names).await;
+        let recorded = versions(&dir, names).await;
 
-        std::fs::write(dir.path().join("edited.rs"), "b").unwrap();
-        std::fs::write(dir.path().join("later.rs"), "new").unwrap();
+        std::fs::write(dir.join("edited.rs"), "b").unwrap();
+        std::fs::write(dir.join("later.rs"), "new").unwrap();
 
-        assert_eq!(stale_paths(dir.path(), &recorded).await, ["edited.rs", "later.rs"]);
+        assert_eq!(stale_paths(&dir, &recorded).await, ["edited.rs", "later.rs"]);
     }
 
     #[tokio::test]
     async fn bash_arguments_that_are_existing_files_count_as_reads() {
-        let dir = tempfile::tempdir().unwrap();
-        std::fs::create_dir(dir.path().join("src")).unwrap();
-        std::fs::write(dir.path().join("src/a.rs"), "").unwrap();
-        std::fs::write(dir.path().join("b.rs"), "").unwrap();
+        let dir = crate::test_support::TestDir::new();
+        std::fs::create_dir(dir.join("src")).unwrap();
+        std::fs::write(dir.join("src/a.rs"), "").unwrap();
+        std::fs::write(dir.join("b.rs"), "").unwrap();
 
         let read = bash_file_arguments(
-            dir.path(),
+            &dir,
             "cat ./src/a.rs && sed -n 1,9p b.rs | head -n 3 missing.rs src --color=b.rs",
         )
         .await;

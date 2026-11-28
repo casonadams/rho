@@ -82,6 +82,7 @@ mod tests {
     use super::*;
     use crate::tools::engine_tool::EngineTool;
     use serde_json::json;
+    use test_case::test_case;
 
     async fn call(tool: &MemoryTool, args: serde_json::Value) -> ToolResult {
         tool.execute(args).await.unwrap()
@@ -89,8 +90,8 @@ mod tests {
 
     #[tokio::test]
     async fn the_model_adds_views_and_removes_notes_that_apply_next_session() {
-        let dir = tempfile::tempdir().unwrap();
-        let store = MemoryStore::new(dir.path().join("memory"), dir.path());
+        let dir = crate::test_support::TestDir::new();
+        let store = MemoryStore::new(dir.join("memory"), &dir);
         let tool = MemoryTool::new(store.clone());
 
         let added = call(&tool, json!({ "action": "add", "text": "fidelity tests are slow" })).await;
@@ -135,8 +136,8 @@ mod tests {
 
     #[tokio::test]
     async fn actions_missing_their_argument_are_errors() {
-        let dir = tempfile::tempdir().unwrap();
-        let tool = MemoryTool::new(MemoryStore::new(dir.path().join("memory"), dir.path()));
+        let dir = crate::test_support::TestDir::new();
+        let tool = MemoryTool::new(MemoryStore::new(dir.join("memory"), &dir));
         let add = call(&tool, json!({ "action": "add" })).await;
         let remove = call(&tool, json!({ "action": "remove" })).await;
         assert!(add.is_error && add.content.contains("needs `text`"), "{}", add.content);
@@ -147,27 +148,27 @@ mod tests {
         );
     }
 
+    #[test_case(0; "zero")]
+    #[test_case(2; "past the end")]
     #[tokio::test]
-    async fn removing_a_missing_note_number_is_an_error_that_changes_nothing() {
-        let dir = tempfile::tempdir().unwrap();
-        let store = MemoryStore::new(dir.path().join("memory"), dir.path());
+    async fn removing_a_missing_note_number_is_an_error_that_changes_nothing(index: usize) {
+        let dir = crate::test_support::TestDir::new();
+        let store = MemoryStore::new(dir.join("memory"), &dir);
         let tool = MemoryTool::new(store.clone());
         call(&tool, json!({ "action": "add", "text": "only note" })).await;
-        for index in [0, 2] {
-            let result = call(&tool, json!({ "action": "remove", "index": index })).await;
-            assert!(
-                result.is_error && result.content.contains("no note"),
-                "{}",
-                result.content
-            );
-        }
+        let result = call(&tool, json!({ "action": "remove", "index": index })).await;
+        assert!(
+            result.is_error && result.content.contains("no note"),
+            "{}",
+            result.content
+        );
         assert_eq!(store.notes(MemoryScope::Project).unwrap(), ["only note"]);
     }
 
     #[tokio::test]
     async fn a_note_that_looks_like_a_credential_is_refused() {
-        let dir = tempfile::tempdir().unwrap();
-        let store = MemoryStore::new(dir.path().join("memory"), dir.path());
+        let dir = crate::test_support::TestDir::new();
+        let store = MemoryStore::new(dir.join("memory"), &dir);
         let tool = MemoryTool::new(store.clone());
         let result = call(
             &tool,

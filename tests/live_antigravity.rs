@@ -5,31 +5,18 @@
 //! RHO_LIVE_AG_ACCESS (OAuth access token), RHO_LIVE_AG_REFRESH, and
 //! RHO_LIVE_AG_PROJECT. Kept out of CI because it spends real quota.
 
-use crate::temp_dir;
-use rho::auth::AuthStore;
-use rho::config::Config;
-use rho::engine::AgentEngine;
-use rho::engine::runner::TurnRequest;
-use rho::presentation::{RecordingSink, StructuredPresenter};
+use crate::live_support::{LiveCheck, PlantedFact};
 use rho_harness_core::auth::StoredCredential;
-use std::sync::Arc;
 
-fn live_env(name: &str) -> String {
-    std::env::var(name).unwrap_or_else(|_| panic!("{name} must be set for the live Antigravity check"))
-}
+const ANTIGRAVITY: LiveCheck = LiveCheck {
+    label: "Antigravity",
+    provider: "antigravity",
+    enable_var: "RHO_LIVE_ANTIGRAVITY",
+    model_var: "RHO_LIVE_AG_MODEL",
+    thinking_var: "RHO_LIVE_AG_THINKING",
+};
 
-fn live_config(workspace: &std::path::Path) -> Config {
-    Config {
-        provider: "antigravity".to_string(),
-        model: std::env::var("RHO_LIVE_AG_MODEL").unwrap_or_else(|_| "claude-sonnet-4-6".to_string()),
-        auth_file: workspace.join("auth.json"),
-        sessions_dir: workspace.join("sessions"),
-        max_turns: 4,
-        ..Config::default()
-    }
-}
-
-fn seed_auth(config: &Config) -> AuthStore {
+fn live_credential() -> StoredCredential {
     // Seed the token already expired (unless RHO_LIVE_AG_FRESH=1) so the run
     // also proves the engine's startup auto-refresh path.
     let expires_at_ms = if std::env::var("RHO_LIVE_AG_FRESH").ok().as_deref() == Some("1") {
@@ -37,25 +24,21 @@ fn seed_auth(config: &Config) -> AuthStore {
     } else {
         chrono::Utc::now().timestamp_millis() - 60 * 1000
     };
-    let credential = StoredCredential::oauth(
-        live_env("RHO_LIVE_AG_ACCESS"),
-        Some(live_env("RHO_LIVE_AG_REFRESH")),
+    StoredCredential::oauth(
+        ANTIGRAVITY.env("RHO_LIVE_AG_ACCESS"),
+        Some(ANTIGRAVITY.env("RHO_LIVE_AG_REFRESH")),
         Some(expires_at_ms),
-    );
-    let mut store = AuthStore::load(&config.auth_file).unwrap();
-    store.set_credential("antigravity", credential).unwrap();
-    store
+    )
 }
 
 #[tokio::test]
 async fn live_antigravity_dynamic_model_discovery_lists_runtime_catalog() {
-    if std::env::var("RHO_LIVE_ANTIGRAVITY").ok().as_deref() != Some("1") {
-        eprintln!("skipping: set RHO_LIVE_ANTIGRAVITY=1 to run the live Antigravity check");
+    if !ANTIGRAVITY.enabled() {
         return;
     }
 
-    let access = live_env("RHO_LIVE_AG_ACCESS");
-    let project = live_env("RHO_LIVE_AG_PROJECT");
+    let access = ANTIGRAVITY.env("RHO_LIVE_AG_ACCESS");
+    let project = ANTIGRAVITY.env("RHO_LIVE_AG_PROJECT");
     let models = rho_engine::antigravity::discover_models(&access, &project)
         .await
         .expect("live fetchAvailableModels discovery");
@@ -76,52 +59,16 @@ async fn live_antigravity_dynamic_model_discovery_lists_runtime_catalog() {
     );
 }
 
-async fn run_plant_antigravity_turn(
-    engine: &AgentEngine,
-    presenter: Arc<dyn rho_harness_core::presentation::Presenter>,
-) {
-    let first = engine
-        .run_turn(
-            TurnRequest::new("My favorite color is chartreuse. Reply with exactly: OK-CHARTREUSE-RECEIVED"),
-            presenter,
-        )
-        .await
-        .unwrap();
-    assert_eq!(first.status, rho::engine::metrics::TerminalStatus::Completed);
-    assert!(first.final_text.contains("OK-CHARTREUSE-RECEIVED"));
-}
-
-async fn run_recall_antigravity_turn(
-    engine: &AgentEngine,
-    presenter: Arc<dyn rho_harness_core::presentation::Presenter>,
-) {
-    let second = engine
-        .run_turn(
-            TurnRequest::new("What is my favorite color? Answer with only the color name, nothing else."),
-            presenter,
-        )
-        .await
-        .unwrap();
-    assert_eq!(second.status, rho::engine::metrics::TerminalStatus::Completed);
-    assert!(second.final_text.to_lowercase().contains("chartreuse"));
-}
-
 #[tokio::test]
 async fn live_antigravity_multi_turn_session_recalls_planted_fact() {
-    if std::env::var("RHO_LIVE_ANTIGRAVITY").ok().as_deref() != Some("1") {
-        eprintln!("skipping: set RHO_LIVE_ANTIGRAVITY=1 to run the live Antigravity check");
+    if !ANTIGRAVITY.enabled() {
         return;
     }
-
-    let workspace = temp_dir("rho_live_antigravity");
-    let mut config = live_config(&workspace);
-    if let Ok(level) = std::env::var("RHO_LIVE_AG_THINKING") {
-        config.thinking_level = Some(level);
-    }
-    let auth_store = seed_auth(&config);
-    let engine = AgentEngine::new(config, auth_store, None).await.unwrap();
-    let presenter: Arc<dyn rho_harness_core::presentation::Presenter> =
-        Arc::new(StructuredPresenter::recording(RecordingSink::default()));
-    run_plant_antigravity_turn(&engine, presenter.clone()).await;
-    run_recall_antigravity_turn(&engine, presenter).await;
+    let fact = PlantedFact {
+        plant_prompt: "My favorite color is chartreuse. Reply with exactly: OK-CHARTREUSE-RECEIVED",
+        acknowledgement: "OK-CHARTREUSE-RECEIVED",
+        recall_prompt: "What is my favorite color? Answer with only the color name, nothing else.",
+        answer: "chartreuse",
+    };
+    ANTIGRAVITY.assert_session_recalls(live_credential(), &fact).await;
 }

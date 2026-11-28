@@ -67,7 +67,7 @@ mod tests {
     #[tokio::test]
     async fn an_abandoned_lease_keeps_committed_work_and_removes_empty_worktrees() {
         let (dir, root) = create(&[("a.rs", "base\n")]);
-        let store = WorktreeStore::new(dir.path().join("store"));
+        let store = WorktreeStore::new(dir.join("store"));
         let busy = store.create(&root, "busy", None).await.unwrap().unwrap();
         let idle = store.create(&root, "idle", None).await.unwrap().unwrap();
         write(&busy.path, "a.rs", "half done\n");
@@ -88,7 +88,7 @@ mod tests {
     #[tokio::test]
     async fn a_released_lease_leaves_the_worktree_alone() {
         let (dir, root) = create(&[("a.rs", "base\n")]);
-        let store = WorktreeStore::new(dir.path().join("store"));
+        let store = WorktreeStore::new(dir.join("store"));
         let worktree = store.create(&root, "kept", None).await.unwrap().unwrap();
 
         let released = WorktreeLease::new(worktree.clone()).release();

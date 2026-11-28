@@ -114,6 +114,7 @@ pub(crate) fn friendly_oauth_error(name: &str, login: &str, status: Option<u16>,
 mod tests {
     use super::*;
     use crate::test_support::serve_http;
+    use test_case::test_case;
 
     #[test]
     fn unsendable_credentials_fail_locally_without_echoing_the_secret() {
@@ -138,21 +139,20 @@ mod tests {
         assert_eq!(bearer("abc").unwrap(), "Bearer abc");
     }
 
+    #[test_case("200 OK", r#"{"ok":true}"#, true; "success with json")]
+    #[test_case("500 Internal Server Error", r#"{"ok":true}"#, false; "server error")]
+    #[test_case("200 OK", "not json", false; "success without json")]
     #[tokio::test]
-    async fn send_json_if_ok_returns_json_only_for_success_responses() {
-        let cases = [
-            ("200 OK", r#"{"ok":true}"#, true),
-            ("500 Internal Server Error", r#"{"ok":true}"#, false),
-            ("200 OK", "not json", false),
-        ];
-        for (status, body, expect_json) in cases {
-            let url = serve_http(vec![(status, body.to_string())]).await;
-            let value: Option<serde_json::Value> = send_json_if_ok(CLIENT.get(&url)).await;
-            assert_eq!(
-                value.map(|v| v["ok"].clone()),
-                expect_json.then_some(serde_json::Value::Bool(true)),
-                "{status} {body}"
-            );
-        }
+    async fn send_json_if_ok_returns_json_only_for_success_responses(
+        status: &'static str,
+        body: &str,
+        expect_json: bool,
+    ) {
+        let url = serve_http(vec![(status, body.to_string())]).await;
+        let value: Option<serde_json::Value> = send_json_if_ok(CLIENT.get(&url)).await;
+        assert_eq!(
+            value.map(|v| v["ok"].clone()),
+            expect_json.then_some(serde_json::Value::Bool(true))
+        );
     }
 }

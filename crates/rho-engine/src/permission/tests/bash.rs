@@ -1,6 +1,7 @@
 use crate::permission::bash::TokenKind;
 use crate::permission::bash::lexer::tokenize;
 use crate::permission::bash::{analyze_bash_command, format_command_lines, has_file_redirection};
+use test_case::test_case;
 
 #[test]
 fn bash_lexer_tokenization_quotes() {
@@ -15,11 +16,12 @@ fn bash_lexer_tokenization_quotes() {
     assert_eq!(actual, (3, "echo", "hello world", "foo $bar", false));
 }
 
-#[test]
-fn bash_lexer_suspicious_patterns() {
-    for cmd in ["echo `whoami`", "echo $(id)", "echo 'unterminated", "diff <(ls) >(cat)"] {
-        assert!(tokenize(cmd).suspicious, "{cmd}");
-    }
+#[test_case("echo `whoami`"; "backticks")]
+#[test_case("echo $(id)"; "command substitution")]
+#[test_case("echo 'unterminated"; "unterminated quote")]
+#[test_case("diff <(ls) >(cat)"; "process substitution")]
+fn bash_lexer_suspicious_patterns(cmd: &str) {
+    assert!(tokenize(cmd).suspicious);
 }
 
 #[test]
@@ -62,21 +64,17 @@ fn bash_analyzer_compound_and_redirect_commands() {
     assert_eq!(analysis.path_tokens, vec!["~"]);
 }
 
-#[test]
-fn complex_commands_format_multiline_for_display() {
-    let cases = [
-        (
-            "git status && cargo test || echo fallback ; ls -la",
-            "git status &&\n  cargo test ||\n  echo fallback;\nls -la",
-        ),
-        ("cat a ; cat b ; cat c", "cat a;\ncat b;\ncat c"),
-        ("cargo test --lib", "cargo test --lib"),
-        ("grep \"a && b\" src/file.txt", "grep \"a && b\" src/file.txt"),
-        ("ls\ncat foo", "ls\ncat foo"),
-    ];
-    for (input, expected) in cases {
-        assert_eq!(format_command_lines(input), expected);
-    }
+#[test_case(
+    "git status && cargo test || echo fallback ; ls -la",
+    "git status &&\n  cargo test ||\n  echo fallback;\nls -la";
+    "mixed operators"
+)]
+#[test_case("cat a ; cat b ; cat c", "cat a;\ncat b;\ncat c"; "semicolons")]
+#[test_case("cargo test --lib", "cargo test --lib"; "single command")]
+#[test_case("grep \"a && b\" src/file.txt", "grep \"a && b\" src/file.txt"; "quoted operator")]
+#[test_case("ls\ncat foo", "ls\ncat foo"; "newline separated")]
+fn complex_commands_format_multiline_for_display(input: &str, expected: &str) {
+    assert_eq!(format_command_lines(input), expected);
 }
 
 #[test]
@@ -128,21 +126,19 @@ fn expansions_and_brace_lists_are_suspicious() {
     assert!(!analyze_bash_command("find . -exec wc {} +").suspicious);
 }
 
-#[test]
-fn redirection_is_detected() {
-    for command in [
-        "echo hi > f",
-        "echo hi >> f",
-        "sort < x > y",
-        "cmd &> f",
-        "cmd 2>f",
-        "git log > f 2>&1",
-    ] {
-        assert!(has_file_redirection(command), "{command}");
-    }
-    for command in ["ls 2>&1", "cmd 1>&2", ">&2 echo x", "grep x f", "no redirects here"] {
-        assert!(!has_file_redirection(command), "{command}");
-    }
+#[test_case("echo hi > f", true; "truncate")]
+#[test_case("echo hi >> f", true; "append")]
+#[test_case("sort < x > y", true; "input and output")]
+#[test_case("cmd &> f", true; "ampersand redirect")]
+#[test_case("cmd 2>f", true; "stderr to file")]
+#[test_case("git log > f 2>&1", true; "file plus fd dup")]
+#[test_case("ls 2>&1", false; "stderr to stdout")]
+#[test_case("cmd 1>&2", false; "stdout to stderr")]
+#[test_case(">&2 echo x", false; "leading fd dup")]
+#[test_case("grep x f", false; "plain args")]
+#[test_case("no redirects here", false; "no redirects")]
+fn redirection_is_detected(command: &str, expected: bool) {
+    assert_eq!(has_file_redirection(command), expected);
 }
 
 fn commands(command: &str) -> Vec<String> {
@@ -223,31 +219,31 @@ fn path_tokens_skip_options_urls_and_scoped_packages() {
     assert_eq!(paths("tool K=a/b"), Vec::<String>::new());
 }
 
-#[test]
-fn trailing_and_leading_operators_make_a_command_suspicious() {
-    for command in ["ls &&", "ls ||", "ls |", "ls &", "&& ls", "; ls", "ls && && ls"] {
-        assert!(analyze_bash_command(command).suspicious, "{command}");
-    }
-    for command in ["ls;", "ls\n", "ls ; ls", "ls\nls"] {
-        assert!(!analyze_bash_command(command).suspicious, "{command}");
-    }
+#[test_case("ls &&", true; "trailing and")]
+#[test_case("ls ||", true; "trailing or")]
+#[test_case("ls |", true; "trailing pipe")]
+#[test_case("ls &", true; "trailing background")]
+#[test_case("&& ls", true; "leading and")]
+#[test_case("; ls", true; "leading semicolon")]
+#[test_case("ls && && ls", true; "doubled and")]
+#[test_case("ls;", false; "trailing semicolon")]
+#[test_case("ls\n", false; "trailing newline")]
+#[test_case("ls ; ls", false; "semicolon between")]
+#[test_case("ls\nls", false; "newline between")]
+fn trailing_and_leading_operators_make_a_command_suspicious(command: &str, expected: bool) {
+    assert_eq!(analyze_bash_command(command).suspicious, expected);
 }
 
-#[test]
-fn operator_formatting_breaks_and_indents_each_continuation() {
-    let cases = [
-        ("a && b", "a &&\n  b"),
-        ("a || b", "a ||\n  b"),
-        ("a | b", "a |\n  b"),
-        ("a & b", "a &\n  b"),
-        ("a ; b", "a;\nb"),
-        ("&& a", "&&\n  a"),
-        ("a", "a"),
-        ("a\nb", "a\nb"),
-    ];
-    for (input, expected) in cases {
-        assert_eq!(format_command_lines(input), expected, "{input}");
-    }
+#[test_case("a && b", "a &&\n  b"; "and")]
+#[test_case("a || b", "a ||\n  b"; "or")]
+#[test_case("a | b", "a |\n  b"; "pipe")]
+#[test_case("a & b", "a &\n  b"; "background")]
+#[test_case("a ; b", "a;\nb"; "semicolon")]
+#[test_case("&& a", "&&\n  a"; "leading and")]
+#[test_case("a", "a"; "single")]
+#[test_case("a\nb", "a\nb"; "newline")]
+fn operator_formatting_breaks_and_indents_each_continuation(input: &str, expected: &str) {
+    assert_eq!(format_command_lines(input), expected);
 }
 
 #[test]

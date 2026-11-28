@@ -233,8 +233,9 @@ async fn hand_off(worktree: &crate::worktree::Worktree) -> String {
             Err(e) => format!("\nThe workflow made no file changes, but its worktree could not be removed: {e}\n"),
         },
         Ok((_, changes)) => format!(
-            "\nThe workflow's changes are in {}. Nothing has touched your working tree: review them (worktree action diff), then merge or discard the worktree with the worktree tool. Unmerged worktrees are deleted 24 hours after they were created.\n",
-            worktree.summary(&changes)
+            "\nThe workflow's changes are in {}. Nothing has touched your working tree: review them (worktree action diff). {} Then merge or discard the worktree with the worktree tool. Unmerged worktrees are deleted 24 hours after they were created.\n",
+            worktree.summary(&changes),
+            crate::worktree::MERGE_STANDARD
         ),
         Err(e) => format!(
             "\nThe workflow ran in worktree `{}` ({}), but its changes could not be listed: {e}\n",

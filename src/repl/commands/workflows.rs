@@ -122,6 +122,7 @@ fn bind(catalog: &WorkflowCatalog, name: &str, args: &[&str]) -> Result<BTreeMap
 #[cfg(test)]
 mod tests {
     use super::*;
+    use test_case::test_case;
 
     fn catalog(dir: &Path) -> WorkflowCatalog {
         let wf = dir.join(".agents/workflows");
@@ -137,8 +138,8 @@ mod tests {
 
     #[test]
     fn binds_inputs_or_explains_usage_and_problems() {
-        let dir = tempfile::tempdir().unwrap();
-        let catalog = catalog(dir.path());
+        let dir = rho_test_support::TestDir::new();
+        let catalog = catalog(&dir);
         assert_eq!(bind(&catalog, "refine", &["security"]).unwrap()["profile"], "security");
         let bad = bind(&catalog, "refine", &["fuzz"]).unwrap_err();
         assert!(
@@ -153,28 +154,18 @@ mod tests {
         assert!(bind(&catalog, "ghost", &[]).unwrap_err().contains("unknown workflow"));
     }
 
-    #[test]
-    fn split_args_keeps_quoted_groups_and_falls_back_on_an_unclosed_quote() {
-        let cases = [
-            (
-                "workflow audit security,correctness . 1 6",
-                vec!["workflow", "audit", "security,correctness", ".", "1", "6"],
-            ),
-            (
-                "workflow audit \"a b\" 'c d' e",
-                vec!["workflow", "audit", "a b", "c d", "e"],
-            ),
-            (
-                "workflow audit paths=\"src lib\" x",
-                vec!["workflow", "audit", "paths=src lib", "x"],
-            ),
-            ("workflow audit \"\" x", vec!["workflow", "audit", "", "x"]),
-            ("workflow audit don't stop", vec!["workflow", "audit", "don't", "stop"]),
-            ("  workflow   audit  ", vec!["workflow", "audit"]),
-        ];
-        for (line, expected) in cases {
-            assert_eq!(split_args(line), expected, "{line}");
-        }
+    #[test_case(
+        "workflow audit security,correctness . 1 6",
+        &["workflow", "audit", "security,correctness", ".", "1", "6"];
+        "plain words"
+    )]
+    #[test_case("workflow audit \"a b\" 'c d' e", &["workflow", "audit", "a b", "c d", "e"]; "quoted groups")]
+    #[test_case("workflow audit paths=\"src lib\" x", &["workflow", "audit", "paths=src lib", "x"]; "quoted value")]
+    #[test_case("workflow audit \"\" x", &["workflow", "audit", "", "x"]; "empty quotes")]
+    #[test_case("workflow audit don't stop", &["workflow", "audit", "don't", "stop"]; "unclosed quote")]
+    #[test_case("  workflow   audit  ", &["workflow", "audit"]; "extra whitespace")]
+    fn split_args_keeps_quoted_groups_and_falls_back_on_an_unclosed_quote(line: &str, expected: &[&str]) {
+        assert_eq!(split_args(line), expected);
     }
 
     #[test]
@@ -189,15 +180,15 @@ mod tests {
         );
         assert_eq!(audit.agents.len(), 14);
         assert!(format_workflow_list(&catalog).contains("[builtin]"));
-        let dir = tempfile::tempdir().unwrap();
-        let wf = dir.path().join(".agents/workflows");
+        let dir = rho_test_support::TestDir::new();
+        let wf = dir.join(".agents/workflows");
         std::fs::create_dir_all(&wf).unwrap();
         std::fs::write(
             wf.join("audit.xml"),
             "<workflow description=\"mine\"><run cmd=\"true\"/></workflow>",
         )
         .unwrap();
-        let overridden = WorkflowCatalog::discover(Some(dir.path()), None);
+        let overridden = WorkflowCatalog::discover(Some(&dir), None);
         assert_eq!(overridden.find("audit").unwrap().entry.description, "mine");
     }
 
@@ -221,8 +212,8 @@ mod tests {
 
     #[test]
     fn list_shows_usage_origin_and_invalid_workflows() {
-        let dir = tempfile::tempdir().unwrap();
-        let text = format_workflow_list(&catalog(dir.path()));
+        let dir = rho_test_support::TestDir::new();
+        let text = format_workflow_list(&catalog(&dir));
         assert!(text.contains("/workflow refine <review|security>"), "{text}");
         assert!(text.contains("Scan and fix [project]"), "{text}");
         assert!(

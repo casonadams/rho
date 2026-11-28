@@ -35,32 +35,25 @@ impl ToolRegistry {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use test_case::test_case;
 
-    fn assert_registered_tool(name: &str) {
+    #[test_case("read"; "read")]
+    #[test_case("write"; "write")]
+    #[test_case("edit"; "edit")]
+    #[test_case("bash"; "bash")]
+    #[test_case("fd"; "fd")]
+    #[test_case("rg"; "rg")]
+    #[test_case("web_search"; "web search")]
+    #[test_case("web_fetch"; "web fetch")]
+    #[test_case("subagent"; "subagent")]
+    #[test_case("memory"; "memory")]
+    #[test_case("todo"; "todo")]
+    fn descriptors_cover_every_registered_tool(name: &str) {
         let desc = ToolRegistry::descriptor(name).unwrap();
         assert!(!desc.prompt.is_empty());
         assert!(!desc.prompt_snippet.is_empty());
         assert!(ToolRegistry::capability(name).is_some());
         assert_eq!(ToolRegistry::builtin_description(name), desc.prompt);
-    }
-
-    #[test]
-    fn descriptors_cover_every_registered_tool() {
-        for name in [
-            "read",
-            "write",
-            "edit",
-            "bash",
-            "fd",
-            "rg",
-            "web_search",
-            "web_fetch",
-            "subagent",
-            "memory",
-            "todo",
-        ] {
-            assert_registered_tool(name);
-        }
     }
 
     #[test]

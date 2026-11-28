@@ -31,6 +31,18 @@ pub(crate) fn test_controller() -> crate::ui::interactive::TerminalController<cr
     .unwrap()
 }
 
+#[cfg(test)]
+pub(crate) async fn test_session_and_engine(dir: &std::path::Path) -> (ReplSession, crate::engine::AgentEngine) {
+    let config = rho_harness_core::config::Config {
+        config_dir: dir.to_path_buf(),
+        sessions_dir: dir.join("sessions"),
+        ..Default::default()
+    };
+    let session = ReplSession::new(config, crate::auth::AuthStore::default(), None);
+    let engine = session.new_engine(None).await.unwrap();
+    (session, engine)
+}
+
 /// A renderer whose output arrives on the returned channel.
 #[cfg(test)]
 pub(crate) fn collecting_renderer() -> (

@@ -1,44 +1,45 @@
 //! Transcript expansion toggles and full-redraw behavior tests.
 
+use super::fake::FakeTerminal;
+use crate::ui::interactive::controller::TerminalController;
+
+fn standard_render(controller: &TerminalController<FakeTerminal>, index: usize) -> String {
+    controller.cache().entry(index).unwrap().standard.clone().unwrap()
+}
+
 mod expansion {
-    use super::super::fake::{FakeTerminal, Operation, controller};
+    use std::io;
+
+    use super::super::fake::{FakeTerminal, Operation, controller, wrote};
     use crate::ui::interactive::controller::TerminalController;
     use crate::ui::interactive::controller::ansi::CLEAR_SCREEN;
     use crate::ui::interactive::{ToolItem, TranscriptItem};
+    use test_case::test_case;
 
-    #[test]
-    fn assistant_transcript_item_is_recorded_without_duplicate_write_output() {
+    type Setter = fn(&mut TerminalController<FakeTerminal>, bool) -> io::Result<bool>;
+    type Toggle = fn(&mut TerminalController<FakeTerminal>) -> io::Result<bool>;
+    type Getter = fn(&TerminalController<FakeTerminal>) -> bool;
+
+    #[test_case(
+        TranscriptItem::AssistantText("streamed response answer".into()),
+        "streamed response answer";
+        "assistant"
+    )]
+    #[test_case(
+        TranscriptItem::Thinking("streamed thinking process".into()),
+        "streamed thinking process";
+        "thinking"
+    )]
+    fn pushing_streamed_text_records_it_without_duplicate_write_output(item: TranscriptItem, text: &str) {
         let (mut controller, operations, _) = controller(60);
         operations.borrow_mut().clear();
 
-        controller
-            .push_transcript_item(TranscriptItem::AssistantText("streamed response answer".into()))
-            .unwrap();
+        controller.push_transcript_item(item).unwrap();
 
         assert_eq!(controller.transcript().len(), 1);
-        let ops = operations.borrow();
         assert!(
-            !ops.iter()
-                .any(|op| matches!(op, Operation::Write(text) if text.contains("streamed response answer"))),
-            "pushing already-streamed assistant text should not write to output again"
-        );
-    }
-
-    #[test]
-    fn thinking_transcript_item_is_recorded_without_duplicate_write_output() {
-        let (mut controller, operations, _) = controller(60);
-        operations.borrow_mut().clear();
-
-        controller
-            .push_transcript_item(TranscriptItem::Thinking("streamed thinking process".into()))
-            .unwrap();
-
-        assert_eq!(controller.transcript().len(), 1);
-        let ops = operations.borrow();
-        assert!(
-            !ops.iter()
-                .any(|op| matches!(op, Operation::Write(text) if text.contains("streamed thinking process"))),
-            "pushing already-streamed thinking text should not write to output again"
+            !wrote(&operations.borrow(), text),
+            "pushing already-streamed text should not write to output again"
         );
     }
 
@@ -78,58 +79,39 @@ mod expansion {
         assert_eq!(collapsed, cache_entry_0(&controller));
     }
 
-    #[test]
-    fn set_tools_expanded_no_ops_when_already_in_target_state() {
+    #[test_case(TerminalController::set_tools_expanded, TerminalController::tools_expanded; "tools expanded")]
+    #[test_case(TerminalController::set_hide_thinking, TerminalController::hide_thinking; "hide thinking")]
+    fn setters_no_op_when_already_in_target_state(set: Setter, get: Getter) {
         let (mut controller, operations, _) = controller(60);
-        assert!(!controller.tools_expanded());
+        assert!(!get(&controller), "starts off");
 
         operations.borrow_mut().clear();
-        assert!(!controller.set_tools_expanded(false).unwrap() && operations.borrow().is_empty());
+        assert!(
+            !set(&mut controller, false).unwrap() && operations.borrow().is_empty(),
+            "off -> off"
+        );
 
-        assert!(controller.set_tools_expanded(true).unwrap() && controller.tools_expanded());
+        assert!(set(&mut controller, true).unwrap() && get(&controller), "off -> on");
 
         operations.borrow_mut().clear();
-        assert!(controller.set_tools_expanded(true).unwrap() && operations.borrow().is_empty());
+        assert!(
+            set(&mut controller, true).unwrap() && operations.borrow().is_empty(),
+            "on -> on"
+        );
     }
 
-    #[test]
-    fn set_hide_thinking_no_ops_when_already_in_target_state() {
-        let (mut controller, operations, _) = controller(60);
-        assert!(!controller.hide_thinking());
-
-        operations.borrow_mut().clear();
-        assert!(!controller.set_hide_thinking(false).unwrap() && operations.borrow().is_empty());
-
-        assert!(controller.set_hide_thinking(true).unwrap() && controller.hide_thinking());
-
-        operations.borrow_mut().clear();
-        assert!(controller.set_hide_thinking(true).unwrap() && operations.borrow().is_empty());
-    }
-
-    #[test]
-    fn toggle_tools_expanded_delegates_to_setter() {
+    #[test_case(TerminalController::toggle_tools_expanded, TerminalController::tools_expanded; "tools expanded")]
+    #[test_case(TerminalController::toggle_thinking, TerminalController::hide_thinking; "hide thinking")]
+    fn toggles_delegate_to_setter_and_report_the_new_state(toggle: Toggle, get: Getter) {
         let (mut controller, operations, _) = controller(60);
 
         operations.borrow_mut().clear();
-        assert!(controller.toggle_tools_expanded().unwrap());
-        assert!(controller.tools_expanded() && !operations.borrow().is_empty());
+        assert!(toggle(&mut controller).unwrap(), "first toggle");
+        assert!(get(&controller) && !operations.borrow().is_empty(), "first toggle");
 
         operations.borrow_mut().clear();
-        assert!(!controller.toggle_tools_expanded().unwrap());
-        assert!(!controller.tools_expanded() && !operations.borrow().is_empty());
-    }
-
-    #[test]
-    fn toggle_thinking_delegates_to_setter() {
-        let (mut controller, operations, _) = controller(60);
-
-        operations.borrow_mut().clear();
-        assert!(controller.toggle_thinking().unwrap());
-        assert!(controller.hide_thinking() && !operations.borrow().is_empty());
-
-        operations.borrow_mut().clear();
-        assert!(!controller.toggle_thinking().unwrap());
-        assert!(!controller.hide_thinking() && !operations.borrow().is_empty());
+        assert!(!toggle(&mut controller).unwrap(), "second toggle");
+        assert!(!get(&controller) && !operations.borrow().is_empty(), "second toggle");
     }
 
     #[test]
@@ -144,10 +126,7 @@ mod expansion {
 
         let ops = operations.borrow();
         assert!(ops.contains(&Operation::Write(CLEAR_SCREEN.into())));
-        assert!(
-            !ops.iter()
-                .any(|op| matches!(op, Operation::Write(text) if text.contains("\x1b[3J")))
-        );
+        assert!(!wrote(&ops, "\x1b[3J"));
     }
 
     #[test]
@@ -173,11 +152,13 @@ mod expansion {
 }
 
 mod redraw {
-    use super::super::fake::{Operation, controller, controller_with_size};
+    use super::super::fake::{Operation, controller, controller_with_size, write_count, wrote};
+    use super::standard_render;
     use crate::ui::interactive::TranscriptItem;
     use crate::ui::interactive::controller::ansi::{
         CLEAR_SCREEN, CLEAR_SCREEN_AND_SCROLLBACK, CSI_BEGIN_SYNC_UPDATE, CSI_END_SYNC_UPDATE,
     };
+    use crate::ui::theme::BlockStyle;
 
     #[test]
     fn resize_replays_in_flight_streamed_output() {
@@ -191,12 +172,7 @@ mod redraw {
         width.set(40);
         assert!(controller.refresh_size().unwrap());
 
-        assert!(
-            operations
-                .borrow()
-                .iter()
-                .any(|op| matches!(op, Operation::Write(text) if text.contains("partial streamed response")))
-        );
+        assert!(wrote(&operations.borrow(), "partial streamed response"));
     }
 
     #[test]
@@ -214,12 +190,7 @@ mod redraw {
         width.set(40);
         assert!(controller.refresh_size().unwrap());
 
-        let replay_count = operations
-            .borrow()
-            .iter()
-            .filter(|op| matches!(op, Operation::Write(text) if text.contains("completed response")))
-            .count();
-        assert_eq!(replay_count, 1);
+        assert_eq!(write_count(&operations.borrow(), "completed response"), 1);
     }
 
     #[test]
@@ -234,12 +205,7 @@ mod redraw {
         width.set(40);
         assert!(controller.refresh_size().unwrap());
 
-        let replay_count = operations
-            .borrow()
-            .iter()
-            .filter(|op| matches!(op, Operation::Write(text) if text.contains("considering")))
-            .count();
-        assert_eq!(replay_count, 1);
+        assert_eq!(write_count(&operations.borrow(), "considering"), 1);
     }
 
     #[test]
@@ -255,10 +221,7 @@ mod redraw {
 
         let ops = operations.borrow();
         assert!(ops.contains(&Operation::Write(CLEAR_SCREEN_AND_SCROLLBACK.into())));
-        assert!(
-            ops.iter()
-                .any(|op| matches!(op, Operation::Write(text) if text.contains("hello world message")))
-        );
+        assert!(wrote(&ops, "hello world message"));
     }
 
     fn assert_sync_and_clear_order(ops: &[Operation]) {
@@ -316,17 +279,15 @@ mod redraw {
             .push_transcript_item(TranscriptItem::UserMessage("test message".into()))
             .unwrap();
 
-        let initial_rendered = controller.cache().entry(0).unwrap().standard.clone().unwrap();
+        let initial_rendered = standard_render(&controller, 0);
 
         height.set(30);
         assert!(controller.refresh_size().unwrap());
-        let height_rendered = controller.cache().entry(0).unwrap().standard.clone().unwrap();
-        assert_eq!(initial_rendered, height_rendered);
+        assert_eq!(initial_rendered, standard_render(&controller, 0));
 
         width.set(40);
         assert!(controller.refresh_size().unwrap());
-        let width_rendered = controller.cache().entry(0).unwrap().standard.clone().unwrap();
-        assert_ne!(initial_rendered, width_rendered);
+        assert_ne!(initial_rendered, standard_render(&controller, 0));
     }
 
     fn assert_repaint(ops: &[Operation]) {
@@ -334,14 +295,8 @@ mod redraw {
             ops.iter()
                 .any(|op| matches!(op, Operation::Write(text) if text == CLEAR_SCREEN))
         );
-        assert!(
-            ops.iter()
-                .any(|op| matches!(op, Operation::Write(text) if text.contains("theme test message")))
-        );
-        assert!(
-            !ops.iter()
-                .any(|op| matches!(op, Operation::Write(text) if text.contains("\x1b]")))
-        );
+        assert!(wrote(ops, "theme test message"));
+        assert!(!wrote(ops, "\x1b]"));
     }
 
     #[test]
@@ -369,24 +324,22 @@ mod redraw {
             .push_transcript_item(TranscriptItem::UserMessage("hello world".into()))
             .unwrap();
 
-        assert_eq!(controller.block_style(), crate::ui::theme::BlockStyle::Border);
-        let initial_rendered = controller.cache().entry(0).unwrap().standard.clone().unwrap();
+        assert_eq!(controller.block_style(), BlockStyle::Border);
+        let initial_rendered = standard_render(&controller, 0);
         assert!(initial_rendered.contains('╭'));
 
         operations.borrow_mut().clear();
-        let switched = controller.set_block_style(crate::ui::theme::BlockStyle::Solid).unwrap();
-        assert_eq!(switched, crate::ui::theme::BlockStyle::Solid);
-        assert_eq!(controller.block_style(), crate::ui::theme::BlockStyle::Solid);
+        let switched = controller.set_block_style(BlockStyle::Solid).unwrap();
+        assert_eq!(switched, BlockStyle::Solid);
+        assert_eq!(controller.block_style(), BlockStyle::Solid);
 
-        let solid_rendered = controller.cache().entry(0).unwrap().standard.clone().unwrap();
+        let solid_rendered = standard_render(&controller, 0);
         assert_ne!(initial_rendered, solid_rendered);
         assert!(!solid_rendered.contains('╭'));
 
-        let reverted = controller
-            .set_block_style(crate::ui::theme::BlockStyle::Border)
-            .unwrap();
-        assert_eq!(reverted, crate::ui::theme::BlockStyle::Border);
-        assert_eq!(controller.block_style(), crate::ui::theme::BlockStyle::Border);
+        let reverted = controller.set_block_style(BlockStyle::Border).unwrap();
+        assert_eq!(reverted, BlockStyle::Border);
+        assert_eq!(controller.block_style(), BlockStyle::Border);
     }
 
     #[test]
@@ -404,8 +357,7 @@ mod redraw {
                 TranscriptItem::Recap("first recap".into()),
             ]
         );
-        let first_cached = controller.cache().entry(1).unwrap().standard.clone().unwrap();
-        assert!(first_cached.contains("※ recap: first recap"));
+        assert!(standard_render(&controller, 1).contains("※ recap: first recap"));
 
         operations.borrow_mut().clear();
         controller.upsert_trailing_recap("updated recap".into()).unwrap();
@@ -416,13 +368,9 @@ mod redraw {
                 TranscriptItem::Recap("updated recap".into()),
             ]
         );
-        let updated_cached = controller.cache().entry(1).unwrap().standard.clone().unwrap();
+        let updated_cached = standard_render(&controller, 1);
         assert!(updated_cached.contains("※ recap: updated recap"));
         assert!(!updated_cached.contains("first recap"));
-        let ops = operations.borrow();
-        assert!(
-            ops.iter()
-                .any(|op| matches!(op, Operation::Write(text) if text.contains("updated recap")))
-        );
+        assert!(wrote(&operations.borrow(), "updated recap"));
     }
 }

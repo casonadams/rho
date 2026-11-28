@@ -143,6 +143,7 @@ mod tests {
     use super::*;
     use flate2::{Compression, write::ZlibEncoder};
     use std::io::Write;
+    use test_case::test_case;
 
     fn zlib_of_zeros(len: usize) -> Vec<u8> {
         let mut encoder = ZlibEncoder::new(Vec::new(), Compression::fast());
@@ -163,14 +164,19 @@ mod tests {
         assert_eq!(MAX_PDF_TOTAL_INFLATED_BYTES, 536_870_912);
     }
 
-    #[test]
-    fn zlib_headers_require_deflate_window_and_checksum() {
-        for valid in [[0x78, 0x01], [0x78, 0x9c], [0x78, 0xda]] {
-            assert!(is_zlib_header(&valid), "{valid:x?}");
-        }
-        for invalid in [[0x78, 0x00], [0x70, 0x03], [0x88, 0x1c], [0x00, 0x00]] {
-            assert!(!is_zlib_header(&invalid), "{invalid:x?}");
-        }
+    #[test_case([0x78, 0x01]; "fastest compression")]
+    #[test_case([0x78, 0x9c]; "default compression")]
+    #[test_case([0x78, 0xda]; "best compression")]
+    fn zlib_headers_with_deflate_window_and_checksum_are_accepted(valid: [u8; 2]) {
+        assert!(is_zlib_header(&valid));
+    }
+
+    #[test_case([0x78, 0x00]; "bad checksum")]
+    #[test_case([0x70, 0x03]; "not deflate method")]
+    #[test_case([0x88, 0x1c]; "window too large")]
+    #[test_case([0x00, 0x00]; "all zero")]
+    fn zlib_headers_without_deflate_window_or_checksum_are_rejected(invalid: [u8; 2]) {
+        assert!(!is_zlib_header(&invalid));
     }
 
     #[test]

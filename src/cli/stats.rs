@@ -207,6 +207,7 @@ mod tests {
     use super::*;
     use rho_harness_core::session::SessionManager;
     use serde_json::json;
+    use test_case::test_case;
 
     fn event(kind: SessionEventKind, payload: serde_json::Value) -> SessionEvent {
         SessionEvent {
@@ -230,40 +231,30 @@ mod tests {
         ]
     }
 
-    #[test]
-    fn error_signatures_drop_specific_details() {
-        let cases = [
-            (
-                "rg",
-                "path not found: src/a.rs\nDid you mean: src/b.rs?",
-                "path not found",
-            ),
-            ("bash", "Command exited with code 101", "Command exited with code NNN"),
-            (
-                "bash",
-                "   Compiling foo v0.1.0\nerror[E0599]: oops\n\nCommand exited with code 101",
-                "Command exited with code NNN",
-            ),
-            (
-                "bash",
-                "partial\n\nCommand timed out after 30 seconds",
-                "Command timed out after NN seconds",
-            ),
-            (
-                "edit",
-                "Edit #2: oldText not found in file (exact match required):\nfoo",
-                "Edit #N: oldText not found in file (exact match required):",
-            ),
-            (
-                "edit",
-                "Invalid arguments for edit: missing field `edits`. Pass ...",
-                "Invalid arguments for edit",
-            ),
-            ("read", "\n\n", ""),
-        ];
-        for (tool, output, expected) in cases {
-            assert_eq!(error_signature(tool, output), expected, "{output}");
-        }
+    #[test_case("rg", "path not found: src/a.rs\nDid you mean: src/b.rs?", "path not found"; "path suggestion")]
+    #[test_case("bash", "Command exited with code 101", "Command exited with code NNN"; "exit code")]
+    #[test_case(
+        "bash",
+        "   Compiling foo v0.1.0\nerror[E0599]: oops\n\nCommand exited with code 101",
+        "Command exited with code NNN";
+        "exit code after compiler output"
+    )]
+    #[test_case("bash", "partial\n\nCommand timed out after 30 seconds", "Command timed out after NN seconds"; "timeout")]
+    #[test_case(
+        "edit",
+        "Edit #2: oldText not found in file (exact match required):\nfoo",
+        "Edit #N: oldText not found in file (exact match required):";
+        "edit number"
+    )]
+    #[test_case(
+        "edit",
+        "Invalid arguments for edit: missing field `edits`. Pass ...",
+        "Invalid arguments for edit";
+        "invalid arguments"
+    )]
+    #[test_case("read", "\n\n", ""; "blank output")]
+    fn error_signatures_drop_specific_details(tool: &str, output: &str, expected: &str) {
+        assert_eq!(error_signature(tool, output), expected);
     }
 
     #[test]
@@ -316,10 +307,10 @@ mod tests {
 
     #[tokio::test]
     async fn collects_from_recorded_session_files_and_limits_to_recent_sessions() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = rho_test_support::TestDir::new();
         let base = std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(1_700_000_000);
         for (age, status) in [(60, "success"), (0, "error")] {
-            let sm = SessionManager::new(dir.path(), None).unwrap();
+            let sm = SessionManager::new(&dir, None).unwrap();
             for e in tool("1", "rg", json!({ "pattern": "x" }), status, "path not found: x") {
                 sm.append_event(e.kind, e.payload).await.unwrap();
             }
@@ -327,25 +318,25 @@ mod tests {
             file.set_modified(base - std::time::Duration::from_secs(age)).unwrap();
         }
 
-        let all = collect_stats(dir.path(), None).unwrap();
+        let all = collect_stats(&dir, None).unwrap();
         assert_eq!(all.sessions, 2);
         assert_eq!((all.tools["rg"].calls, all.tools["rg"].errors), (2, 1));
 
-        let latest = collect_stats(dir.path(), Some(1)).unwrap();
+        let latest = collect_stats(&dir, Some(1)).unwrap();
         assert_eq!(latest.sessions, 1);
         assert_eq!(latest.tools["rg"].errors, 1, "the newest session is the failing one");
 
-        let missing = collect_stats(&dir.path().join("none"), None).unwrap();
+        let missing = collect_stats(&dir.join("none"), None).unwrap();
         assert_eq!(missing.sessions, 0);
     }
 
     #[test]
     fn unreadable_session_files_are_counted_not_fatal() {
-        let dir = tempfile::tempdir().unwrap();
-        std::fs::create_dir(dir.path().join("broken.jsonl")).unwrap();
-        std::fs::write(dir.path().join("torn.jsonl"), b"{\"type\":\xff\xfe").unwrap();
+        let dir = rho_test_support::TestDir::new();
+        std::fs::create_dir(dir.join("broken.jsonl")).unwrap();
+        std::fs::write(dir.join("torn.jsonl"), b"{\"type\":\xff\xfe").unwrap();
 
-        let stats = collect_stats(dir.path(), None).unwrap();
+        let stats = collect_stats(&dir, None).unwrap();
 
         assert_eq!((stats.sessions, stats.unreadable_sessions), (1, 1));
         assert!(stats.render().contains("Skipped 1 unreadable session file(s)"));

@@ -106,40 +106,35 @@ pub(crate) fn dimmed_foreground(fg: anstyle::RgbColor, bg: anstyle::RgbColor, is
 mod tests {
     use super::*;
     use anstyle::{Color, RgbColor};
+    use std::cmp::Ordering;
+    use test_case::test_case;
+
+    fn rgb_of(color: Option<Color>) -> RgbColor {
+        match color {
+            Some(Color::Rgb(rgb)) => rgb,
+            other => panic!("expected rgb color, got {other:?}"),
+        }
+    }
 
     fn fill_rgb(style: anstyle::Style) -> RgbColor {
-        match style.get_bg_color() {
-            Some(Color::Rgb(rgb)) => rgb,
-            other => panic!("expected rgb background, got {other:?}"),
-        }
+        rgb_of(style.get_bg_color())
     }
 
     fn dim_rgb(style: anstyle::Style) -> RgbColor {
-        match style.get_fg_color() {
-            Some(Color::Rgb(rgb)) => rgb,
-            other => panic!("expected rgb foreground, got {other:?}"),
-        }
+        rgb_of(style.get_fg_color())
     }
 
-    #[test]
-    fn dark_terminal_fill_is_lightened_toward_foreground() {
-        // Catppuccin Mocha: dark background, light foreground.
-        let fg = RgbColor(0xc0, 0xca, 0xf5);
-        let bg = RgbColor(0x1e, 0x1e, 0x2e);
+    #[test_case(RgbColor(0xc0, 0xca, 0xf5), RgbColor(0x1e, 0x1e, 0x2e), Ordering::Greater; "dark")]
+    #[test_case(RgbColor(0x33, 0x33, 0x33), RgbColor(0xfd, 0xfd, 0xfd), Ordering::Less; "light")]
+    fn block_fill_moves_from_background_toward_foreground(fg: RgbColor, bg: RgbColor, toward: Ordering) {
         let fill = fill_rgb(blend_fill(fg, bg));
         assert_eq!(
             fill,
             RgbColor(mix(bg.0, fg.0, 12), mix(bg.1, fg.1, 12), mix(bg.2, fg.2, 12))
         );
-        assert!(fill.0 > bg.0 && fill.1 > bg.1 && fill.2 > bg.2);
-    }
-
-    #[test]
-    fn light_terminal_fill_is_darkened_toward_foreground() {
-        let fg = RgbColor(0x33, 0x33, 0x33);
-        let bg = RgbColor(0xfd, 0xfd, 0xfd);
-        let fill = fill_rgb(blend_fill(fg, bg));
-        assert!(fill.0 < bg.0 && fill.1 < bg.1 && fill.2 < bg.2);
+        for (channel, base) in [(fill.0, bg.0), (fill.1, bg.1), (fill.2, bg.2)] {
+            assert_eq!(channel.cmp(&base), toward);
+        }
     }
 
     #[test]

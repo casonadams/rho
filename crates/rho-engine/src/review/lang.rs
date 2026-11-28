@@ -106,39 +106,38 @@ pub fn is_test_path(path: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use test_case::test_case;
 
-    #[test]
-    fn languages_come_from_extensions() {
-        let cases = [
-            ("a/b.rs", Lang::Rust),
-            ("x.tsx", Lang::Js),
-            ("x.py", Lang::Python),
-            ("x.go", Lang::Go),
-            ("X.kt", Lang::Java),
-            ("x.hpp", Lang::C),
-            ("x.sh", Lang::Shell),
-            ("README.md", Lang::Other),
-            ("Makefile", Lang::Other),
-        ];
-        for (path, lang) in cases {
-            assert_eq!(Lang::from_path(path), lang, "{path}");
-        }
+    #[test_case("a/b.rs", Lang::Rust; "rust")]
+    #[test_case("x.tsx", Lang::Js; "tsx")]
+    #[test_case("x.py", Lang::Python; "python")]
+    #[test_case("x.go", Lang::Go; "go")]
+    #[test_case("X.kt", Lang::Java; "kotlin")]
+    #[test_case("x.hpp", Lang::C; "cpp header")]
+    #[test_case("x.sh", Lang::Shell; "shell")]
+    #[test_case("README.md", Lang::Other; "markdown")]
+    #[test_case("Makefile", Lang::Other; "no extension")]
+    fn languages_come_from_extensions(path: &str, lang: Lang) {
+        assert_eq!(Lang::from_path(path), lang);
     }
 
-    #[test]
-    fn test_paths_are_recognized_by_segment_not_substring() {
-        let tests = [
-            "tests/a.rs",
-            "src/a_test.go",
-            "src/test_a.py",
-            "web/a.spec.ts",
-            "a/__tests__/b.js",
-            "src/ui/transcript_tests.rs",
-            "crates/rho-test-support/src/lib.rs",
-        ];
-        let code = ["src/latest.rs", "src/contest/a.rs", "src/attestation.py", "src/main.rs"];
-        assert!(tests.iter().all(|p| is_test_path(p)));
-        assert!(code.iter().all(|p| !is_test_path(p)));
+    #[test_case("tests/a.rs"; "tests dir")]
+    #[test_case("src/a_test.go"; "test suffix")]
+    #[test_case("src/test_a.py"; "test prefix")]
+    #[test_case("web/a.spec.ts"; "spec segment")]
+    #[test_case("a/__tests__/b.js"; "dunder tests dir")]
+    #[test_case("src/ui/transcript_tests.rs"; "tests suffix")]
+    #[test_case("crates/rho-test-support/src/lib.rs"; "hyphenated test segment")]
+    fn test_paths_are_recognized_by_segment(path: &str) {
+        assert!(is_test_path(path));
+    }
+
+    #[test_case("src/latest.rs"; "test inside word")]
+    #[test_case("src/contest/a.rs"; "test inside dir name")]
+    #[test_case("src/attestation.py"; "test inside longer word")]
+    #[test_case("src/main.rs"; "plain source")]
+    fn code_paths_containing_test_as_a_substring_are_not_test_paths(path: &str) {
+        assert!(!is_test_path(path));
     }
 
     #[test]

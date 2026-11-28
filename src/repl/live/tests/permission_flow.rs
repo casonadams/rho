@@ -74,14 +74,17 @@ fn test_permission_prompt_layout_and_allow_flow() {
     assert_eq!(driver.rx.try_recv().unwrap(), InteractionResponse::Selected(0));
 }
 
-fn assert_edit_response(res: InteractionResponse) {
+fn selected_with_input(res: InteractionResponse) -> (usize, String) {
     match res {
-        InteractionResponse::SelectedWithInput { index, text } => {
-            assert_eq!(index, 1);
-            assert!(text.ends_with('!'));
-        }
+        InteractionResponse::SelectedWithInput { index, text } => (index, text),
         other => panic!("expected SelectedWithInput, got {other:?}"),
     }
+}
+
+fn assert_edit_response(res: InteractionResponse) {
+    let (index, text) = selected_with_input(res);
+    assert_eq!(index, 1);
+    assert!(text.ends_with('!'));
 }
 
 #[test]
@@ -107,13 +110,9 @@ fn test_permission_prompt_edit_flow_with_multiline_input() {
 }
 
 fn assert_always_response(res: InteractionResponse) {
-    match res {
-        InteractionResponse::SelectedWithInput { index, text } => {
-            assert_eq!(index, 2);
-            assert!(text.contains("echo line_1"));
-        }
-        other => panic!("expected SelectedWithInput, got {other:?}"),
-    }
+    let (index, text) = selected_with_input(res);
+    assert_eq!(index, 2);
+    assert!(text.contains("echo line_1"));
 }
 
 fn assert_always_modal_input(driver: &PermDriver) {

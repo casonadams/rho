@@ -33,20 +33,17 @@ pub fn unquote_scalar(value: &str) -> &str {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use test_case::test_case;
 
-    #[test]
-    fn clip_chars_reports_how_many_characters_were_omitted() {
-        for (text, max, expected) in [
-            ("", 0, ("", 0)),
-            ("", 3, ("", 0)),
-            ("abc", 3, ("abc", 0)),
-            ("abcd", 3, ("abc", 1)),
-            ("abcd", 0, ("", 4)),
-            ("h\u{e9}llo", 2, ("h\u{e9}", 3)),
-            ("\u{65e5}\u{672c}\u{8a9e}", 1, ("\u{65e5}", 2)),
-        ] {
-            assert_eq!(clip_chars(text, max), expected, "{text:?} at {max}");
-        }
+    #[test_case("", 0, ("", 0); "empty at zero")]
+    #[test_case("", 3, ("", 0); "empty under limit")]
+    #[test_case("abc", 3, ("abc", 0); "exactly at limit")]
+    #[test_case("abcd", 3, ("abc", 1); "one over limit")]
+    #[test_case("abcd", 0, ("", 4); "zero limit")]
+    #[test_case("h\u{e9}llo", 2, ("h\u{e9}", 3); "two byte character")]
+    #[test_case("\u{65e5}\u{672c}\u{8a9e}", 1, ("\u{65e5}", 2); "three byte characters")]
+    fn clip_chars_reports_how_many_characters_were_omitted(text: &str, max: usize, expected: (&str, usize)) {
+        assert_eq!(clip_chars(text, max), expected);
     }
 
     #[test]
@@ -58,25 +55,22 @@ mod tests {
         assert_eq!(truncate_chars("\u{65e5}\u{672c}\u{8a9e}", 1), ("\u{65e5}", true));
     }
 
-    #[test]
-    fn unquote_scalar_trims_and_strips_quote_characters() {
-        for (raw, expected) in [("  \"name\" ", "name"), ("'x'", "x"), ("plain", "plain"), ("", "")] {
-            assert_eq!(unquote_scalar(raw), expected, "{raw:?}");
-        }
+    #[test_case("  \"name\" ", "name"; "padded double quoted")]
+    #[test_case("'x'", "x"; "single quoted")]
+    #[test_case("plain", "plain"; "unquoted")]
+    #[test_case("", ""; "empty")]
+    fn unquote_scalar_trims_and_strips_quote_characters(raw: &str, expected: &str) {
+        assert_eq!(unquote_scalar(raw), expected);
     }
 
-    #[test]
-    fn format_size_uses_the_engine_truncation_units() {
-        for (bytes, expected) in [
-            (0, "0B"),
-            (512, "512B"),
-            (1023, "1023B"),
-            (1024, "1.0KB"),
-            (1536, "1.5KB"),
-            (1024 * 1024, "1.0MB"),
-            (5 * 1024 * 1024 + 512 * 1024, "5.5MB"),
-        ] {
-            assert_eq!(format_size(bytes), expected, "{bytes}");
-        }
+    #[test_case(0, "0B"; "zero bytes")]
+    #[test_case(512, "512B"; "half kilobyte")]
+    #[test_case(1023, "1023B"; "just under a kilobyte")]
+    #[test_case(1024, "1.0KB"; "one kilobyte")]
+    #[test_case(1536, "1.5KB"; "fractional kilobytes")]
+    #[test_case(1024 * 1024, "1.0MB"; "one megabyte")]
+    #[test_case(5 * 1024 * 1024 + 512 * 1024, "5.5MB"; "fractional megabytes")]
+    fn format_size_uses_the_engine_truncation_units(bytes: usize, expected: &str) {
+        assert_eq!(format_size(bytes), expected);
     }
 }

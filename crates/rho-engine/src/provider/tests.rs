@@ -6,6 +6,7 @@ use rho_harness_core::error::Result;
 use rho_harness_core::provider::{ModelRoute, ProviderId};
 use rho_test_support::EnvVarGuard;
 use std::collections::BTreeMap;
+use test_case::test_case;
 
 fn config_with_provider(name: &str, spec: ProviderConfig, allow_private: bool) -> Config {
     let mut config = Config {
@@ -36,87 +37,81 @@ fn create_model_for_config(config: &Config, model: &str, auth_store: &AuthStore)
     router(auth_store).build_blocking(config, &ModelRoute::new(&config.provider, model))
 }
 
-#[test]
-fn custom_provider_builds_client_from_each_source() {
-    let cases = [
-        (
-            config_with_provider("acme", spec("https://api.acme.dev/v1", None), false),
-            "acme-large",
-            Some(("ACME_API_KEY", "generic-env-secret")),
-            None,
-            "acme",
-        ),
-        (
-            config_with_provider(
-                "acme",
-                spec("https://api.acme.dev/v1", Some("RHO_TEST_CUSTOM_PROVIDER_KEY")),
-                false,
-            ),
-            "acme",
-            Some(("RHO_TEST_CUSTOM_PROVIDER_KEY", "env-secret")),
-            None,
-            "acme",
-        ),
-        (
-            config_with_provider("acme", spec("https://api.acme.dev/v1", None), false),
-            "acme",
-            None,
-            Some(("acme", "stored-secret")),
-            "acme",
-        ),
-        (
-            config_with_provider(
-                "custom_llm",
-                spec("http://127.0.0.1:8080/v1", Some("LOCAL_API_KEY")),
-                true,
-            ),
-            "custom_llm",
-            Some(("LOCAL_API_KEY", "local-key")),
-            None,
-            "custom_llm",
-        ),
-        // A [providers.groq] entry would be rejected by config validation, so an
-        // empty map proves the enum arm handled it.
-        (
-            Config {
-                provider: "groq".to_string(),
-                ..Default::default()
-            },
-            "llama-3.3-70b",
-            None,
-            Some(("groq", "gsk-test")),
-            "groq",
-        ),
-    ];
-    for (config, model, env, stored_key, expected) in cases {
-        let _env = env.map(|(var, value)| EnvVarGuard::set(var, value));
-        let (_dir, mut auth_store) = temp_auth_store();
-        if let Some((provider, key)) = stored_key {
-            auth_store.set_key(provider, key).unwrap();
-        }
-
-        let handle = create_model_for_config(&config, model, &auth_store).unwrap();
-        assert_eq!(handle.provider_name(), expected);
+#[test_case(
+    config_with_provider("acme", spec("https://api.acme.dev/v1", None), false),
+    "acme-large",
+    Some(("ACME_API_KEY", "generic-env-secret")),
+    None,
+    "acme";
+    "generic env key"
+)]
+#[test_case(
+    config_with_provider("acme", spec("https://api.acme.dev/v1", Some("RHO_TEST_CUSTOM_PROVIDER_KEY")), false),
+    "acme",
+    Some(("RHO_TEST_CUSTOM_PROVIDER_KEY", "env-secret")),
+    None,
+    "acme";
+    "configured env key"
+)]
+#[test_case(
+    config_with_provider("acme", spec("https://api.acme.dev/v1", None), false),
+    "acme",
+    None,
+    Some(("acme", "stored-secret")),
+    "acme";
+    "stored key"
+)]
+#[test_case(
+    config_with_provider("custom_llm", spec("http://127.0.0.1:8080/v1", Some("LOCAL_API_KEY")), true),
+    "custom_llm",
+    Some(("LOCAL_API_KEY", "local-key")),
+    None,
+    "custom_llm";
+    "private network allowed"
+)]
+// A [providers.groq] entry would be rejected by config validation, so an
+// empty map proves the enum arm handled it.
+#[test_case(
+    Config { provider: "groq".to_string(), ..Default::default() },
+    "llama-3.3-70b",
+    None,
+    Some(("groq", "gsk-test")),
+    "groq";
+    "builtin groq"
+)]
+fn custom_provider_builds_client_from_each_source(
+    config: Config,
+    model: &str,
+    env: Option<(&'static str, &'static str)>,
+    stored_key: Option<(&str, &str)>,
+    expected: &str,
+) {
+    let _env = env.map(|(var, value)| EnvVarGuard::set(var, value));
+    let (_dir, mut auth_store) = temp_auth_store();
+    if let Some((provider, key)) = stored_key {
+        auth_store.set_key(provider, key).unwrap();
     }
+
+    let handle = create_model_for_config(&config, model, &auth_store).unwrap();
+    assert_eq!(handle.provider_name(), expected);
 }
 
-#[test]
-fn custom_provider_errors_name_the_failing_config() {
+#[test_case(
+    config_with_provider("custom_llm", spec("http://127.0.0.1:8080/v1", None), false),
+    "custom_llm",
+    "blocked";
+    "private network blocked"
+)]
+#[test_case(
+    Config { provider: "mystery".to_string(), providers: BTreeMap::new(), ..Default::default() },
+    "mystery",
+    "[providers.mystery]";
+    "unknown provider"
+)]
+fn custom_provider_errors_name_the_failing_config(config: Config, model: &str, needle: &str) {
     let (_dir, auth_store) = temp_auth_store();
-    let private = config_with_provider("custom_llm", spec("http://127.0.0.1:8080/v1", None), false);
-    let unknown = Config {
-        provider: "mystery".to_string(),
-        providers: BTreeMap::new(),
-        ..Default::default()
-    };
-    let cases = [
-        (&private, "custom_llm", "blocked"),
-        (&unknown, "mystery", "[providers.mystery]"),
-    ];
-    for (config, model, needle) in cases {
-        let error = create_model_for_config(config, model, &auth_store).unwrap_err();
-        assert!(error.to_string().contains(needle), "{error}");
-    }
+    let error = create_model_for_config(&config, model, &auth_store).unwrap_err();
+    assert!(error.to_string().contains(needle), "{error}");
 }
 
 fn make_discovered_models(ids: &[&str]) -> Vec<crate::provider::discovery::DiscoveredModel> {
@@ -198,28 +193,19 @@ fn claude_provider_fails_without_credentials() {
     assert!(err.contains("Missing API key for provider 'claude'") || err.contains("Run 'rho login claude'"));
 }
 
-#[test]
-fn guard_route_reads_the_guard_role() {
-    let cases = [
-        (None, None),
-        (Some("none"), None),
-        (Some("local/qwen2.5-coder:7b"), Some("local/qwen2.5-coder:7b")),
-        (Some("ollama/qwen2.5-coder:7b"), Some("local/qwen2.5-coder:7b")),
-        (Some("anthropic/claude-3-5-haiku"), Some("anthropic/claude-3-5-haiku")),
-        (Some("qwen2.5-coder:7b"), Some("local/qwen2.5-coder:7b")),
-        (Some("acme/m-1"), Some("acme/m-1")),
-    ];
-    for (spec, expected) in cases {
-        let mut config = Config::default();
-        if let Some(spec) = spec {
-            config.model_roles.insert("guard".to_string(), spec.to_string());
-        }
-        assert_eq!(
-            guard_route(&config).map(|r| r.to_string()).as_deref(),
-            expected,
-            "{spec:?}"
-        );
+#[test_case(None, None; "unset")]
+#[test_case(Some("none"), None; "none disables")]
+#[test_case(Some("local/qwen2.5-coder:7b"), Some("local/qwen2.5-coder:7b"); "local route")]
+#[test_case(Some("ollama/qwen2.5-coder:7b"), Some("local/qwen2.5-coder:7b"); "ollama alias")]
+#[test_case(Some("anthropic/claude-3-5-haiku"), Some("anthropic/claude-3-5-haiku"); "anthropic route")]
+#[test_case(Some("qwen2.5-coder:7b"), Some("local/qwen2.5-coder:7b"); "bare model defaults local")]
+#[test_case(Some("acme/m-1"), Some("acme/m-1"); "custom provider")]
+fn guard_route_reads_the_guard_role(spec: Option<&str>, expected: Option<&str>) {
+    let mut config = Config::default();
+    if let Some(spec) = spec {
+        config.model_roles.insert("guard".to_string(), spec.to_string());
     }
+    assert_eq!(guard_route(&config).map(|r| r.to_string()).as_deref(), expected);
 }
 
 #[tokio::test]

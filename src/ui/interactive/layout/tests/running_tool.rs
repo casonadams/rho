@@ -5,6 +5,7 @@ use crate::ui::render::live_card::LiveCard;
 use crate::ui::theme::Theme;
 use rho_harness_core::presentation::ToolLine;
 use std::rc::Rc;
+use test_case::test_case;
 
 fn tool_with_n_lines(n: usize) -> RunningTool {
     let command = format!("seq 1 {n}");
@@ -104,32 +105,25 @@ fn streamed_tool(name: &str) -> RunningTool {
     tool
 }
 
-#[test]
-fn running_subagent_and_workflow_cards_show_streamed_output_tail() {
+#[test_case("subagent"; "subagent")]
+#[test_case("workflow"; "workflow")]
+fn running_subagent_and_workflow_cards_show_streamed_output_tail(name: &str) {
     let structured = Theme {
         structured_tool_cards: true,
         ..Theme::default()
     };
-    for name in ["subagent", "workflow"] {
-        for theme in [Theme::default(), structured.clone()] {
-            let tool = streamed_tool(name);
-            let lines = render_running_tool_widget(RunningToolWidgetInput {
-                tool: &tool,
-                theme: &theme,
-                width: 60,
-                tools_expanded: false,
-            });
-            let text = crate::ui::block::strip_ansi(&lines.join("\n"));
-            assert!(
-                text.contains("... (3 earlier lines, Ctrl+O to expand)"),
-                "{name}: {text}"
-            );
-            assert!(
-                text.contains("step line 4") && text.contains("step line 8"),
-                "{name}: {text}"
-            );
-            assert!(!text.contains("step line 3"), "{name}: {text}");
-        }
+    for theme in [Theme::default(), structured] {
+        let tool = streamed_tool(name);
+        let lines = render_running_tool_widget(RunningToolWidgetInput {
+            tool: &tool,
+            theme: &theme,
+            width: 60,
+            tools_expanded: false,
+        });
+        let text = crate::ui::block::strip_ansi(&lines.join("\n"));
+        assert!(text.contains("... (3 earlier lines, Ctrl+O to expand)"), "{text}");
+        assert!(text.contains("step line 4") && text.contains("step line 8"), "{text}");
+        assert!(!text.contains("step line 3"), "{text}");
     }
 }
 

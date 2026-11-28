@@ -1,6 +1,9 @@
 use super::*;
-use crate::lsp::test_server::{FakeLauncher, FakeOptions, fake_manager, fake_manager_with, fake_server, until};
+use crate::lsp::test_server::{
+    FakeLauncher, FakeOptions, fake_manager, fake_manager_with, fake_server, project, until,
+};
 use rho_test_support::TestDir;
+use test_case::test_case;
 
 struct Fixture {
     dir: TestDir,
@@ -32,15 +35,6 @@ impl Fixture {
     async fn settle(&self) {
         let _ = self.client.request("test/barrier", Value::Null).await;
     }
-}
-
-fn project() -> (TestDir, PathBuf) {
-    let dir = TestDir::new();
-    std::fs::write(dir.as_ref().join("Cargo.toml"), "").unwrap();
-    std::fs::create_dir(dir.as_ref().join("src")).unwrap();
-    let lib = dir.as_ref().join("src/lib.rs");
-    std::fs::write(&lib, "fn ok() {}\n").unwrap();
-    (dir, lib)
 }
 
 #[tokio::test(start_paused = true)]
@@ -370,40 +364,22 @@ async fn a_document_closed_while_syncing_from_disk_stays_closed() {
     assert_eq!(fixture.count("textDocument/didOpen"), 2);
 }
 
+#[test_case(FakeOptions::default(), true, false; "save without text")]
+#[test_case(FakeOptions { save_text: true, ..FakeOptions::default() }, true, true; "save with text")]
+#[test_case(FakeOptions { no_save: true, ..FakeOptions::default() }, false, false; "no save capability")]
 #[tokio::test(start_paused = true)]
-async fn did_save_follows_the_servers_save_capability() {
-    let cases = [
-        (FakeOptions::default(), true, false),
-        (
-            FakeOptions {
-                save_text: true,
-                ..FakeOptions::default()
-            },
-            true,
-            true,
-        ),
-        (
-            FakeOptions {
-                no_save: true,
-                ..FakeOptions::default()
-            },
-            false,
-            false,
-        ),
-    ];
-    for (options, sent, with_text) in cases {
-        let fixture = Fixture::new(options).await;
-        fixture
-            .client
-            .sync(&fixture.lib(), "fn a() {}\n", "rust")
-            .await
-            .unwrap();
-        fixture.client.did_save(&fixture.lib(), "fn a() {}\n").await.unwrap();
-        fixture.settle().await;
-        let saves = fixture.params("textDocument/didSave");
-        assert_eq!(saves.len(), usize::from(sent));
-        assert!(saves.iter().all(|p| p.get("text").is_some() == with_text), "{saves:?}");
-    }
+async fn did_save_follows_the_servers_save_capability(options: FakeOptions, sent: bool, with_text: bool) {
+    let fixture = Fixture::new(options).await;
+    fixture
+        .client
+        .sync(&fixture.lib(), "fn a() {}\n", "rust")
+        .await
+        .unwrap();
+    fixture.client.did_save(&fixture.lib(), "fn a() {}\n").await.unwrap();
+    fixture.settle().await;
+    let saves = fixture.params("textDocument/didSave");
+    assert_eq!(saves.len(), usize::from(sent));
+    assert!(saves.iter().all(|p| p.get("text").is_some() == with_text), "{saves:?}");
 }
 
 #[tokio::test(start_paused = true)]

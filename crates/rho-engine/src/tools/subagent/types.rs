@@ -45,6 +45,7 @@ pub(super) fn subagent_label(name: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use test_case::test_case;
 
     #[test]
     fn turns_default_to_100_with_no_upper_cap() {
@@ -53,21 +54,20 @@ mod tests {
         assert_eq!(resolve_turns(Some(500)), 500);
     }
 
+    #[test_case("performanceAudit", Some("performanceAudit"); "camel case")]
+    #[test_case("PerformanceAudit", Some("performanceAudit"); "pascal case")]
+    #[test_case("performance audit", Some("performanceAudit"); "spaced words")]
+    #[test_case("  retry-after_parsing v2 ", Some("retryAfterParsingV2"); "mixed separators")]
+    #[test_case("HTTP retries", Some("httpRetries"); "acronym")]
+    #[test_case("../etc/passwd", Some("etcPasswd"); "path characters")]
+    #[test_case("  -- ", None; "separators only")]
+    #[test_case("", None; "empty")]
+    fn task_names_are_camel_case(raw: &str, expected: Option<&str>) {
+        assert_eq!(task_name(raw).as_deref(), expected);
+    }
+
     #[test]
-    fn task_names_are_camel_case_and_bounded() {
-        let cases = [
-            ("performanceAudit", Some("performanceAudit")),
-            ("PerformanceAudit", Some("performanceAudit")),
-            ("performance audit", Some("performanceAudit")),
-            ("  retry-after_parsing v2 ", Some("retryAfterParsingV2")),
-            ("HTTP retries", Some("httpRetries")),
-            ("../etc/passwd", Some("etcPasswd")),
-            ("  -- ", None),
-            ("", None),
-        ];
-        for (raw, expected) in cases {
-            assert_eq!(task_name(raw).as_deref(), expected, "{raw}");
-        }
+    fn task_names_are_bounded() {
         assert_eq!(
             task_name(&"a".repeat(100)).unwrap().chars().count(),
             MAX_TASK_NAME_CHARS

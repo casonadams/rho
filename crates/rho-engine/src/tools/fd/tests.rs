@@ -3,17 +3,17 @@ mod search;
 mod stats;
 
 use super::*;
-use tempfile::TempDir;
+use rho_test_support::TestDir;
 
-pub(crate) fn fixture() -> TempDir {
+pub(crate) fn fixture() -> TestDir {
     crate::test_support::sample_search_tree()
 }
 
-pub(crate) async fn find(dir: &TempDir, pattern: &str, mutate: impl FnOnce(&mut FdArgs)) -> ToolResult {
+pub(crate) async fn find(dir: &TestDir, pattern: &str, mutate: impl FnOnce(&mut FdArgs)) -> ToolResult {
     let mut args = FdArgs {
         pattern: Some(pattern.to_string()),
         ..Default::default()
     };
     mutate(&mut args);
-    FdTool::new(dir.path()).execute(args).await.unwrap()
+    FdTool::new(dir).execute(args).await.unwrap()
 }

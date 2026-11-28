@@ -1,5 +1,6 @@
 use super::*;
 use crate::tools::truncate::{DEFAULT_MAX_BYTES, format_size};
+use test_case::test_case;
 
 async fn read_text(
     file_path: std::path::PathBuf,
@@ -179,22 +180,22 @@ async fn test_read_offset_beyond_end_of_file_errors() {
     );
 }
 
+#[test_case(None; "no offset")]
+#[test_case(Some(5); "offset past end")]
 #[tokio::test]
-async fn test_read_empty_file_reports_empty() {
+async fn test_read_empty_file_reports_empty(offset: Option<usize>) {
     let temp_dir = crate::test_support::TestDir::new();
-    for offset in [None, Some(5)] {
-        let result = read_text(temp_dir.join("empty.txt"), "", (offset, None)).await;
-        assert!(!result.is_error, "{offset:?}");
-        assert_eq!(result.content, "[File is empty]");
-    }
+    let result = read_text(temp_dir.join("empty.txt"), "", (offset, None)).await;
+    assert!(!result.is_error);
+    assert_eq!(result.content, "[File is empty]");
 }
 
 #[tokio::test]
 async fn test_read_missing_file_suggests_close_paths() {
-    let dir = tempfile::tempdir().unwrap();
-    std::fs::create_dir_all(dir.path().join("src/repl/input_reader")).unwrap();
-    std::fs::write(dir.path().join("src/repl/input_reader/mod.rs"), "").unwrap();
-    let tool = ReadTool::new(dir.path());
+    let dir = crate::test_support::TestDir::new();
+    std::fs::create_dir_all(dir.join("src/repl/input_reader")).unwrap();
+    std::fs::write(dir.join("src/repl/input_reader/mod.rs"), "").unwrap();
+    let tool = ReadTool::new(&dir);
     let res = tool
         .execute(ReadArgs {
             path: "src/repl/input_reader.rs".to_string(),
@@ -236,31 +237,30 @@ async fn write_and_read(name: &str, bytes: &[u8]) -> ToolResult {
         .unwrap()
 }
 
-fn solid_png(width: u32, height: u32) -> Vec<u8> {
+const PNG_SIGNATURE: [u8; 8] = [0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A];
+const IHDR_1X1_RGBA: [u8; 13] = [0, 0, 0, 1, 0, 0, 0, 1, 8, 6, 0, 0, 0];
+
+fn solid_image(format: ImageFormat, width: u32, height: u32) -> Vec<u8> {
     let img = RgbaImage::from_fn(width, height, |_, _| Rgba([180, 60, 30, 255]));
     let mut buf = Cursor::new(Vec::new());
-    img.write_to(&mut buf, ImageFormat::Png).unwrap();
+    img.write_to(&mut buf, format).unwrap();
     buf.into_inner()
 }
 
-fn solid_bmp(width: u32, height: u32) -> Vec<u8> {
-    let img = RgbaImage::from_fn(width, height, |_, _| Rgba([180, 60, 30, 255]));
-    let mut buf = Cursor::new(Vec::new());
-    img.write_to(&mut buf, ImageFormat::Bmp).unwrap();
-    buf.into_inner()
-}
-
-fn png_chunk(chunk_type: &[u8; 4], data: &[u8]) -> Vec<u8> {
-    let mut chunk = (data.len() as u32).to_be_bytes().to_vec();
-    chunk.extend_from_slice(chunk_type);
-    chunk.extend_from_slice(data);
-    chunk.extend_from_slice(&[0, 0, 0, 0]); // CRC not validated by the sniffer
-    chunk
+fn png_with_chunks(chunks: &[(&[u8; 4], &[u8])]) -> Vec<u8> {
+    let mut bytes = PNG_SIGNATURE.to_vec();
+    for (chunk_type, data) in chunks {
+        bytes.extend_from_slice(&(data.len() as u32).to_be_bytes());
+        bytes.extend_from_slice(*chunk_type);
+        bytes.extend_from_slice(data);
+        bytes.extend_from_slice(&[0, 0, 0, 0]); // CRC not validated by the sniffer
+    }
+    bytes
 }
 
 #[tokio::test]
 async fn test_read_png_attaches_inline_image() {
-    let bytes = solid_png(8, 8);
+    let bytes = solid_image(ImageFormat::Png, 8, 8);
     let res = write_and_read("img.png", &bytes).await;
 
     assert!(!res.is_error);
@@ -272,7 +272,7 @@ async fn test_read_png_attaches_inline_image() {
 
 #[tokio::test]
 async fn test_read_bmp_converts_to_png_with_hint() {
-    let res = write_and_read("img.bmp", &solid_bmp(8, 8)).await;
+    let res = write_and_read("img.bmp", &solid_image(ImageFormat::Bmp, 8, 8)).await;
 
     assert!(!res.is_error);
     assert_eq!(
@@ -287,10 +287,11 @@ async fn test_read_bmp_converts_to_png_with_hint() {
 
 #[tokio::test]
 async fn test_read_corrupt_image_reports_omission_without_block() {
-    let mut bytes = vec![0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A];
-    bytes.extend(png_chunk(b"IHDR", &[0, 0, 0, 1, 0, 0, 0, 1, 8, 6, 0, 0, 0]));
-    bytes.extend(png_chunk(b"IDAT", &[0xDE, 0xAD, 0xBE, 0xEF]));
-    bytes.extend(png_chunk(b"IEND", &[]));
+    let bytes = png_with_chunks(&[
+        (b"IHDR", &IHDR_1X1_RGBA),
+        (b"IDAT", &[0xDE, 0xAD, 0xBE, 0xEF]),
+        (b"IEND", &[]),
+    ]);
     let res = write_and_read("img.png", &bytes).await;
 
     assert!(!res.is_error, "pi delivers the omission note as a successful result");
@@ -303,11 +304,12 @@ async fn test_read_corrupt_image_reports_omission_without_block() {
 
 #[tokio::test]
 async fn test_read_apng_falls_back_to_binary_marker() {
-    let mut bytes = vec![0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A];
-    bytes.extend(png_chunk(b"IHDR", &[0, 0, 0, 1, 0, 0, 0, 1, 8, 6, 0, 0, 0]));
-    bytes.extend(png_chunk(b"acTL", &[0, 0, 0, 2, 0, 0, 0, 0]));
-    bytes.extend(png_chunk(b"IDAT", &[0x01, 0x02, 0x03, 0x04]));
-    bytes.extend(png_chunk(b"IEND", &[]));
+    let bytes = png_with_chunks(&[
+        (b"IHDR", &IHDR_1X1_RGBA),
+        (b"acTL", &[0, 0, 0, 2, 0, 0, 0, 0]),
+        (b"IDAT", &[0x01, 0x02, 0x03, 0x04]),
+        (b"IEND", &[]),
+    ]);
     let res = write_and_read("anim.png", &bytes).await;
 
     assert!(!res.is_error);
@@ -317,12 +319,12 @@ async fn test_read_apng_falls_back_to_binary_marker() {
 
 #[tokio::test]
 async fn test_read_oversized_file_spills_artifact() {
-    let dir = tempfile::tempdir().unwrap();
-    let file_path = dir.path().join("large.txt");
+    let dir = crate::test_support::TestDir::new();
+    let file_path = dir.join("large.txt");
     let content = vec!["x".repeat(100); 1000].join("\n");
     tokio::fs::write(&file_path, &content).await.unwrap();
 
-    let tool = ReadTool::new(dir.path());
+    let tool = ReadTool::new(&dir);
     let res = tool
         .execute(ReadArgs {
             path: "large.txt".to_string(),
@@ -337,7 +339,7 @@ async fn test_read_oversized_file_spills_artifact() {
     assert!(res.content.contains(".rho/artifacts"));
     assert!(res.content.contains("[Output truncated. Full content"));
 
-    let artifact_dir = dir.path().join(".rho/artifacts");
+    let artifact_dir = dir.join(".rho/artifacts");
     let entries: Vec<_> = std::fs::read_dir(&artifact_dir).unwrap().collect();
     assert_eq!(entries.len(), 1);
     let spilled_content = std::fs::read_to_string(entries[0].as_ref().unwrap().path()).unwrap();
@@ -346,14 +348,14 @@ async fn test_read_oversized_file_spills_artifact() {
 
 #[tokio::test]
 async fn test_read_skill_full_content_on_first_read() {
-    let dir = tempfile::tempdir().unwrap();
-    let skill_dir = dir.path().join(".agents/skills/custom");
+    let dir = crate::test_support::TestDir::new();
+    let skill_dir = dir.join(".agents/skills/custom");
     tokio::fs::create_dir_all(&skill_dir).await.unwrap();
     let file_path = skill_dir.join("SKILL.md");
     let content = numbered_lines(150);
     tokio::fs::write(&file_path, &content).await.unwrap();
 
-    let tool = ReadTool::new(dir.path());
+    let tool = ReadTool::new(&dir);
 
     // First read with explicit limit of 10 should read all 150 lines
     let res = tool
@@ -521,23 +523,23 @@ async fn a_large_text_files_oversized_line_and_end_are_reported() {
     assert_eq!(beyond.content, "Offset 303 is beyond end of file (301 lines total)");
 }
 
+#[test_case(Some(2), None; "with offset")]
+#[test_case(None, Some(5); "with limit")]
 #[tokio::test]
-async fn symbol_cannot_be_combined_with_offset_or_limit() {
-    let dir = tempfile::tempdir().unwrap();
-    std::fs::write(dir.path().join("a.rs"), "fn a() {}\n").unwrap();
-    for (offset, limit) in [(Some(2), None), (None, Some(5))] {
-        let args = ReadArgs {
-            path: "a.rs".into(),
-            offset,
-            limit,
-            symbol: Some("a".into()),
-        };
-        let result = ReadTool::new(dir.path()).execute(args).await.unwrap();
-        assert!(result.is_error);
-        assert!(
-            result.content.contains("symbol cannot be combined"),
-            "{}",
-            result.content
-        );
-    }
+async fn symbol_cannot_be_combined_with_offset_or_limit(offset: Option<usize>, limit: Option<usize>) {
+    let dir = crate::test_support::TestDir::new();
+    std::fs::write(dir.join("a.rs"), "fn a() {}\n").unwrap();
+    let args = ReadArgs {
+        path: "a.rs".into(),
+        offset,
+        limit,
+        symbol: Some("a".into()),
+    };
+    let result = ReadTool::new(&dir).execute(args).await.unwrap();
+    assert!(result.is_error);
+    assert!(
+        result.content.contains("symbol cannot be combined"),
+        "{}",
+        result.content
+    );
 }

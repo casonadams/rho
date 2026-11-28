@@ -1,40 +1,41 @@
 use super::*;
 use std::path::Path;
+use test_case::test_case;
 
 fn write_agent(dir: &Path, name: &str, content: &str) {
     std::fs::create_dir_all(dir).unwrap();
     std::fs::write(dir.join(format!("{name}.md")), content).unwrap();
 }
 
-#[test]
-fn frontmatter_ends_only_at_a_line_that_is_exactly_three_dashes() {
-    let cases = [
+#[test_case(
+    "---\nname: a\ndescription: x---y\n---\nBody --- with dashes\n\n---\nmore",
+    "a", "x---y", "Body --- with dashes\n\n---\nmore";
+    "dashes inside values and body"
+)]
+#[test_case("---\nname: b\n---\n", "b", "Custom subagent", ""; "empty body")]
+#[test_case(
+    "no frontmatter --- here", "fallback", "Custom subagent", "no frontmatter --- here";
+    "no frontmatter"
+)]
+#[test_case(
+    "---\nname: c\nnever closed", "fallback", "Custom subagent", "---\nname: c\nnever closed";
+    "unclosed frontmatter"
+)]
+fn frontmatter_ends_only_at_a_line_that_is_exactly_three_dashes(
+    content: &str,
+    name: &str,
+    description: &str,
+    body: &str,
+) {
+    let agent = parser::parse_agent_content(content, "fallback", "loc");
+    assert_eq!(
         (
-            "---\nname: a\ndescription: x---y\n---\nBody --- with dashes\n\n---\nmore",
-            ("a", "x---y", "Body --- with dashes\n\n---\nmore"),
+            agent.name.as_str(),
+            agent.description.as_str(),
+            agent.system_prompt.as_str()
         ),
-        ("---\nname: b\n---\n", ("b", "Custom subagent", "")),
-        (
-            "no frontmatter --- here",
-            ("fallback", "Custom subagent", "no frontmatter --- here"),
-        ),
-        (
-            "---\nname: c\nnever closed",
-            ("fallback", "Custom subagent", "---\nname: c\nnever closed"),
-        ),
-    ];
-    for (content, (name, description, body)) in cases {
-        let agent = parser::parse_agent_content(content, "fallback", "loc");
-        assert_eq!(
-            (
-                agent.name.as_str(),
-                agent.description.as_str(),
-                agent.system_prompt.as_str()
-            ),
-            (name, description, body),
-            "{content:?}"
-        );
-    }
+        (name, description, body)
+    );
 }
 
 #[test]

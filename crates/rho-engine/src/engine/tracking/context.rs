@@ -217,6 +217,7 @@ mod tests {
     use super::{CompactionTiming, ContextLimitSource, ContextPolicy, ContextTracker};
     use crate::provider::{DiscoveredModel, ModelCatalog, ProviderModels};
     use rho_harness_core::provider::ModelRoute;
+    use test_case::test_case;
 
     fn catalog_with(provider: &str, id: &str, tokens: usize) -> ModelCatalog {
         let catalog = ModelCatalog::default();
@@ -228,35 +229,21 @@ mod tests {
         catalog
     }
 
-    #[test]
-    fn limit_prefers_configured_then_provider_then_estimate() {
-        let estimate = rho_harness_core::tokens::context_window_size_for_provider("m", "local");
-        let cases = [
-            (
-                Some(65_536),
-                catalog_with("local", "m", 262_144),
-                (65_536, ContextLimitSource::Configured),
-            ),
-            (
-                None,
-                catalog_with("local", "m", 262_144),
-                (262_144, ContextLimitSource::Provider),
-            ),
-            (
-                None,
-                catalog_with("local", "other", 262_144),
-                (estimate, ContextLimitSource::Estimated),
-            ),
-            (None, ModelCatalog::default(), (estimate, ContextLimitSource::Estimated)),
-        ];
-        for (configured, catalog, expected) in cases {
-            let policy = ContextPolicy::new(catalog, configured, 0);
-            assert_eq!(
-                policy.window(&ModelRoute::new("local", "m")),
-                expected,
-                "{configured:?}"
-            );
-        }
+    fn estimate() -> usize {
+        rho_harness_core::tokens::context_window_size_for_provider("m", "local")
+    }
+
+    #[test_case(Some(65_536), catalog_with("local", "m", 262_144), (65_536, ContextLimitSource::Configured); "configured")]
+    #[test_case(None, catalog_with("local", "m", 262_144), (262_144, ContextLimitSource::Provider); "provider")]
+    #[test_case(None, catalog_with("local", "other", 262_144), (estimate(), ContextLimitSource::Estimated); "other model listed")]
+    #[test_case(None, ModelCatalog::default(), (estimate(), ContextLimitSource::Estimated); "empty catalog")]
+    fn limit_prefers_configured_then_provider_then_estimate(
+        configured: Option<usize>,
+        catalog: ModelCatalog,
+        expected: (usize, ContextLimitSource),
+    ) {
+        let policy = ContextPolicy::new(catalog, configured, 0);
+        assert_eq!(policy.window(&ModelRoute::new("local", "m")), expected);
     }
 
     #[test]
@@ -294,21 +281,21 @@ mod tests {
         assert!(delivered(&agent, 120_000, true).is_some());
     }
 
-    #[test]
-    fn notice_percent_is_the_highest_crossed_above_the_last_reported() {
-        let cases = [
-            ("below the first", 99, 200, None, None),
-            ("first crossing", 100, 200, None, Some(50)),
-            ("several at once report the highest", 190, 200, None, Some(90)),
-            ("same percentage does not repeat", 140, 200, Some(50), None),
-            ("next crossing", 150, 200, Some(50), Some(75)),
-            ("dropping below does not repeat", 60, 200, Some(75), None),
-            ("past the window", 300, 200, Some(75), Some(90)),
-            ("unknown window", 190, 0, None, None),
-        ];
-        for (case, used, limit, notified, expected) in cases {
-            assert_eq!(super::crossed_notice_percent(used, limit, notified), expected, "{case}");
-        }
+    #[test_case(99, 200, None, None; "below the first")]
+    #[test_case(100, 200, None, Some(50); "first crossing")]
+    #[test_case(190, 200, None, Some(90); "several at once report the highest")]
+    #[test_case(140, 200, Some(50), None; "same percentage does not repeat")]
+    #[test_case(150, 200, Some(50), Some(75); "next crossing")]
+    #[test_case(60, 200, Some(75), None; "dropping below does not repeat")]
+    #[test_case(300, 200, Some(75), Some(90); "past the window")]
+    #[test_case(190, 0, None, None; "unknown window")]
+    fn notice_percent_is_the_highest_crossed_above_the_last_reported(
+        used: u64,
+        limit: u64,
+        notified: Option<u64>,
+        expected: Option<u64>,
+    ) {
+        assert_eq!(super::crossed_notice_percent(used, limit, notified), expected);
     }
 
     /// `tracker`'s budget for a 200k provider window that compacts past 183,616 tokens.

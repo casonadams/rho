@@ -5,6 +5,7 @@ use crate::ui::TerminalRenderer;
 use crate::ui::interactive::{Activity, NullBackend, QueueKind, RunningTool, TerminalController};
 use crossterm::event::{KeyCode, KeyEvent, KeyEventState, KeyModifiers};
 use rho_harness_core::provider::ModelRoute;
+use test_case::test_case;
 
 fn key_event(code: KeyCode, modifiers: KeyModifiers) -> KeyEvent {
     KeyEvent {
@@ -22,15 +23,15 @@ struct TurnTestFixture {
     batch: super::LiveBatch,
     steering: SharedSteeringQueue,
     session: crate::repl::ReplSession,
-    _temp: tempfile::TempDir,
+    _temp: rho_test_support::TestDir,
 }
 
 impl TurnTestFixture {
     fn new(initial_text: &str) -> Self {
-        let temp = tempfile::tempdir().unwrap();
+        let temp = rho_test_support::TestDir::new();
         let mut controller = crate::repl::test_controller();
         controller.state_mut().editor_mut().set_text(initial_text);
-        let history = InteractiveHistory::with_file(10, temp.path().join("history.txt")).unwrap();
+        let history = InteractiveHistory::with_file(10, temp.join("history.txt")).unwrap();
         let completions = CompletionSet::from_sources(Default::default());
         let batch = super::LiveBatch::new();
         let steering = SharedSteeringQueue::new(crate::engine::runner::QueueMode::All);
@@ -70,13 +71,13 @@ struct LoopFixture {
     ui_events: tokio::sync::mpsc::UnboundedReceiver<crate::ui::interactive::UiEvent>,
     cancellation: crate::engine::runner::CancellationSignal,
     input_reader: crate::repl::input_reader::TerminalInputReader,
-    _temp: tempfile::TempDir,
+    _temp: rho_test_support::TestDir,
 }
 
 impl LoopFixture {
     async fn new(initial_text: &str) -> Self {
-        let temp = tempfile::tempdir().unwrap();
-        let (_, _, engine) = create_harness_engine(temp.path()).await;
+        let temp = rho_test_support::TestDir::new();
+        let (_, _, engine) = create_harness_engine(&temp).await;
         let (tx, ui_events) = tokio::sync::mpsc::unbounded_channel();
         Self {
             _temp: temp,
@@ -365,7 +366,7 @@ struct ActiveTurnHarness {
     history: InteractiveHistory,
     completions: CompletionSet,
     // Declared last so it is dropped after the fields that may still write into it.
-    _temp: tempfile::TempDir,
+    _temp: rho_test_support::TestDir,
 }
 
 async fn create_harness_engine(
@@ -391,15 +392,15 @@ async fn create_harness_engine(
 
 impl ActiveTurnHarness {
     async fn new() -> Self {
-        let temp = tempfile::tempdir().unwrap();
-        let (config, auth, engine) = create_harness_engine(temp.path()).await;
+        let temp = rho_test_support::TestDir::new();
+        let (config, auth, engine) = create_harness_engine(&temp).await;
         let mut session = crate::repl::ReplSession::new(config, auth, None);
         let (ui, ui_events) = crate::ui::interactive::InteractiveUi::channel();
         session.renderer = TerminalRenderer::with_ui(ui);
         let controller = crate::repl::test_controller();
         let cancel = crossterm::event::Event::Key(KeyEvent::new(KeyCode::Esc, KeyModifiers::empty()));
         let input_reader = crate::repl::input_reader::TerminalInputReader::spawn_with_events(vec![cancel]);
-        let history = InteractiveHistory::with_file(10, temp.path().join("history.txt")).unwrap();
+        let history = InteractiveHistory::with_file(10, temp.join("history.txt")).unwrap();
         let completions = CompletionSet::from_sources(Default::default());
         Self {
             _temp: temp,
@@ -666,21 +667,20 @@ async fn test_turn_loop_tick_moves_consumed_steering_from_queue_to_transcript() 
     );
 }
 
+#[test_case(false, false; "within frame interval")]
+#[test_case(true, true; "after frame interval")]
 #[tokio::test]
-async fn test_turn_loop_tick_refreshes_spinner_only_after_frame_interval() {
-    let cases = [(false, false), (true, true)];
-    for (elapsed, refreshed) in cases {
-        let mut f = LoopFixture::new("").await;
-        let mut ctx = f.context();
-        let before = if elapsed {
-            std::time::Instant::now() - crate::repl::live::batch::SPINNER_FRAME_INTERVAL
-        } else {
-            std::time::Instant::now()
-        };
-        ctx.loop_ctx.last_spinner = before;
-        ctx.loop_ctx.on_tick().unwrap();
-        assert_eq!(ctx.loop_ctx.last_spinner != before, refreshed);
-    }
+async fn test_turn_loop_tick_refreshes_spinner_only_after_frame_interval(elapsed: bool, refreshed: bool) {
+    let mut f = LoopFixture::new("").await;
+    let mut ctx = f.context();
+    let before = if elapsed {
+        std::time::Instant::now() - crate::repl::live::batch::SPINNER_FRAME_INTERVAL
+    } else {
+        std::time::Instant::now()
+    };
+    ctx.loop_ctx.last_spinner = before;
+    ctx.loop_ctx.on_tick().unwrap();
+    assert_eq!(ctx.loop_ctx.last_spinner != before, refreshed);
 }
 
 #[tokio::test]

@@ -9,7 +9,8 @@ fn mock_mcp_script() -> &'static str {
 #[cfg(unix)]
 fn spawn_mock_client(script: &str) -> McpClient {
     let config = McpServerConfig::stdio("/bin/sh", vec!["-c".to_string(), script.to_string()]);
-    let (stdin, stdout, handle) = McpProcess::spawn(&config, &std::env::temp_dir()).unwrap();
+    let dir = crate::test_support::TestDir::new();
+    let (stdin, stdout, handle) = McpProcess::spawn(&config, &dir).unwrap();
     McpClient::new("mock", McpTransport::new_stdio(stdin, stdout, handle, None))
 }
 

@@ -275,13 +275,17 @@ mod tests {
     }
 
     #[test]
-    fn test_truncate_head_within_limits() {
+    fn test_truncate_within_limits_keeps_all_text_for_head_and_tail() {
         let text = "line 1\nline 2\nline 3";
-        let res = truncate_head(text, 10, 100);
-        assert!(!res.truncated);
-        assert_eq!(res.content, text);
-        assert_eq!(res.output_lines, 3);
-        assert_eq!(res.output_bytes, text.len());
+        type Truncator = fn(&str, usize, usize) -> Truncation;
+        let truncators: [(&str, Truncator); 2] = [("head", truncate_head), ("tail", truncate_tail)];
+        for (direction, truncate) in truncators {
+            let res = truncate(text, 10, 100);
+            assert!(!res.truncated, "{direction}");
+            assert_eq!(res.content, text, "{direction}");
+            assert_eq!(res.output_lines, 3, "{direction}");
+            assert_eq!(res.output_bytes, text.len(), "{direction}");
+        }
     }
 
     #[test]
@@ -344,16 +348,6 @@ mod tests {
     }
 
     #[test]
-    fn test_truncate_tail_within_limits() {
-        let text = "line 1\nline 2\nline 3";
-        let res = truncate_tail(text, 10, 100);
-        assert!(!res.truncated);
-        assert_eq!(res.content, text);
-        assert_eq!(res.output_lines, 3);
-        assert_eq!(res.output_bytes, text.len());
-    }
-
-    #[test]
     fn test_truncate_tail_by_lines() {
         let lines: Vec<String> = (1..=10).map(|i| format!("line {i}")).collect();
         let text = lines.join("\n");
@@ -388,15 +382,15 @@ mod tests {
 
     #[test]
     fn test_truncate_head_with_spill_writes_artifact() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = crate::test_support::TestDir::new();
         let content = "line 1\nline 2\nline 3\nline 4\nline 5";
-        let res = truncate_head_with_spill(content, 2, 1000, Some(dir.path()));
+        let res = truncate_head_with_spill(content, 2, 1000, Some(&*dir));
 
         assert!(res.truncated);
         assert!(res.content.contains("line 1\nline 2"));
         assert!(res.content.contains("Full content (5 lines, 34B) saved to"));
 
-        let files: Vec<_> = std::fs::read_dir(dir.path()).unwrap().collect();
+        let files: Vec<_> = std::fs::read_dir(&dir).unwrap().collect();
         assert_eq!(files.len(), 1);
         let saved_content = std::fs::read_to_string(files[0].as_ref().unwrap().path()).unwrap();
         assert_eq!(saved_content, content);

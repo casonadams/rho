@@ -267,6 +267,7 @@ async fn resolve_headers(headers: &BTreeMap<String, String>) -> Result<BTreeMap<
 #[cfg(test)]
 mod tests {
     use super::*;
+    use test_case::test_case;
 
     fn mock_server_script() -> &'static str {
         "while read l; do \
@@ -281,9 +282,9 @@ mod tests {
     async fn test_pool_lazy_connect_and_reap() {
         let pool = McpServerPool::new(1);
         let config = McpServerConfig::stdio("/bin/sh", vec!["-c".to_string(), mock_server_script().to_string()]);
-        let cwd = std::env::temp_dir();
+        let cwd = crate::test_support::TestDir::new();
 
-        pool.register("echo", config, cwd).await;
+        pool.register("echo", config, cwd.to_path_buf()).await;
         assert_eq!(pool.active_instances_count().await, 0);
 
         let (_client, in_flight) = pool.get_or_connect("echo").await.unwrap();
@@ -313,9 +314,9 @@ mod tests {
         let pool = McpServerPool::new(1);
         let mut config = McpServerConfig::stdio("/bin/sh", vec!["-c".to_string(), mock_server_script().to_string()]);
         config.lifecycle = Some(McpLifecycleMode::KeepAlive);
-        let cwd = std::env::temp_dir();
+        let cwd = crate::test_support::TestDir::new();
 
-        pool.register("keep", config, cwd).await;
+        pool.register("keep", config, cwd.to_path_buf()).await;
         let (_client, in_flight) = pool.get_or_connect("keep").await.unwrap();
         in_flight.fetch_sub(1, Ordering::SeqCst);
 
@@ -351,21 +352,17 @@ mod tests {
             headers: BTreeMap::from([("Authorization".to_string(), header_value.to_string())]),
             ..Default::default()
         };
-        let transport = build_transport("remote", &config, &std::env::temp_dir(), None).await?;
+        let transport = build_transport("remote", &config, &crate::test_support::TestDir::new(), None).await?;
         transport.request("ping", None).await?;
         Ok(server.await.unwrap())
     }
 
     #[cfg(unix)]
+    #[test_case("Bearer literal-token", "Bearer literal-token"; "literal")]
+    #[test_case("!printf 'Bearer %s' \"$(echo cmd-token)\"", "Bearer cmd-token"; "shell command")]
     #[tokio::test]
-    async fn http_header_values_resolve_shell_commands() {
-        let cases = [
-            ("Bearer literal-token", "Bearer literal-token"),
-            ("!printf 'Bearer %s' \"$(echo cmd-token)\"", "Bearer cmd-token"),
-        ];
-        for (raw, expected) in cases {
-            assert_eq!(capture_authorization_header(raw).await.unwrap(), expected);
-        }
+    async fn http_header_values_resolve_shell_commands(raw: &str, expected: &str) {
+        assert_eq!(capture_authorization_header(raw).await.unwrap(), expected);
     }
 
     #[cfg(unix)]
@@ -376,7 +373,7 @@ mod tests {
             headers: BTreeMap::from([("Authorization".to_string(), "!exit 7".to_string())]),
             ..Default::default()
         };
-        let err = build_transport("remote", &config, &std::env::temp_dir(), None)
+        let err = build_transport("remote", &config, &crate::test_support::TestDir::new(), None)
             .await
             .err()
             .unwrap();

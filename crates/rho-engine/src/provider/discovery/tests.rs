@@ -1,19 +1,15 @@
 use super::DiscoveredModel;
 use super::antigravity::{antigravity_display_name, model_recency_key, sort_models_newest_first};
 use super::presets::format_context_tokens;
+use test_case::test_case;
 
-#[test]
-fn test_model_recency_key_parsing() {
-    let cases = [
-        ("gemini-3.8-flash", (3, 8)),
-        ("claude-sonnet-4-6", (4, 6)),
-        ("gpt-5", (5, 0)),
-        ("model-without-numbers", (0, 0)),
-        ("claude-3-7-sonnet-20250219", (3, 7)),
-    ];
-    for (model, expected) in cases {
-        assert_eq!(model_recency_key(model), expected);
-    }
+#[test_case("gemini-3.8-flash", (3, 8); "dotted version")]
+#[test_case("claude-sonnet-4-6", (4, 6); "dashed version")]
+#[test_case("gpt-5", (5, 0); "major only")]
+#[test_case("model-without-numbers", (0, 0); "no numbers")]
+#[test_case("claude-3-7-sonnet-20250219", (3, 7); "date suffix ignored")]
+fn test_model_recency_key_parsing(model: &str, expected: (u32, u32)) {
+    assert_eq!(model_recency_key(model), expected);
 }
 
 #[test]
@@ -38,21 +34,16 @@ fn test_sort_models_newest_first_descending_and_stable() {
     );
 }
 
-#[test]
-fn test_antigravity_display_name_token_conversion() {
-    let cases = [
-        ("gemini-4-carbon", "Gemini 4 Carbon"),
-        ("gemini-4-neon", "Gemini 4 Neon"),
-        ("gemini-4-hydrogen", "Gemini 4 Hydrogen"),
-        ("gemini-4-argon", "Gemini 4 Argon"),
-        ("gemini-4-argon-cyber-permissive", "Gemini 4 Argon Cyber Permissive"),
-        ("gemini-3.8-flash", "Gemini 3.8 Flash"),
-        ("claude-opus-4-6", "Claude Opus 4.6"),
-        ("gpt-oss-120b", "GPT OSS 120b"),
-    ];
-    for (id, expected) in cases {
-        assert_eq!(antigravity_display_name(id), expected);
-    }
+#[test_case("gemini-4-carbon", "Gemini 4 Carbon"; "carbon")]
+#[test_case("gemini-4-neon", "Gemini 4 Neon"; "neon")]
+#[test_case("gemini-4-hydrogen", "Gemini 4 Hydrogen"; "hydrogen")]
+#[test_case("gemini-4-argon", "Gemini 4 Argon"; "argon")]
+#[test_case("gemini-4-argon-cyber-permissive", "Gemini 4 Argon Cyber Permissive"; "multi word suffix")]
+#[test_case("gemini-3.8-flash", "Gemini 3.8 Flash"; "dotted version")]
+#[test_case("claude-opus-4-6", "Claude Opus 4.6"; "claude dashed version")]
+#[test_case("gpt-oss-120b", "GPT OSS 120b"; "acronyms")]
+fn test_antigravity_display_name_token_conversion(id: &str, expected: &str) {
+    assert_eq!(antigravity_display_name(id), expected);
 }
 
 #[test]

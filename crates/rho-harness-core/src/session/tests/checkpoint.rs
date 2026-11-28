@@ -5,6 +5,7 @@ use super::{
 };
 use crate::model::ChatMessage;
 use crate::session::format::inject_write_hook;
+use test_case::test_case;
 
 /// Runs one turn the way the engine does: two checkpointed tool rounds, then the final answer.
 async fn promoted_turn(store: &SessionManager, n: usize) -> Vec<ChatMessage> {
@@ -277,14 +278,11 @@ async fn verify_cancellation_boundary(boundary: &str) {
     assert_resumed_count(&dir, &id).await;
 }
 
+#[test_case("before_first_token"; "before first token")]
+#[test_case("during_text"; "during text")]
+#[test_case("between_call_result"; "between call and result")]
+#[test_case("during_tool"; "during tool")]
 #[tokio::test]
-async fn cancellation_fixtures_remain_parseable_and_resumable() {
-    for boundary in [
-        "before_first_token",
-        "during_text",
-        "between_call_result",
-        "during_tool",
-    ] {
-        verify_cancellation_boundary(boundary).await;
-    }
+async fn cancellation_fixtures_remain_parseable_and_resumable(boundary: &str) {
+    verify_cancellation_boundary(boundary).await;
 }

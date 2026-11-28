@@ -2,6 +2,7 @@ use super::{SessionManager, temp_dir};
 use crate::error::Result;
 use crate::model::ChatMessage;
 use crate::session::RewindOutcome;
+use test_case::test_case;
 
 fn note() -> ChatMessage {
     ChatMessage::assistant("stopped")
@@ -158,69 +159,66 @@ async fn rewound_turns_stay_reachable_and_the_listing_counts_every_node() {
     assert_eq!(summaries[0].preview, "prompt 1");
 }
 
+#[test_case(0; "target zero")]
+#[test_case(3; "target past last turn")]
+#[test_case(99; "target far past last turn")]
 #[tokio::test]
-async fn rewind_that_keeps_every_turn_writes_nothing_and_leaves_the_checkpoint_pending() {
-    for target in [0, 3, 99] {
-        let dir = temp_dir();
-        let session = SessionManager::new(&dir, None).unwrap();
-        append_nodes(&session, &[&[1], &[2]]).await;
-        let unfinished = vec![ChatMessage::user("unfinished")];
-        session.save_checkpoint(unfinished.clone()).await.unwrap();
-        let lines_before = log_lines(&session);
+async fn rewind_that_keeps_every_turn_writes_nothing_and_leaves_the_checkpoint_pending(target: usize) {
+    let dir = temp_dir();
+    let session = SessionManager::new(&dir, None).unwrap();
+    append_nodes(&session, &[&[1], &[2]]).await;
+    let unfinished = vec![ChatMessage::user("unfinished")];
+    session.save_checkpoint(unfinished.clone()).await.unwrap();
+    let lines_before = log_lines(&session);
 
-        let outcome = rewind(&session, target).await.unwrap();
+    let outcome = rewind(&session, target).await.unwrap();
 
-        let expected = RewindOutcome {
-            retained: 4,
-            rewound: false,
-        };
-        assert_eq!(outcome, expected, "target {target}");
-        assert_eq!(log_lines(&session), lines_before, "target {target}");
-        assert_eq!(session.load_checkpoint().await.unwrap(), Some(unfinished));
-    }
+    let expected = RewindOutcome {
+        retained: 4,
+        rewound: false,
+    };
+    assert_eq!(outcome, expected);
+    assert_eq!(log_lines(&session), lines_before);
+    assert_eq!(session.load_checkpoint().await.unwrap(), Some(unfinished));
 }
 
+#[test_case(&[&[1], &[2]], 1, 2; "rewind into first turn")]
+#[test_case(&[&[1], &[2]], 2, 4; "rewind into second turn")]
+#[test_case(&[&[1], &[2]], 3, 6; "rewind into pending checkpoint")]
+#[test_case(&[], 1, 2; "checkpoint only")]
 #[tokio::test]
-async fn rewind_with_a_pending_checkpoint_promotes_and_rewinds_in_one_append() {
+async fn rewind_with_a_pending_checkpoint_promotes_and_rewinds_in_one_append(
+    batches: &[&[usize]],
+    target: usize,
+    expected: usize,
+) {
     let unfinished = vec![
         ChatMessage::user("unfinished 1"),
         ChatMessage::assistant("partial"),
         ChatMessage::user("unfinished 2"),
     ];
     let note = note();
-    let cases: [(&[&[usize]], usize, usize); 4] = [
-        (&[&[1], &[2]], 1, 2),
-        (&[&[1], &[2]], 2, 4),
-        (&[&[1], &[2]], 3, 6),
-        (&[], 1, 2),
-    ];
-    for (batches, target, expected) in cases {
-        let dir = temp_dir();
-        let session = SessionManager::new(&dir, None).unwrap();
-        append_nodes(&session, batches).await;
-        session.save_checkpoint(unfinished.clone()).await.unwrap();
-        let history: Vec<ChatMessage> = batches.iter().flat_map(|b| b.iter().flat_map(|&n| turn(n))).collect();
-        let lines_before = log_lines(&session).len();
+    let dir = temp_dir();
+    let session = SessionManager::new(&dir, None).unwrap();
+    append_nodes(&session, batches).await;
+    session.save_checkpoint(unfinished.clone()).await.unwrap();
+    let history: Vec<ChatMessage> = batches.iter().flat_map(|b| b.iter().flat_map(|&n| turn(n))).collect();
+    let lines_before = log_lines(&session).len();
 
-        let retained = rewind_retained(&session, target).await;
+    let retained = rewind_retained(&session, target).await;
 
-        let full: Vec<ChatMessage> = history.iter().chain(&unfinished).chain([&note]).cloned().collect();
-        assert_eq!(retained, expected, "target {target}");
-        assert_eq!(
-            session.load_messages().await.unwrap(),
-            full[..expected],
-            "target {target}"
-        );
-        assert!(session.load_checkpoint().await.unwrap().is_none());
-        assert_eq!(log_lines(&session).len(), lines_before + 2, "target {target}");
-        let tree = session.load_tree().await.unwrap();
-        assert!(
-            tree.nodes
-                .values()
-                .any(|node| node.messages.ends_with(std::slice::from_ref(&note)))
-        );
-        assert_reload_matches(session).await;
-    }
+    let full: Vec<ChatMessage> = history.iter().chain(&unfinished).chain([&note]).cloned().collect();
+    assert_eq!(retained, expected);
+    assert_eq!(session.load_messages().await.unwrap(), full[..expected]);
+    assert!(session.load_checkpoint().await.unwrap().is_none());
+    assert_eq!(log_lines(&session).len(), lines_before + 2);
+    let tree = session.load_tree().await.unwrap();
+    assert!(
+        tree.nodes
+            .values()
+            .any(|node| node.messages.ends_with(std::slice::from_ref(&note)))
+    );
+    assert_reload_matches(session).await;
 }
 
 fn compaction_metadata(first_kept_node_id: Option<String>) -> crate::session::CompactionMetadata {

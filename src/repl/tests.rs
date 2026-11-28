@@ -86,10 +86,10 @@ async fn init_engine_applies_cli_session_name() {
     use clap::Parser;
     use rho_harness_core::config::Config;
 
-    let temp = tempfile::tempdir().unwrap();
+    let temp = rho_test_support::TestDir::new();
     let config = Config {
-        config_dir: temp.path().to_path_buf(),
-        sessions_dir: temp.path().join("sessions"),
+        config_dir: temp.to_path_buf(),
+        sessions_dir: temp.join("sessions"),
         ..Default::default()
     };
     let mut session = crate::repl::ReplSession::new(config, AuthStore::default(), None)

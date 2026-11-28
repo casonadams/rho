@@ -1,17 +1,10 @@
 use super::*;
 use crate::lsp::config::ServerSet;
-use crate::lsp::test_server::{FakeLauncher, FakeOptions, fake_manager, fake_manager_with, fake_server, until};
+use crate::lsp::test_server::{
+    FakeLauncher, FakeOptions, fake_manager, fake_manager_with, fake_server, project, until,
+};
 use rho_test_support::TestDir;
 use std::sync::atomic::AtomicBool;
-
-pub(super) fn project() -> (TestDir, PathBuf) {
-    let dir = TestDir::new();
-    std::fs::write(dir.as_ref().join("Cargo.toml"), "").unwrap();
-    std::fs::create_dir(dir.as_ref().join("src")).unwrap();
-    let lib = dir.as_ref().join("src/lib.rs");
-    std::fs::write(&lib, "fn ok() {}\n").unwrap();
-    (dir, lib)
-}
 
 fn manager_with(dir: &Path, options: FakeOptions, set: ServerSet) -> (LspManager, Arc<FakeLauncher>) {
     let launcher = Arc::new(FakeLauncher {

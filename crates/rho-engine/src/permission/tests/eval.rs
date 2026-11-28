@@ -6,6 +6,7 @@ use crate::test_support::temp_dir;
 use rho_test_support::EnvVarGuard;
 use serde_json::json;
 use std::path::Path;
+use test_case::test_case;
 
 fn ws() -> Option<&'static Path> {
     Some(Path::new("/ws"))
@@ -146,49 +147,37 @@ fn paths_denied_by_permission_rule() {
     );
 }
 
-#[test]
-fn match_input_and_tool_aliases() {
-    let tool_cases = [
-        ("webfetch", "fetch"),
-        ("web_fetch", "fetch"),
-        ("websearch", "search"),
-        ("web_search", "search"),
-        ("bash", "bash"),
-    ];
-    for (alias, canonical) in tool_cases {
-        assert_eq!(canonical_tool(alias), canonical);
-    }
-
-    let input_cases = [
-        (json!({"command": "cargo test"}), "cargo test"),
-        (json!({"path": "/tmp/x"}), "/tmp/x"),
-        (json!({"url": "https://x.com"}), "https://x.com"),
-        (json!({"query": "rust"}), "rust"),
-        (json!({"arg": 1, "tool": "mcp"}), r#"{"arg":1,"tool":"mcp"}"#),
-    ];
-    for (arg, expected) in input_cases {
-        assert_eq!(match_input(&arg), expected);
-    }
+#[test_case("webfetch", "fetch"; "webfetch")]
+#[test_case("web_fetch", "fetch"; "web fetch")]
+#[test_case("websearch", "search"; "websearch")]
+#[test_case("web_search", "search"; "web search")]
+#[test_case("bash", "bash"; "bash")]
+fn tool_aliases_resolve_to_canonical_names(alias: &str, canonical: &str) {
+    assert_eq!(canonical_tool(alias), canonical);
 }
 
-#[test]
-fn suggested_rules_semantics() {
-    let cases = [
-        ("bash", "cargo test --nocapture", "cargo test *"),
-        ("bash", "cat /etc/hosts", "cat *"),
-        ("bash", "ls", "ls *"),
-        ("read", "src/main.rs", "src/main.rs/*"),
-        ("write", "/tmp/notes.txt", "/tmp/notes.txt/*"),
-        ("undo", "src/main.rs", "src/main.rs/*"),
-        ("lsp", "src/main.rs", "src/main.rs/*"),
-        ("lsp", "{\"action\":\"status\"}", "*"),
-        ("fetch", "https://github.com/x/y?z=1", "https://github.com/*"),
-        ("fetch", "not a url", "*"),
-        ("search", "rust async", "*"),
-    ];
-    for (tool, input, expected) in cases {
-        assert_eq!(suggested_rule(tool, input), expected);
-    }
+#[test_case(json!({"command": "cargo test"}), "cargo test"; "command")]
+#[test_case(json!({"path": "/tmp/x"}), "/tmp/x"; "path")]
+#[test_case(json!({"url": "https://x.com"}), "https://x.com"; "url")]
+#[test_case(json!({"query": "rust"}), "rust"; "query")]
+#[test_case(json!({"arg": 1, "tool": "mcp"}), r#"{"arg":1,"tool":"mcp"}"#; "other args as json")]
+fn match_input_uses_the_primary_argument(arg: serde_json::Value, expected: &str) {
+    assert_eq!(match_input(&arg), expected);
+}
+
+#[test_case("bash", "cargo test --nocapture", "cargo test *"; "bash two word prefix")]
+#[test_case("bash", "cat /etc/hosts", "cat *"; "bash one word prefix")]
+#[test_case("bash", "ls", "ls *"; "bash bare command")]
+#[test_case("read", "src/main.rs", "src/main.rs/*"; "read path")]
+#[test_case("write", "/tmp/notes.txt", "/tmp/notes.txt/*"; "write path")]
+#[test_case("undo", "src/main.rs", "src/main.rs/*"; "undo path")]
+#[test_case("lsp", "src/main.rs", "src/main.rs/*"; "lsp path")]
+#[test_case("lsp", "{\"action\":\"status\"}", "*"; "lsp without path")]
+#[test_case("fetch", "https://github.com/x/y?z=1", "https://github.com/*"; "fetch url origin")]
+#[test_case("fetch", "not a url", "*"; "fetch invalid url")]
+#[test_case("search", "rust async", "*"; "search")]
+fn suggested_rules_semantics(tool: &str, input: &str, expected: &str) {
+    assert_eq!(suggested_rule(tool, input), expected);
 }
 
 #[test]
@@ -360,40 +349,37 @@ fn memory_notes_need_no_approval_unless_a_rule_says_otherwise() {
     ));
 }
 
-#[test]
-fn default_policy_asks_for_unconfigured_bash() {
-    for cmd in [
-        "git status",
-        "cargo check",
-        "cargo test",
-        "ls -la",
-        "pwd",
-        "make clippy",
-        "git commit -m 'feat: test'",
-        "curl https://example.com",
-        "npm install",
-    ] {
-        assert_eq!(check_default_bash(cmd), Decision::Ask);
-    }
+#[test_case("git status"; "git status")]
+#[test_case("cargo check"; "cargo check")]
+#[test_case("cargo test"; "cargo test")]
+#[test_case("ls -la"; "ls")]
+#[test_case("pwd"; "pwd")]
+#[test_case("make clippy"; "make clippy")]
+#[test_case("git commit -m 'feat: test'"; "git commit")]
+#[test_case("curl https://example.com"; "curl")]
+#[test_case("npm install"; "npm install")]
+fn default_policy_asks_for_unconfigured_bash(cmd: &str) {
+    assert_eq!(check_default_bash(cmd), Decision::Ask);
 }
 
-#[test]
-fn policy_allows_explicit_bash_rules() {
+#[test_case("git status"; "git status")]
+#[test_case("git diff"; "git diff")]
+#[test_case("cargo check"; "cargo check")]
+#[test_case("cargo test"; "cargo test")]
+fn policy_allows_explicit_bash_rules(cmd: &str) {
     let scope = parse_scope_from_str("[permission.bash]\n\"git *\" = \"allow\"\n\"cargo *\" = \"allow\"\n").unwrap();
     let policy = build_policy(Some(scope), None);
 
-    for cmd in ["git status", "git diff", "cargo check", "cargo test"] {
-        let dec = decide_tool_call(
-            &policy,
-            EvalRequest {
-                tool: "bash",
-                args: &json!({"command": cmd}),
-                mcp_servers: &[],
-                working_dir: ws(),
-            },
-        );
-        assert_eq!(dec, Decision::Allow);
-    }
+    let dec = decide_tool_call(
+        &policy,
+        EvalRequest {
+            tool: "bash",
+            args: &json!({"command": cmd}),
+            mcp_servers: &[],
+            working_dir: ws(),
+        },
+    );
+    assert_eq!(dec, Decision::Allow);
 }
 
 #[test]
@@ -504,31 +490,23 @@ fn quoted_absolute_path_is_gated_as_outside_workspace() {
     );
 }
 
-#[test]
-fn credential_store_is_denied_even_with_allow_rule() {
+#[test_case("read"; "read")]
+#[test_case("write"; "write")]
+#[test_case("edit"; "edit")]
+fn credential_store_is_denied_even_with_allow_rule(tool: &'static str) {
     let (config_dir, _env) = super::config_home();
     let auth = config_dir.join("auth.json").display().to_string();
     let policy = build_policy(Some(parse_scope_from_str("[allow]\npath = [\"*\"]\n").unwrap()), None);
-    for tool in ["read", "write", "edit"] {
-        let dec = check_eval(&policy, tool, json!({"path": auth}));
-        assert!(matches!(dec, Decision::Deny(_)), "{tool}: {dec:?}");
-    }
+    let dec = check_eval(&policy, tool, json!({"path": auth}));
+    assert!(matches!(dec, Decision::Deny(_)), "{dec:?}");
 }
 
-#[test]
-fn protected_names_are_case_insensitive_and_policy_files_need_approval() {
+#[test_case("/ws/.config/rho/permission.toml"; "rho config policy")]
+#[test_case("/ws/.GIT/config"; "uppercase git")]
+#[test_case("/ws/.Rho/permission.toml"; "mixed case rho")]
+fn protected_names_are_case_insensitive_and_policy_files_need_approval(path: &str) {
     let policy = build_policy(None, None);
-    for path in [
-        "/ws/.config/rho/permission.toml",
-        "/ws/.GIT/config",
-        "/ws/.Rho/permission.toml",
-    ] {
-        assert_eq!(
-            check_eval(&policy, "write", json!({"path": path})),
-            Decision::Ask,
-            "{path}"
-        );
-    }
+    assert_eq!(check_eval(&policy, "write", json!({"path": path})), Decision::Ask);
 }
 
 #[test]
@@ -576,9 +554,9 @@ fn bash_deny_rules_apply_to_obfuscated_and_wrapped_commands() {
 
 #[test]
 fn bash_reads_of_the_credential_file_through_env_variables_are_denied() {
-    let dir = tempfile::tempdir().unwrap();
-    std::fs::write(dir.path().join("auth.json"), "{}").unwrap();
-    let _env = EnvVarGuard::set("RHO_HOME", &dir.path().to_string_lossy());
+    let dir = crate::test_support::TestDir::new();
+    std::fs::write(dir.join("auth.json"), "{}").unwrap();
+    let _env = EnvVarGuard::set("RHO_HOME", &dir.to_string_lossy());
     let policy = build_policy(None, None);
     let decisions = [
         "cat $RHO_HOME/auth.json",

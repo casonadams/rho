@@ -7,14 +7,24 @@
 use super::config::ServerConfig;
 use super::manager::{Launched, Launcher, LspManager};
 use super::rpc::{BoxedWriter, read_message, write_message};
+use rho_test_support::TestDir;
 use serde_json::{Value, json};
 use std::collections::HashMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use tokio::io::BufReader;
 
 mod queries;
+
+pub fn project() -> (TestDir, PathBuf) {
+    let dir = TestDir::new();
+    std::fs::write(dir.as_ref().join("Cargo.toml"), "").unwrap();
+    std::fs::create_dir(dir.as_ref().join("src")).unwrap();
+    let lib = dir.as_ref().join("src/lib.rs");
+    std::fs::write(&lib, "fn ok() {}\n").unwrap();
+    (dir, lib)
+}
 
 #[derive(Clone, Copy, Default)]
 pub struct FakeOptions {

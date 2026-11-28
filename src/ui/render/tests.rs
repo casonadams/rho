@@ -7,6 +7,7 @@ use super::formatters::{
 use super::notices::{NoticeKind, format_notice};
 use super::{format_tool_header, render_tool_transcript};
 use crate::ui::TerminalRenderer;
+use crate::ui::block::{strip_ansi, visible_width};
 use crate::ui::interactive::{
     Activity, InteractiveUi, OutputEvent, TranscriptItem, TranscriptRenderInput, UiEvent, render_transcript_item,
 };
@@ -18,6 +19,7 @@ use rho_harness_core::presentation::summary::{
     to_relative_path,
 };
 use rho_harness_core::presentation::{BlockDisplay, FileChange, SessionStatus, ToolLine, WelcomeDisplay};
+use test_case::test_case;
 
 fn assert_contains_all(s: &str, items: &[&str]) {
     for item in items {
@@ -100,9 +102,7 @@ fn file_card_headers_state_each_count_once() {
     let theme = Theme::default();
     let header = |name: &str, arguments: serde_json::Value| {
         let tool = ToolLine::new(name, arguments);
-        let card = crate::ui::block::strip_ansi(&crate::ui::render::card::render_tool_block(
-            &tool, 100, false, false, &theme,
-        ));
+        let card = strip_ansi(&render_tool_block(&tool, 100, false, false, &theme));
         card.lines().nth(1).unwrap().to_string()
     };
     let edit = header(
@@ -116,15 +116,15 @@ fn file_card_headers_state_each_count_once() {
     assert!(write.contains("2 lines"), "{write}");
 }
 
-#[test]
-fn push_section_always_leaves_exactly_one_blank_row() {
+#[test_case("head", "a"; "no trailing newlines")]
+#[test_case("head\n", "a\n"; "one trailing newline")]
+#[test_case("head\n\n\n", "a\n\n"; "extra trailing newlines")]
+fn push_section_always_leaves_exactly_one_blank_row(body: &str, section: &str) {
     use crate::ui::render::card::push_section;
-    for (body, section) in [("head", "a"), ("head\n", "a\n"), ("head\n\n\n", "a\n\n")] {
-        let mut content = body.to_string();
-        push_section(&mut content, section);
-        push_section(&mut content, "b\n");
-        assert_eq!(content, "head\n\na\n\nb", "{body:?} + {section:?}");
-    }
+    let mut content = body.to_string();
+    push_section(&mut content, section);
+    push_section(&mut content, "b\n");
+    assert_eq!(content, "head\n\na\n\nb");
 }
 
 #[test]
@@ -154,9 +154,7 @@ fn every_card_has_exactly_one_blank_row_before_the_duration() {
                     .with_output(*output)
                     .with_duration_ms(2000);
                 tool.is_error = *is_error;
-                let card = crate::ui::block::strip_ansi(&crate::ui::render::card::render_tool_block(
-                    &tool, 60, expanded, false, &theme,
-                ));
+                let card = strip_ansi(&render_tool_block(&tool, 60, expanded, false, &theme));
                 let rows: Vec<&str> = card.lines().collect();
                 let Some(took) = rows.iter().position(|r| r.contains("Took ")) else {
                     continue;
@@ -186,13 +184,13 @@ fn test_format_write_preview_expansion_and_collapse() {
         "path": "test.txt",
         "content": long_content
     });
-    let collapsed = crate::ui::block::strip_ansi(&write_preview(&long_args, &theme, false, 60).unwrap());
+    let collapsed = strip_ansi(&write_preview(&long_args, &theme, false, 60).unwrap());
     let first = collapsed.lines().next().unwrap();
     assert_eq!(first, "... (2 earlier lines, 12 total, Ctrl+O to expand)");
     assert!(collapsed.contains("  3 │ line 3") && collapsed.contains(" 12 │ line 12"));
     assert!(!collapsed.contains("line 2\n"), "{collapsed}");
 
-    let expanded = crate::ui::block::strip_ansi(&write_preview(&long_args, &theme, true, 60).unwrap());
+    let expanded = strip_ansi(&write_preview(&long_args, &theme, true, 60).unwrap());
     assert!(!expanded.contains("earlier lines"), "{expanded}");
     assert!(expanded.contains("  1 │ line 1\n") && expanded.contains(" 12 │ line 12"));
 }
@@ -206,11 +204,8 @@ fn collapsed_write_preview_grows_to_ten_rows_and_never_shrinks() {
             let text = (0..n).map(|_| long_line).collect::<Vec<_>>().join("\n");
             let args = serde_json::json!({"path": "a.rs", "text": text});
             let preview = write_preview(&args, &theme, false, 40).unwrap();
-            let plain = crate::ui::block::strip_ansi(&preview);
-            assert!(
-                plain.lines().all(|l| crate::ui::block::visible_width(l) <= 40),
-                "{plain}"
-            );
+            let plain = strip_ansi(&preview);
+            assert!(plain.lines().all(|l| visible_width(l) <= 40), "{plain}");
             plain.lines().count()
         })
         .collect();
@@ -242,8 +237,8 @@ fn test_format_edit_diff_with_explicit_line_number() {
 #[test]
 fn test_format_edit_diff_locates_line_from_file_on_disk() {
     let theme = Theme::default();
-    let temp_dir = tempfile::tempdir().unwrap();
-    let file_path = temp_dir.path().join("example.rs");
+    let temp_dir = rho_test_support::TestDir::new();
+    let file_path = temp_dir.join("example.rs");
     std::fs::write(&file_path, "line 1\nline 2\nline 3\ntarget line\nline 5\n").unwrap();
 
     let path_str = file_path.to_str().unwrap();
@@ -268,8 +263,8 @@ fn test_format_edit_diff_locates_line_from_file_on_disk() {
 #[test]
 fn test_format_edit_diff_multi_edit_resolves_lines_from_single_read() {
     let theme = Theme::default();
-    let temp_dir = tempfile::tempdir().unwrap();
-    let file_path = temp_dir.path().join("example_multi.rs");
+    let temp_dir = rho_test_support::TestDir::new();
+    let file_path = temp_dir.join("example_multi.rs");
     std::fs::write(&file_path, "fn one() {}\n\nfn two() {}\n").unwrap();
 
     let path_str = file_path.to_str().unwrap();
@@ -295,13 +290,28 @@ fn test_format_gutter_prefix_formats_aligned_and_dimmed() {
     assert_eq!(prefix_wide, format!("{dim}1234 │ {dim:#}"));
 }
 
-#[test]
-fn test_format_read_expanded_standard_numbered_lines() {
+#[test_case(
+    "     1\tfn main() {\n     2\t    println!(\"hello\");\n     3\t}\n",
+    serde_json::json!({ "path": "src/main.rs" }),
+    &["  1 │ ", "  2 │ ", "  3 │ ", "main", "println"];
+    "numbered rows"
+)]
+#[test_case(
+    "   100\tlet a = 1;\n   101\tlet b = 2;\n",
+    serde_json::json!({ "path": "src/main.rs", "offset": 100 }),
+    &["100 │ ", "101 │ "];
+    "offset rows"
+)]
+#[test_case(
+    "fn main() {\n    println!(\"hello\");\n}\n",
+    serde_json::json!({ "path": "src/main.rs" }),
+    &["  1 │ ", "  2 │ ", "  3 │ "];
+    "unnumbered rows"
+)]
+fn format_read_expanded_numbers_every_row(raw: &str, args: serde_json::Value, expected: &[&str]) {
     let theme = Theme::default();
-    let args = serde_json::json!({ "path": "src/main.rs" });
-    let raw = "     1\tfn main() {\n     2\t    println!(\"hello\");\n     3\t}\n";
     let formatted = format_read_expanded(raw, &args, &theme).unwrap();
-    assert_contains_all(&formatted, &["  1 │ ", "  2 │ ", "  3 │ ", "main", "println"]);
+    assert_contains_all(&formatted, expected);
 }
 
 #[test]
@@ -316,24 +326,6 @@ fn test_format_read_expanded_with_continuation_notice() {
         &["  1 │ ", "  2 │ ", "[10 more lines in file. Use offset=3 to continue.]"],
     );
     assert!(!formatted.contains("  3 │ [10 more lines"));
-}
-
-#[test]
-fn test_format_read_expanded_with_offset() {
-    let theme = Theme::default();
-    let args = serde_json::json!({ "path": "src/main.rs", "offset": 100 });
-    let raw = "   100\tlet a = 1;\n   101\tlet b = 2;\n";
-    let formatted = format_read_expanded(raw, &args, &theme).unwrap();
-    assert_contains_all(&formatted, &["100 │ ", "101 │ "]);
-}
-
-#[test]
-fn test_format_read_expanded_unlabelled_fallback() {
-    let theme = Theme::default();
-    let args = serde_json::json!({ "path": "src/main.rs" });
-    let raw = "fn main() {\n    println!(\"hello\");\n}\n";
-    let formatted = format_read_expanded(raw, &args, &theme).unwrap();
-    assert_contains_all(&formatted, &["  1 │ ", "  2 │ ", "  3 │ "]);
 }
 
 #[test]
@@ -389,37 +381,75 @@ fn relative_time_buckets_and_boundaries() {
     assert!(format_relative_time(now - ChronoDuration::days(45)).contains('-'));
 }
 
-#[test]
-fn session_status_joins_model_context_and_optional_quota() {
-    let cases = [
-        ("claude-sonnet", "27.4% (1M)", None, "claude-sonnet | 27.4% (1M)"),
-        (
-            "claude-sonnet",
-            "27.4% (1M)",
-            Some("93% (3h22m)"),
-            "claude-sonnet | 27.4% (1M) | 93% (3h22m)",
-        ),
-        (
-            "qwen-日本語モデル",
-            "0% (376k)",
-            Some("80% quota"),
-            "qwen-日本語モデル | 0% (376k) | 80% quota",
-        ),
-    ];
-    for (model, context, quota, expected) in cases {
-        let session = SessionStatus {
-            model: model.to_string(),
-            provider: "test".to_string(),
-            context: context.to_string(),
-            quota: quota.map(str::to_string),
-        };
-        assert_eq!(format_session_status(&session), expected);
-    }
+#[test_case("claude-sonnet", "test", "27.4% (1M)", None, "claude-sonnet | 27.4% (1M)"; "no quota")]
+#[test_case(
+    "claude-sonnet",
+    "anthropic",
+    "27.4% (1M)",
+    Some("93% (3h22m)"),
+    "claude-sonnet | 27.4% (1M) | 93% (3h22m)";
+    "with quota"
+)]
+#[test_case(
+    "qwen-日本語モデル",
+    "test",
+    "0% (376k)",
+    Some("80% quota"),
+    "qwen-日本語モデル | 0% (376k) | 80% quota";
+    "unicode model"
+)]
+#[test_case("qwen", "ollama", "0% (376k)", None, "qwen | 0% (376k)"; "local model")]
+fn session_status_joins_model_context_and_optional_quota(
+    model: &str,
+    provider: &str,
+    context: &str,
+    quota: Option<&str>,
+    expected: &str,
+) {
+    let session = SessionStatus {
+        model: model.to_string(),
+        provider: provider.to_string(),
+        context: context.to_string(),
+        quota: quota.map(str::to_string),
+    };
+    assert_eq!(format_session_status(&session), expected);
 }
 
 // =========================================================================
 // Interactive Renderer Tests
 // =========================================================================
+
+fn renderer_with_events() -> (TerminalRenderer, tokio::sync::mpsc::UnboundedReceiver<UiEvent>) {
+    let (ui, events) = InteractiveUi::channel();
+    (TerminalRenderer::with_ui(ui), events)
+}
+
+fn drain_events(events: &mut tokio::sync::mpsc::UnboundedReceiver<UiEvent>) -> Vec<UiEvent> {
+    std::iter::from_fn(|| events.try_recv().ok()).collect()
+}
+
+fn notice_texts(events: &mut tokio::sync::mpsc::UnboundedReceiver<UiEvent>) -> Vec<String> {
+    drain_events(events)
+        .into_iter()
+        .filter_map(|event| match event {
+            UiEvent::Transcript(TranscriptItem::Notice(text)) => Some(text),
+            _ => None,
+        })
+        .collect()
+}
+
+fn finished_output(tool: ToolLine) -> String {
+    let (renderer, mut events) = renderer_with_events();
+    renderer.finish_tool_line(tool);
+    drain_interactive_output(&mut events, &renderer.theme).1
+}
+
+fn structured_theme() -> Theme {
+    Theme {
+        structured_tool_cards: true,
+        ..Theme::default()
+    }
+}
 
 fn drain_interactive_output(
     events: &mut tokio::sync::mpsc::UnboundedReceiver<UiEvent>,
@@ -456,8 +486,7 @@ fn drain_text_output(events: &mut tokio::sync::mpsc::UnboundedReceiver<UiEvent>)
 
 #[test]
 fn interactive_renderer_marks_assistant_tokens_as_stream_output() {
-    let (ui, mut events) = InteractiveUi::channel();
-    let renderer = TerminalRenderer::with_ui(ui);
+    let (renderer, mut events) = renderer_with_events();
 
     renderer.print_token("answer");
 
@@ -469,8 +498,7 @@ fn interactive_renderer_marks_assistant_tokens_as_stream_output() {
 
 #[test]
 fn interactive_renderer_emits_formatted_output_and_activity_events() {
-    let (ui, mut events) = InteractiveUi::channel();
-    let renderer = TerminalRenderer::with_ui(ui);
+    let (renderer, mut events) = renderer_with_events();
 
     let activity = renderer.start_spinner("thinking...");
     renderer.print_thinking_token("considering");
@@ -492,8 +520,7 @@ fn interactive_renderer_emits_formatted_output_and_activity_events() {
 
 #[test]
 fn renderer_flush_resets_markdown_state_between_turns() {
-    let (ui, mut events) = InteractiveUi::channel();
-    let renderer = TerminalRenderer::with_ui(ui);
+    let (renderer, mut events) = renderer_with_events();
 
     renderer.print_token("First response.\n");
     renderer.flush();
@@ -523,8 +550,7 @@ fn assert_fast_tool_run(
 
 #[test]
 fn fast_tools_emit_footer_status_without_live_widget_bounce() {
-    let (ui, mut events) = InteractiveUi::channel();
-    let renderer = TerminalRenderer::with_ui(ui);
+    let (renderer, mut events) = renderer_with_events();
 
     for tool in ["read", "rg"] {
         assert_fast_tool_run(
@@ -538,8 +564,7 @@ fn fast_tools_emit_footer_status_without_live_widget_bounce() {
 
 #[test]
 fn long_running_tools_open_live_card() {
-    let (ui, mut events) = InteractiveUi::channel();
-    let renderer = TerminalRenderer::with_ui(ui);
+    let (renderer, mut events) = renderer_with_events();
     let cases = [
         ("bash", serde_json::json!({"command": "cargo test"})),
         ("edit", serde_json::json!({"path": "src/main.rs", "edits": []})),
@@ -557,26 +582,20 @@ fn long_running_tools_open_live_card() {
 
 #[test]
 fn finished_bash_block_includes_elapsed_duration() {
-    let (ui, mut events) = InteractiveUi::channel();
-    let renderer = TerminalRenderer::with_ui(ui);
-
-    renderer.finish_tool_line(
+    let output = finished_output(
         ToolLine::new("bash", serde_json::json!({"command": "cargo test --all-targets"}))
             .with_output("test result: ok")
             .with_output_summary("test result: ok")
             .with_duration_ms(5000),
     );
-
-    let (_, output) = drain_interactive_output(&mut events, &renderer.theme);
-    let plain = crate::ui::block::strip_ansi(&output);
+    let plain = strip_ansi(&output);
     assert!(plain.contains("cargo test --all-targets"));
     assert!(plain.contains("Took 5s"));
 }
 
 #[test]
 fn a_subagent_started_in_the_background_shows_the_watch_hint_to_the_user_only() {
-    let (ui, mut events) = InteractiveUi::channel();
-    let renderer = TerminalRenderer::with_ui(ui);
+    let (renderer, mut events) = renderer_with_events();
     let finish = |renderer: &TerminalRenderer, is_error: bool, output: &str| {
         let mut line = ToolLine::new("subagent", serde_json::json!({"prompt": "audit the parser"}))
             .with_output(output)
@@ -603,50 +622,35 @@ fn a_subagent_started_in_the_background_shows_the_watch_hint_to_the_user_only() 
 
 #[test]
 fn finished_read_block_includes_elapsed_duration() {
-    let (ui, mut events) = InteractiveUi::channel();
-    let renderer = TerminalRenderer::with_ui(ui);
-
-    renderer.finish_tool_line(
+    let output = finished_output(
         ToolLine::new("read", serde_json::json!({"path": "src/main.rs"}))
             .with_output("hello world")
             .with_output_summary("hello world")
             .with_duration_ms(50),
     );
-
-    let (_, output) = drain_interactive_output(&mut events, &renderer.theme);
     assert!(output.contains("read") && output.contains("src/main.rs"));
     assert!(output.contains("Took 50ms"));
 }
 
 #[test]
 fn finished_read_block_includes_line_range_styling() {
-    let (ui, mut events) = InteractiveUi::channel();
-    let renderer = TerminalRenderer::with_ui(ui);
-
-    renderer.finish_tool_line(ToolLine::new(
+    let output = finished_output(ToolLine::new(
         "read",
         serde_json::json!({"path": "src/lib.rs", "offset": 10, "limit": 20}),
     ));
-
-    let (_, output) = drain_interactive_output(&mut events, &renderer.theme);
     assert!(output.contains("read") && output.contains("src/lib.rs") && output.contains(":10-29"));
 }
 
 #[test]
 fn fetch_renders_url_on_same_line_without_duplicate() {
-    let (ui, mut events) = InteractiveUi::channel();
-    let renderer = TerminalRenderer::with_ui(ui);
-
-    renderer.finish_tool_line(
+    let output = finished_output(
         ToolLine::new("web_fetch", serde_json::json!({"url": "https://serde.rs/"}))
             .with_output("serde docs")
             .with_output_summary("serde docs"),
     );
-
-    let (_, output) = drain_interactive_output(&mut events, &renderer.theme);
     assert!(output.contains("web_fetch"));
     assert!(output.contains("https://serde.rs/"));
-    let plain = crate::ui::block::strip_ansi(&output);
+    let plain = strip_ansi(&output);
     assert!(plain.contains("https://serde.rs/ (text)") && !plain.contains("fetched"));
     assert_eq!(output.matches("https://serde.rs/").count(), 1);
 }
@@ -660,56 +664,49 @@ fn finished_view() -> CardView {
     }
 }
 
-#[test]
-fn finished_subagent_and_workflow_cards_hide_streamed_output() {
-    let structured = Theme {
-        structured_tool_cards: true,
-        ..Theme::default()
-    };
-    for name in ["subagent", "workflow"] {
-        for theme in [Theme::default(), structured.clone()] {
-            let output: String = (1..=8).map(|i| format!("step line {i}\n")).collect();
-            let tool = ToolLine::new(name, serde_json::json!({"prompt": "step"}))
-                .with_output(output)
-                .with_duration_ms(10);
-            let text = crate::ui::block::strip_ansi(&render_tool_block(&tool, 60, false, false, &theme));
-            assert!(!text.contains("step line"), "{name}: {text}");
-            assert!(!text.contains("earlier lines"), "{name}: {text}");
-        }
+#[test_case("subagent"; "subagent")]
+#[test_case("workflow"; "workflow")]
+fn finished_subagent_and_workflow_cards_hide_streamed_output(name: &str) {
+    for theme in [Theme::default(), structured_theme()] {
+        let output: String = (1..=8).map(|i| format!("step line {i}\n")).collect();
+        let tool = ToolLine::new(name, serde_json::json!({"prompt": "step"}))
+            .with_output(output)
+            .with_duration_ms(10);
+        let text = strip_ansi(&render_tool_block(&tool, 60, false, false, &theme));
+        assert!(!text.contains("step line"), "{text}");
+        assert!(!text.contains("earlier lines"), "{text}");
     }
 }
 
-#[test]
-fn every_finished_tool_card_ends_with_a_took_line_on_its_own_line() {
+#[test_case("bash", serde_json::json!({"command": "ls"}), 42, "Took 42ms"; "bash")]
+#[test_case("rg", serde_json::json!({"pattern": "x"}), 1500, "Took 1.500s"; "rg")]
+#[test_case("read", serde_json::json!({"path": "a.rs"}), 250, "Took 250ms"; "read")]
+#[test_case("web_fetch", serde_json::json!({"url": "https://serde.rs/"}), 90, "Took 90ms"; "web fetch")]
+#[test_case(
+    "edit",
+    serde_json::json!({"path": "a.rs", "edits": [{"oldText": "a", "newText": "b", "line": 1}]}),
+    7,
+    "Took 7ms";
+    "edit"
+)]
+fn every_finished_tool_card_ends_with_a_took_line_on_its_own_line(
+    name: &str,
+    args: serde_json::Value,
+    duration_ms: u64,
+    expected: &str,
+) {
     let theme = Theme::default();
     let dim = theme.dimmed;
-    let cases = [
-        ("bash", serde_json::json!({"command": "ls"}), 42, "Took 42ms"),
-        ("rg", serde_json::json!({"pattern": "x"}), 1500, "Took 1.500s"),
-        ("read", serde_json::json!({"path": "a.rs"}), 250, "Took 250ms"),
-        (
-            "web_fetch",
-            serde_json::json!({"url": "https://serde.rs/"}),
-            90,
-            "Took 90ms",
-        ),
-        (
-            "edit",
-            serde_json::json!({"path": "a.rs", "edits": [{"oldText": "a", "newText": "b", "line": 1}]}),
-            7,
-            "Took 7ms",
-        ),
-    ];
-    for (name, args, duration_ms, expected) in cases {
-        let tool = ToolLine::new(name, args).with_duration_ms(duration_ms);
-        let mut content = String::new();
-        crate::ui::render::card::append_tool_details(&mut content, &tool, 80, finished_view(), &theme);
-        assert!(
-            content.ends_with(&format!("\n\n{dim}{expected}{dim:#}")),
-            "{name}: {content:?}"
-        );
-        assert!(!format_tool_header(&tool, &theme).contains("Took"), "{name}");
-    }
+    let tool = ToolLine::new(name, args).with_duration_ms(duration_ms);
+    let mut content = String::new();
+    crate::ui::render::card::append_tool_details(&mut content, &tool, 80, finished_view(), &theme);
+    assert!(content.ends_with(&format!("\n\n{dim}{expected}{dim:#}")), "{content:?}");
+    assert!(!format_tool_header(&tool, &theme).contains("Took"));
+}
+
+#[test]
+fn untimed_tool_card_has_no_took_line() {
+    let theme = Theme::default();
     let untimed = ToolLine::new("rg", serde_json::json!({"pattern": "x"}));
     let mut content = String::new();
     crate::ui::render::card::append_tool_details(&mut content, &untimed, 80, finished_view(), &theme);
@@ -718,16 +715,11 @@ fn every_finished_tool_card_ends_with_a_took_line_on_its_own_line() {
 
 #[test]
 fn search_tool_displays_cleanly() {
-    let (ui, mut events) = InteractiveUi::channel();
-    let renderer = TerminalRenderer::with_ui(ui);
-
-    renderer.finish_tool_line(
+    let output = finished_output(
         ToolLine::new("web_search", serde_json::json!({"query": "serde release"}))
             .with_output("results")
             .with_output_summary("results"),
     );
-
-    let (_, output) = drain_interactive_output(&mut events, &renderer.theme);
     assert!(output.contains("web_search"));
     assert!(output.contains("\"serde release\""));
 }
@@ -738,8 +730,7 @@ fn search_tool_displays_cleanly() {
 
 #[test]
 fn print_session_status_and_notice_emit_transcript_item() {
-    let (ui, mut events) = InteractiveUi::channel();
-    let renderer = TerminalRenderer::with_ui(ui);
+    let (renderer, mut events) = renderer_with_events();
 
     renderer.print_session_status(&SessionStatus {
         model: "claude-sonnet".to_string(),
@@ -749,12 +740,7 @@ fn print_session_status_and_notice_emit_transcript_item() {
     });
     renderer.print_notice("  [Notice message]\n");
 
-    let items = std::iter::from_fn(|| events.try_recv().ok())
-        .filter_map(|event| match event {
-            UiEvent::Transcript(TranscriptItem::Notice(text)) => Some(text),
-            _ => None,
-        })
-        .collect::<Vec<_>>();
+    let items = notice_texts(&mut events);
 
     assert_eq!(items.len(), 2);
     assert!(items[0].contains("claude-sonnet"));
@@ -764,8 +750,7 @@ fn print_session_status_and_notice_emit_transcript_item() {
 
 #[test]
 fn print_welcome_emits_transcript_welcome_item() {
-    let (ui, mut events) = InteractiveUi::channel();
-    let renderer = TerminalRenderer::with_ui(ui);
+    let (renderer, mut events) = renderer_with_events();
 
     renderer.print_welcome(&WelcomeDisplay {
         model: "claude-sonnet".to_string(),
@@ -795,8 +780,7 @@ fn print_welcome_emits_transcript_welcome_item() {
 
 #[test]
 fn print_block_emits_transcript_notice() {
-    let (ui, mut events) = InteractiveUi::channel();
-    let renderer = TerminalRenderer::with_ui(ui);
+    let (renderer, mut events) = renderer_with_events();
 
     renderer.print_block(&BlockDisplay {
         title: "Important Notice".to_string(),
@@ -809,12 +793,7 @@ fn print_block_emits_transcript_notice() {
         style: "warning".to_string(),
     });
 
-    let items = std::iter::from_fn(|| events.try_recv().ok())
-        .filter_map(|event| match event {
-            UiEvent::Transcript(TranscriptItem::Notice(text)) => Some(text),
-            _ => None,
-        })
-        .collect::<Vec<_>>();
+    let items = notice_texts(&mut events);
 
     assert_eq!(items.len(), 2);
     assert!(items[0].contains("Important Notice"));
@@ -881,28 +860,6 @@ fn fetch_content_kind_uses_format_or_url_extension() {
     assert_eq!(
         fetch_content_kind(&serde_json::json!({"url": "https://example.com/file", "format": "pdf"})),
         "pdf"
-    );
-}
-
-#[test]
-fn session_status_keeps_runtime_context_visible() {
-    assert_eq!(
-        format_session_status(&SessionStatus {
-            model: "claude-sonnet".to_string(),
-            provider: "anthropic".to_string(),
-            context: "27.4% (1M)".to_string(),
-            quota: Some("93% (3h22m)".to_string()),
-        }),
-        "claude-sonnet | 27.4% (1M) | 93% (3h22m)"
-    );
-    assert_eq!(
-        format_session_status(&SessionStatus {
-            model: "qwen".to_string(),
-            provider: "ollama".to_string(),
-            context: "0% (376k)".to_string(),
-            quota: None,
-        }),
-        "qwen | 0% (376k)"
     );
 }
 
@@ -994,19 +951,18 @@ fn notice_kinds_get_label_prefix_and_spacing() {
         let style = style.bold();
         assert_eq!(notice, format!("\n {style}{label}{style:#} something happened\n"));
     }
-    let multi = crate::ui::block::strip_ansi(&format_notice(&theme, NoticeKind::Warn, "first\nsecond"));
+    let multi = strip_ansi(&format_notice(&theme, NoticeKind::Warn, "first\nsecond"));
     assert_eq!(multi, "\n warning first\n second\n");
 }
 
 #[test]
 fn renderer_notice_is_emitted_as_a_transcript_notice() {
-    let (ui, mut events) = InteractiveUi::channel();
-    let renderer = TerminalRenderer::with_ui(ui);
+    let (renderer, mut events) = renderer_with_events();
     renderer.notice(NoticeKind::Warn, "Could not switch model: boom");
     let Ok(UiEvent::Transcript(TranscriptItem::Notice(text))) = events.try_recv() else {
         panic!("expected a notice transcript item");
     };
-    assert!(crate::ui::block::strip_ansi(&text).contains("warning Could not switch model: boom"));
+    assert!(strip_ansi(&text).contains("warning Could not switch model: boom"));
 }
 
 fn write_preview(args: &serde_json::Value, theme: &Theme, expanded: bool, width: usize) -> Option<String> {
@@ -1033,12 +989,12 @@ fn multi_edit_diffs_label_every_edit_including_the_first() {
         {"oldText": "a", "newText": "b", "line": 3},
         {"oldText": "c", "newText": "d"},
     ]});
-    let plain = crate::ui::block::strip_ansi(&edit_diff(&two, &theme).unwrap());
+    let plain = strip_ansi(&edit_diff(&two, &theme).unwrap());
     assert!(plain.starts_with("@@ edit #1/2 \u{b7} line 3 @@\n"), "{plain}");
     assert!(plain.contains("@@ edit #2/2 @@\n"));
 
     let one = serde_json::json!({"edits": [{"oldText": "a", "newText": "b", "line": 3}]});
-    assert!(!crate::ui::block::strip_ansi(&edit_diff(&one, &theme).unwrap()).contains("@@"));
+    assert!(!strip_ansi(&edit_diff(&one, &theme).unwrap()).contains("@@"));
 }
 
 #[test]
@@ -1051,14 +1007,14 @@ fn edit_diff_collapses_to_its_newest_rows_until_expanded() {
         expanded,
         width: 60,
     };
-    let collapsed = crate::ui::block::strip_ansi(&format_edit_diff(request(false), &theme).unwrap());
+    let collapsed = strip_ansi(&format_edit_diff(request(false), &theme).unwrap());
     assert_eq!(
         collapsed.lines().next(),
         Some("... (3 earlier lines, 13 total, Ctrl+O to expand)")
     );
     assert_eq!(collapsed.lines().count(), 11);
     assert!(collapsed.contains("- old12") && collapsed.contains("+ new") && !collapsed.contains("old3\n"));
-    let expanded = crate::ui::block::strip_ansi(&format_edit_diff(request(true), &theme).unwrap());
+    let expanded = strip_ansi(&format_edit_diff(request(true), &theme).unwrap());
     assert!(expanded.contains("- old1\n") && !expanded.contains("earlier lines"));
 }
 
@@ -1076,7 +1032,7 @@ fn collapsed_edit_diff_height_is_fixed_and_rows_are_clipped() {
                 expanded: false,
                 width: 40,
             };
-            let plain = crate::ui::block::strip_ansi(&format_edit_diff(request, &theme).unwrap());
+            let plain = strip_ansi(&format_edit_diff(request, &theme).unwrap());
             assert!(plain.lines().all(|row| row.chars().count() <= 40), "{plain}");
             plain.lines().count()
         })
@@ -1099,7 +1055,7 @@ fn edit_diff_prefers_recorded_start_lines_over_the_file_on_disk() {
         expanded: false,
         width: 60,
     };
-    let plain = crate::ui::block::strip_ansi(&format_edit_diff(request, &theme).unwrap());
+    let plain = strip_ansi(&format_edit_diff(request, &theme).unwrap());
     assert!(
         plain.contains(" 41 \u{2502} - a") && plain.contains(" 41 \u{2502} + b"),
         "{plain}"
@@ -1110,10 +1066,10 @@ fn edit_diff_prefers_recorded_start_lines_over_the_file_on_disk() {
 fn tabs_expand_to_four_spaces_in_diffs_and_write_previews() {
     let theme = Theme::default();
     let args = serde_json::json!({"edits": [{"oldText": "\tx\ty", "newText": "\tz"}]});
-    let diff = crate::ui::block::strip_ansi(&edit_diff(&args, &theme).unwrap());
+    let diff = strip_ansi(&edit_diff(&args, &theme).unwrap());
     assert!(!diff.contains('\t') && diff.contains("-     x"), "{diff:?}");
     let write = serde_json::json!({"path": "a.txt", "content": "\tindented"});
-    let preview = crate::ui::block::strip_ansi(&write_preview(&write, &theme, true, 60).unwrap());
+    let preview = strip_ansi(&write_preview(&write, &theme, true, 60).unwrap());
     assert!(preview.contains("\u{2502}     indented"), "{preview:?}");
 }
 
@@ -1122,10 +1078,7 @@ fn every_edit_and_write_card_collapses_to_its_newest_rows_until_expanded() {
     let body = numbered("row", 30);
     let edit = serde_json::json!({"path": "a.rs", "edits": [{"oldText": body, "newText": "done", "line": 1}]});
     let write = serde_json::json!({"path": "a.rs", "text": format!("{body}\ndone")});
-    let structured = Theme {
-        structured_tool_cards: true,
-        ..Theme::default()
-    };
+    let structured = structured_theme();
     let cards = [
         ("edit", ToolLine::new("edit", edit.clone())),
         (
@@ -1136,12 +1089,12 @@ fn every_edit_and_write_card_collapses_to_its_newest_rows_until_expanded() {
     ];
     for theme in [Theme::default(), structured] {
         for (label, tool) in &cards {
-            let collapsed = crate::ui::block::strip_ansi(&render_tool_block(tool, 80, false, false, &theme));
+            let collapsed = strip_ansi(&render_tool_block(tool, 80, false, false, &theme));
             assert!(
                 collapsed.contains("earlier lines") && collapsed.contains("done") && !collapsed.contains("row1 "),
                 "{label}: {collapsed}"
             );
-            let expanded = crate::ui::block::strip_ansi(&render_tool_block(tool, 80, true, false, &theme));
+            let expanded = strip_ansi(&render_tool_block(tool, 80, true, false, &theme));
             assert!(
                 !expanded.contains("earlier lines") && expanded.contains("row1 "),
                 "{label}: {expanded}"
@@ -1155,14 +1108,14 @@ fn failed_edit_card_shows_the_attempted_change_after_the_error() {
     let theme = Theme::default();
     let args = serde_json::json!({"path": "a.rs", "edits": [{"oldText": "missing", "newText": "present", "line": 7}]});
     let failed = ToolLine::new("edit", args.clone()).with_output("no match").failed();
-    let card = crate::ui::block::strip_ansi(&render_tool_transcript(&failed, 80, false, false, &theme));
+    let card = strip_ansi(&render_tool_transcript(&failed, 80, false, false, &theme));
     let (error_at, attempt_at) = (card.find("no match").unwrap(), card.find("Attempted change:").unwrap());
     assert!(
         error_at < attempt_at && card.contains("- missing") && card.contains("+ present"),
         "{card}"
     );
 
-    let ok = crate::ui::block::strip_ansi(&render_tool_transcript(
+    let ok = strip_ansi(&render_tool_transcript(
         &ToolLine::new("edit", args),
         80,
         false,
@@ -1182,8 +1135,8 @@ fn edit_and_write_cards_show_change_summary_in_the_header() {
         edit_start_lines: vec![],
         replaced_regions: vec![],
     };
-    let edit_header = crate::ui::block::strip_ansi(&format_tool_header(&ToolLine::new("edit", edit), &theme));
-    let write_header = crate::ui::block::strip_ansi(&format_tool_header(
+    let edit_header = strip_ansi(&format_tool_header(&ToolLine::new("edit", edit), &theme));
+    let write_header = strip_ansi(&format_tool_header(
         &ToolLine::new("write", write).with_file_change(new_file),
         &theme,
     ));
@@ -1196,13 +1149,12 @@ fn edit_and_write_cards_show_change_summary_in_the_header() {
 
 #[test]
 fn a_finished_wait_ends_the_running_tool_without_a_card() {
-    let (ui, mut events) = InteractiveUi::channel();
-    let renderer = TerminalRenderer::with_ui(ui);
+    let (renderer, mut events) = renderer_with_events();
 
     renderer.start_tool_run("wait", &serde_json::json!({}));
     renderer.finish_tool_line(ToolLine::new("wait", serde_json::json!({})));
 
-    let events: Vec<UiEvent> = std::iter::from_fn(|| events.try_recv().ok()).collect();
+    let events = drain_events(&mut events);
     assert!(
         !events.iter().any(|event| matches!(event, UiEvent::Transcript(_))),
         "wait leaves no transcript card"
@@ -1216,15 +1168,14 @@ fn renderer_gives_the_live_card_and_the_finished_line_the_snapshot_taken_when_th
     let file = dir.join("f.txt");
     std::fs::write(&file, "keep\nchange me\n").unwrap();
     let path = file.to_str().unwrap();
-    let (ui, mut events) = InteractiveUi::channel();
-    let renderer = TerminalRenderer::with_ui(ui);
+    let (renderer, mut events) = renderer_with_events();
     let args = serde_json::json!({"path": path, "edits": [{"oldText": "change me", "newText": "changed"}]});
 
     renderer.start_tool_run("edit", &args);
     std::fs::write(&file, "keep\nchanged\nextra\n").unwrap();
     renderer.finish_tool_line(ToolLine::new("edit", args));
 
-    let events: Vec<UiEvent> = std::iter::from_fn(|| events.try_recv().ok()).collect();
+    let events = drain_events(&mut events);
     let [
         UiEvent::ToolStart(start),
         UiEvent::Transcript(TranscriptItem::Tool(line)),

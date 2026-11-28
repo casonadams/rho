@@ -1,4 +1,4 @@
-use rho_engine::permission::bash::{Token, TokenKind, tokenize};
+use rho_engine::permission::bash::{Token, TokenKind, is_assignment, tokenize};
 use std::collections::VecDeque;
 
 const SCRATCH_PREFIXES: [&str; 7] = [
@@ -178,13 +178,6 @@ fn program_name(word: &str) -> &str {
     }
 }
 
-fn is_assignment(word: &str) -> bool {
-    word.split_once('=').is_some_and(|(name, _)| {
-        name.starts_with(|c: char| c.is_ascii_alphabetic() || c == '_')
-            && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
-    })
-}
-
 fn skip_options<'a, 'b>(words: &'a [&'b str], value_flags: &[&str]) -> &'a [&'b str] {
     let mut index = 0;
     while let Some(word) = words.get(index) {
@@ -298,67 +291,48 @@ pub(super) fn classify_bash_edit(command: &str) -> Option<BashEdit> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use test_case::test_case;
 
-    #[test]
-    fn bash_file_edits_are_classified_and_scratch_writes_ignored() {
-        let cases = [
-            ("sed -i '' 's/a/b/' src/lib.rs", Some(BashEdit::SedInPlace)),
-            ("sed -E -i.bak 's/a/b/' x.rs", Some(BashEdit::SedInPlace)),
-            ("sed -n 1,20p src/lib.rs", None),
-            ("perl -pi -e 's/a/b/' x.rs", Some(BashEdit::PerlInPlace)),
-            (
-                "python3 - <<'EOF'\np='a.rs'\nopen(p,'w').write(s)\nEOF",
-                Some(BashEdit::Script),
-            ),
-            ("python3 -c 'import json; print(json.load(open(\"a.json\")))'", None),
-            ("cat > src/new.rs <<'EOF'\nfn main() {}\nEOF", Some(BashEdit::Redirect)),
-            ("echo hi >> notes.md", Some(BashEdit::Redirect)),
-            ("make all > /tmp/rho-make.log 2>&1", None),
-            ("cargo test 2>&1 | grep FAIL", None),
-            ("ls missing 2>/dev/null", None),
-            ("echo x | tee out.txt", Some(BashEdit::Tee)),
-            ("git status && cargo fmt --all", None),
-            ("git commit -q -F - <<'EOF'\nfix: map Result<A> -> B > C\nEOF", None),
-            ("git show HEAD:a.rs > a.rs", Some(BashEdit::Redirect)),
-            ("rg -l foo | xargs sed -i 's/a/b/'", Some(BashEdit::SedInPlace)),
-            ("rg -l foo | xargs -I {} sed -i 's/a/b/' {}", Some(BashEdit::SedInPlace)),
-            (
-                "find . -name '*.rs' -exec sed -i 's/a/b/' {} +",
-                Some(BashEdit::SedInPlace),
-            ),
-            ("LC_ALL=C sed -i 's/a/b/' x.rs", Some(BashEdit::SedInPlace)),
-            (
-                "sudo -u me gsed --in-place=.bak 's/a/b/' x.rs",
-                Some(BashEdit::SedInPlace),
-            ),
-            ("sed -I '' 's/a/b/' x.rs", Some(BashEdit::SedInPlace)),
-            ("sed -e 's/i/x/' x.rs", None),
-            (
-                "env python3.12 -c \"open('a.rs','w').write('')\"",
-                Some(BashEdit::Script),
-            ),
-            ("cargo build &> build.log", Some(BashEdit::Redirect)),
-            ("cargo build &>> build.log", Some(BashEdit::Redirect)),
-            ("perl -Mstrict -e 'print 1'", None),
-            ("perl -MList::Util=min -Ilib -ne 'print' x", None),
-            ("perl -pie 's/a/b/' x.rs", Some(BashEdit::PerlInPlace)),
-            ("node -e \"process.stdout.write('x')\"", None),
-            ("rg '\\.write\\(' src; python3 --version", None),
-            ("python3 -c \"open('/tmp/x','w').write('')\"", None),
-            ("echo $((1 > 0))", None),
-            ("[[ $a > $b ]] && echo yes", None),
-            ("cmd > >(tee /tmp/log)", None),
-            ("echo hi # > x", None),
-            ("echo $TMPDIR; echo x > $TMPDIR/out", None),
-            (
-                "cat > /tmp/p <<EOF\nbody > x\nEOF\nsed -i s/a/b/ src/x.rs",
-                Some(BashEdit::SedInPlace),
-            ),
-            ("grep x <<< 'a > b'", None),
-            ("git commit -m 'x << y'\nsed -i s/a/b/ f", Some(BashEdit::SedInPlace)),
-        ];
-        for (command, expected) in cases {
-            assert_eq!(classify_bash_edit(command), expected, "{command}");
-        }
+    #[test_case("sed -i '' 's/a/b/' src/lib.rs", Some(BashEdit::SedInPlace); "sed in place")]
+    #[test_case("sed -E -i.bak 's/a/b/' x.rs", Some(BashEdit::SedInPlace); "sed in place with backup suffix")]
+    #[test_case("sed -n 1,20p src/lib.rs", None; "sed print")]
+    #[test_case("perl -pi -e 's/a/b/' x.rs", Some(BashEdit::PerlInPlace); "perl in place")]
+    #[test_case("python3 - <<'EOF'\np='a.rs'\nopen(p,'w').write(s)\nEOF", Some(BashEdit::Script); "python heredoc write")]
+    #[test_case("python3 -c 'import json; print(json.load(open(\"a.json\")))'", None; "python read only")]
+    #[test_case("cat > src/new.rs <<'EOF'\nfn main() {}\nEOF", Some(BashEdit::Redirect); "cat heredoc redirect")]
+    #[test_case("echo hi >> notes.md", Some(BashEdit::Redirect); "append redirect")]
+    #[test_case("make all > /tmp/rho-make.log 2>&1", None; "redirect to tmp")]
+    #[test_case("cargo test 2>&1 | grep FAIL", None; "stderr to stdout pipe")]
+    #[test_case("ls missing 2>/dev/null", None; "redirect to dev null")]
+    #[test_case("echo x | tee out.txt", Some(BashEdit::Tee); "tee")]
+    #[test_case("git status && cargo fmt --all", None; "formatter")]
+    #[test_case("git commit -q -F - <<'EOF'\nfix: map Result<A> -> B > C\nEOF", None; "angle brackets in heredoc body")]
+    #[test_case("git show HEAD:a.rs > a.rs", Some(BashEdit::Redirect); "git show redirect")]
+    #[test_case("rg -l foo | xargs sed -i 's/a/b/'", Some(BashEdit::SedInPlace); "xargs sed")]
+    #[test_case("rg -l foo | xargs -I {} sed -i 's/a/b/' {}", Some(BashEdit::SedInPlace); "xargs replace sed")]
+    #[test_case("find . -name '*.rs' -exec sed -i 's/a/b/' {} +", Some(BashEdit::SedInPlace); "find exec sed")]
+    #[test_case("LC_ALL=C sed -i 's/a/b/' x.rs", Some(BashEdit::SedInPlace); "env assignment sed")]
+    #[test_case("sudo -u me gsed --in-place=.bak 's/a/b/' x.rs", Some(BashEdit::SedInPlace); "sudo gsed long flag")]
+    #[test_case("sed -I '' 's/a/b/' x.rs", Some(BashEdit::SedInPlace); "bsd sed capital i")]
+    #[test_case("sed -e 's/i/x/' x.rs", None; "sed expression mentioning i")]
+    #[test_case("env python3.12 -c \"open('a.rs','w').write('')\"", Some(BashEdit::Script); "env python write")]
+    #[test_case("cargo build &> build.log", Some(BashEdit::Redirect); "ampersand redirect")]
+    #[test_case("cargo build &>> build.log", Some(BashEdit::Redirect); "ampersand append redirect")]
+    #[test_case("perl -Mstrict -e 'print 1'", None; "perl module flag")]
+    #[test_case("perl -MList::Util=min -Ilib -ne 'print' x", None; "perl module and include flags")]
+    #[test_case("perl -pie 's/a/b/' x.rs", Some(BashEdit::PerlInPlace); "perl combined pie flags")]
+    #[test_case("node -e \"process.stdout.write('x')\"", None; "node stdout write")]
+    #[test_case("rg '\\.write\\(' src; python3 --version", None; "write pattern in search")]
+    #[test_case("python3 -c \"open('/tmp/x','w').write('')\"", None; "python write to tmp")]
+    #[test_case("echo $((1 > 0))", None; "arithmetic comparison")]
+    #[test_case("[[ $a > $b ]] && echo yes", None; "test bracket comparison")]
+    #[test_case("cmd > >(tee /tmp/log)", None; "process substitution")]
+    #[test_case("echo hi # > x", None; "redirect in comment")]
+    #[test_case("echo $TMPDIR; echo x > $TMPDIR/out", None; "redirect to tmpdir")]
+    #[test_case("cat > /tmp/p <<EOF\nbody > x\nEOF\nsed -i s/a/b/ src/x.rs", Some(BashEdit::SedInPlace); "sed after heredoc")]
+    #[test_case("grep x <<< 'a > b'", None; "herestring")]
+    #[test_case("git commit -m 'x << y'\nsed -i s/a/b/ f", Some(BashEdit::SedInPlace); "sed after quoted heredoc marker")]
+    fn bash_file_edits_are_classified_and_scratch_writes_ignored(command: &str, expected: Option<BashEdit>) {
+        assert_eq!(classify_bash_edit(command), expected);
     }
 }

@@ -16,6 +16,7 @@ mod tests {
     use crate::provider::sse::SseEvents;
     use rho_harness_core::error::AppError;
     use rho_harness_core::model::Reasoning;
+    use test_case::test_case;
 
     fn feed_sse(lines: &[&str]) -> SseEvents {
         let mut parser = sse_parser();
@@ -127,48 +128,43 @@ mod tests {
             .collect()
     }
 
-    #[tokio::test]
-    async fn cumulative_usage_is_reported_once_with_the_latest_totals() {
-        let cases: [&[&str]; 2] = [
-            &[
-                r#"{"usageMetadata":{"promptTokenCount":4,"candidatesTokenCount":1,"totalTokenCount":5}}"#,
-                r#"{"candidates":[{"content":{"parts":[{"text":"hi"}]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":4,"candidatesTokenCount":2,"totalTokenCount":6}}"#,
-            ],
-            &[
-                r#"{"usageMetadata":{"promptTokenCount":4,"candidatesTokenCount":2,"totalTokenCount":6}}"#,
-                r#"{"candidates":[{"content":{"parts":[{"text":"hi"}]},"finishReason":"STOP"}]}"#,
-            ],
+    #[test_case(
+        &[
+            r#"{"usageMetadata":{"promptTokenCount":4,"candidatesTokenCount":1,"totalTokenCount":5}}"#,
+            r#"{"candidates":[{"content":{"parts":[{"text":"hi"}]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":4,"candidatesTokenCount":2,"totalTokenCount":6}}"#,
         ];
-        for payloads in cases {
-            let events = collect_body(payloads).await;
-            assert_eq!(usage_totals(&events), [6], "{payloads:?}");
-        }
+        "usage grows into the finishing chunk"
+    )]
+    #[test_case(
+        &[
+            r#"{"usageMetadata":{"promptTokenCount":4,"candidatesTokenCount":2,"totalTokenCount":6}}"#,
+            r#"{"candidates":[{"content":{"parts":[{"text":"hi"}]},"finishReason":"STOP"}]}"#,
+        ];
+        "usage before a finishing chunk without usage"
+    )]
+    #[tokio::test]
+    async fn cumulative_usage_is_reported_once_with_the_latest_totals(payloads: &[&str]) {
+        let events = collect_body(payloads).await;
+        assert_eq!(usage_totals(&events), [6]);
     }
 
-    #[test]
-    fn in_band_errors_classify_quota_overflow_and_rate_limits() {
-        let cases = [
-            (
-                r#"{"error":{"code":429,"message":"Individual quota reached."}}"#,
-                "provider",
-            ),
-            (r#"{"error":{"code":429,"message":"slow down"}}"#, "rate_limited"),
-            (
-                r#"{"error":{"code":400,"message":"The input token count exceeds the maximum"}}"#,
-                "context_overflow",
-            ),
-            (r#"{"error":{"code":503,"message":"overloaded"}}"#, "unavailable"),
-        ];
-        for (line, expected) in cases {
-            let kind = match feed_sse(&[line]).as_slice() {
-                [Err(AppError::Provider(_))] => "provider",
-                [Err(AppError::RateLimited { .. })] => "rate_limited",
-                [Err(AppError::ContextOverflow(_))] => "context_overflow",
-                [Err(AppError::ProviderUnavailable { .. })] => "unavailable",
-                other => panic!("{line}: {other:?}"),
-            };
-            assert_eq!(kind, expected, "{line}");
-        }
+    #[test_case(r#"{"error":{"code":429,"message":"Individual quota reached."}}"#, "provider"; "quota")]
+    #[test_case(r#"{"error":{"code":429,"message":"slow down"}}"#, "rate_limited"; "rate limit")]
+    #[test_case(
+        r#"{"error":{"code":400,"message":"The input token count exceeds the maximum"}}"#,
+        "context_overflow";
+        "context overflow"
+    )]
+    #[test_case(r#"{"error":{"code":503,"message":"overloaded"}}"#, "unavailable"; "unavailable")]
+    fn in_band_errors_classify_quota_overflow_and_rate_limits(line: &str, expected: &str) {
+        let kind = match feed_sse(&[line]).as_slice() {
+            [Err(AppError::Provider(_))] => "provider",
+            [Err(AppError::RateLimited { .. })] => "rate_limited",
+            [Err(AppError::ContextOverflow(_))] => "context_overflow",
+            [Err(AppError::ProviderUnavailable { .. })] => "unavailable",
+            other => panic!("{other:?}"),
+        };
+        assert_eq!(kind, expected);
     }
 
     #[test]

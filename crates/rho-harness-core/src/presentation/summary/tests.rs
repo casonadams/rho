@@ -1,4 +1,5 @@
 use super::*;
+use test_case::test_case;
 
 #[test]
 fn summarize_tool_output_short_ascii() {
@@ -75,18 +76,13 @@ fn format_tool_args_summary_rg() {
     assert_eq!(format_tool_args_summary("rg", &regex_chars), "'fn.*run_turn'");
 }
 
-#[test]
-fn test_quote_cli_arg() {
-    let cases = [
-        ("", "''"),
-        ("foo", "foo"),
-        ("foo-bar_1.2", "foo-bar_1.2"),
-        ("foo bar", "'foo bar'"),
-        ("don't", "'don'\\''t'"),
-    ];
-    for (input, expected) in cases {
-        assert_eq!(quote_cli_arg(input), expected);
-    }
+#[test_case("", "''"; "empty")]
+#[test_case("foo", "foo"; "plain word")]
+#[test_case("foo-bar_1.2", "foo-bar_1.2"; "safe punctuation")]
+#[test_case("foo bar", "'foo bar'"; "space")]
+#[test_case("don't", "'don'\\''t'"; "single quote")]
+fn test_quote_cli_arg(input: &str, expected: &str) {
+    assert_eq!(quote_cli_arg(input), expected);
 }
 
 #[test]

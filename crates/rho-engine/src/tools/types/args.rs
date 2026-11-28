@@ -165,6 +165,7 @@ mod tests {
     use super::*;
     use serde::Deserialize;
     use serde_json::json;
+    use test_case::test_case;
 
     #[derive(Debug, Deserialize, PartialEq)]
     struct Args {
@@ -178,30 +179,20 @@ mod tests {
         json!({ "properties": { "path": {}, "edits": {}, "limit": {} }, "required": ["path", "edits"] })
     }
 
-    #[test]
-    fn json_encoded_nested_values_are_decoded() {
-        let cases = [
-            json!({ "path": "a", "edits": "[{\"oldText\":\"x\"}]" }),
-            normalize_tool_arguments(json!("{\"path\": \"a\", \"edits\": [{\"oldText\": \"x\"}]}")),
-            json!({ "path": "a", "edits": [{ "oldText": "x" }] }),
-        ];
-        for args in cases {
-            let parsed: Args = parse_tool_args("edit", args.clone(), schema).unwrap();
-            assert_eq!(parsed.edits, [json!({ "oldText": "x" })], "{args}");
-        }
+    #[test_case(json!({ "path": "a", "edits": "[{\"oldText\":\"x\"}]" }); "encoded field")]
+    #[test_case(normalize_tool_arguments(json!("{\"path\": \"a\", \"edits\": [{\"oldText\": \"x\"}]}")); "encoded object")]
+    #[test_case(json!({ "path": "a", "edits": [{ "oldText": "x" }] }); "plain object")]
+    fn json_encoded_nested_values_are_decoded(args: Value) {
+        let parsed: Args = parse_tool_args("edit", args, schema).unwrap();
+        assert_eq!(parsed.edits, [json!({ "oldText": "x" })]);
     }
 
-    #[test]
-    fn only_json_encoded_objects_are_normalized() {
-        let cases = [
-            (json!("{\"path\": \"a\"}"), json!({ "path": "a" })),
-            (json!("[1]"), json!("[1]")),
-            (json!("plain"), json!("plain")),
-            (json!({ "path": "{x}" }), json!({ "path": "{x}" })),
-        ];
-        for (input, expected) in cases {
-            assert_eq!(normalize_tool_arguments(input.clone()), expected, "{input}");
-        }
+    #[test_case(json!("{\"path\": \"a\"}"), json!({ "path": "a" }); "encoded object")]
+    #[test_case(json!("[1]"), json!("[1]"); "encoded array")]
+    #[test_case(json!("plain"), json!("plain"); "plain string")]
+    #[test_case(json!({ "path": "{x}" }), json!({ "path": "{x}" }); "object with braces")]
+    fn only_json_encoded_objects_are_normalized(input: Value, expected: Value) {
+        assert_eq!(normalize_tool_arguments(input), expected);
     }
 
     #[test]

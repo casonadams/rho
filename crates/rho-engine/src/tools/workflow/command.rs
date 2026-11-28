@@ -84,8 +84,8 @@ mod tests {
 
     #[tokio::test]
     async fn runs_without_a_shell_and_reports_exit_and_output() {
-        let dir = tempfile::tempdir().unwrap();
-        let ok = run_command(&argv(&["echo", "a; rm -rf /", "$HOME"]), dir.path(), None)
+        let dir = crate::test_support::TestDir::new();
+        let ok = run_command(&argv(&["echo", "a; rm -rf /", "$HOME"]), &dir, None)
             .await
             .unwrap();
         assert!(ok.ok());
@@ -94,23 +94,23 @@ mod tests {
             "arguments reach the program literally"
         );
 
-        let failed = run_command(&argv(&["sh", "-c", "echo out; echo err >&2; exit 3"]), dir.path(), None)
+        let failed = run_command(&argv(&["sh", "-c", "echo out; echo err >&2; exit 3"]), &dir, None)
             .await
             .unwrap();
         assert_eq!(
             failed.to_value(None),
             json!({ "ok": false, "exit": 3, "output": "out\nerr" })
         );
-        let missing = run_command(&argv(&["definitely-not-a-program-rho"]), dir.path(), None).await;
+        let missing = run_command(&argv(&["definitely-not-a-program-rho"]), &dir, None).await;
         assert!(missing.unwrap_err().contains("failed to start"));
     }
 
     #[tokio::test]
     async fn cancellation_stops_a_running_command() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = crate::test_support::TestDir::new();
         let cancel = CancellationSignal::default();
         cancel.cancel();
-        let err = run_command(&argv(&["sleep", "5"]), dir.path(), Some(&cancel))
+        let err = run_command(&argv(&["sleep", "5"]), &dir, Some(&cancel))
             .await
             .unwrap_err();
         assert_eq!(err, CANCELLED);

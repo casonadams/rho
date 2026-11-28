@@ -196,37 +196,28 @@ pub fn highlight_tool_output(tool_name: &str, text: &str, first_line: usize, the
 #[cfg(test)]
 mod tests {
     use super::*;
+    use test_case::test_case;
 
-    #[test]
-    fn highlighting_from_a_line_matches_the_same_lines_of_the_whole_output() {
+    #[test_case("rg", "src/a.rs\n1:fn a() {}\n2-let b = 1;\n\nsrc/b.py\n3:def c(): pass\n4:x = 1"; "rg matches")]
+    #[test_case("fd", "src/\n  a.rs\n  sub/\n[3 more]\nREADME.md"; "fd tree")]
+    #[test_case("bash", "diff --git a/x b/x\n--- a/x\n+++ b/x\n@@ -1 +1 @@\n-old\n+new\n same"; "bash diff")]
+    #[test_case(
+        "bash",
+        "intro\n```rust\nfn main() {\n    let x = 1;\n}\n```\nafter\n```sh\necho hi";
+        "bash fenced code"
+    )]
+    #[test_case("lsp", "src/a.rs:12\nerror: bad\nwarning: meh\nplain"; "lsp diagnostics")]
+    #[test_case("mcp", "{\n  \"a\": [\n    1,\n    true\n  ],\n  \"b\": \"c\"\n}"; "mcp json")]
+    #[test_case("bash", "\x1b[32mok\x1b[0m\nline two\r\nline three"; "bash ansi")]
+    #[test_case("bash", "plain one\nplain two\nplain three"; "bash plain")]
+    fn highlighting_from_a_line_matches_the_same_lines_of_the_whole_output(tool: &str, text: &str) {
         let theme = Theme::default();
-        let cases = [
-            (
-                "rg",
-                "src/a.rs\n1:fn a() {}\n2-let b = 1;\n\nsrc/b.py\n3:def c(): pass\n4:x = 1",
-            ),
-            ("fd", "src/\n  a.rs\n  sub/\n[3 more]\nREADME.md"),
-            (
-                "bash",
-                "diff --git a/x b/x\n--- a/x\n+++ b/x\n@@ -1 +1 @@\n-old\n+new\n same",
-            ),
-            (
-                "bash",
-                "intro\n```rust\nfn main() {\n    let x = 1;\n}\n```\nafter\n```sh\necho hi",
-            ),
-            ("lsp", "src/a.rs:12\nerror: bad\nwarning: meh\nplain"),
-            ("mcp", "{\n  \"a\": [\n    1,\n    true\n  ],\n  \"b\": \"c\"\n}"),
-            ("bash", "\x1b[32mok\x1b[0m\nline two\r\nline three"),
-            ("bash", "plain one\nplain two\nplain three"),
-        ];
-        for (tool, text) in cases {
-            let whole = highlight_tool_output(tool, text, 0, &theme);
-            let whole_lines: Vec<&str> = whole.split('\n').collect();
-            for first in 0..=text.split('\n').count() {
-                let from = highlight_tool_output(tool, text, first, &theme);
-                let expected = whole_lines[first.min(whole_lines.len())..].join("\n");
-                assert_eq!(from, expected, "{tool} from line {first} of {text:?}");
-            }
+        let whole = highlight_tool_output(tool, text, 0, &theme);
+        let whole_lines: Vec<&str> = whole.split('\n').collect();
+        for first in 0..=text.split('\n').count() {
+            let from = highlight_tool_output(tool, text, first, &theme);
+            let expected = whole_lines[first.min(whole_lines.len())..].join("\n");
+            assert_eq!(from, expected, "from line {first}");
         }
     }
 

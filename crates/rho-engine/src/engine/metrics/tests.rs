@@ -1,5 +1,6 @@
 use super::types::{CompletionCall, FinishReason, PromptResponse, Usage};
 use super::*;
+use test_case::test_case;
 
 fn usage() -> Usage {
     let mut u = Usage::new();
@@ -205,26 +206,21 @@ fn merged_usage_keeps_optional_counts_reported_by_either_side() {
     assert_eq!(merged.cache_creation_input_tokens, None);
 }
 
-#[test]
-fn format_tokens_breakpoints() {
+#[test_case(0, "0"; "tokens 0")]
+#[test_case(999, "999"; "tokens 999")]
+#[test_case(1_000, "1.0k"; "tokens 1000")]
+#[test_case(1_234, "1.2k"; "tokens 1234")]
+#[test_case(32_768, "32k"; "tokens 32768")]
+#[test_case(45_300, "45.3k"; "tokens 45300")]
+#[test_case(99_949, "99.9k"; "tokens 99949")]
+#[test_case(128_000, "128k"; "tokens 128000")]
+#[test_case(131_072, "128k"; "tokens 131072")]
+#[test_case(262_144, "256k"; "tokens 262144")]
+#[test_case(1_000_000, "1M"; "tokens 1000000")]
+#[test_case(1_048_576, "1M"; "tokens 1048576")]
+#[test_case(2_500_000, "2.5M"; "tokens 2500000")]
+fn format_tokens_breakpoints(tokens: u64, expected: &str) {
     use super::types::format_tokens;
 
-    let cases = [
-        (0, "0"),
-        (999, "999"),
-        (1_000, "1.0k"),
-        (1_234, "1.2k"),
-        (32_768, "32k"),
-        (45_300, "45.3k"),
-        (99_949, "99.9k"),
-        (128_000, "128k"),
-        (131_072, "128k"),
-        (262_144, "256k"),
-        (1_000_000, "1M"),
-        (1_048_576, "1M"),
-        (2_500_000, "2.5M"),
-    ];
-    for (tokens, expected) in cases {
-        assert_eq!(format_tokens(tokens), expected, "{tokens} tokens");
-    }
+    assert_eq!(format_tokens(tokens), expected);
 }

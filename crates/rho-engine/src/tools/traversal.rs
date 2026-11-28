@@ -188,24 +188,25 @@ mod tests {
     use super::{is_smart_case_insensitive, list_workspace_files, run_blocking_search};
     use crate::tools::types::ToolResult;
     use std::fs;
+    use test_case::test_case;
 
-    fn workspace() -> tempfile::TempDir {
-        let dir = tempfile::tempdir().unwrap();
-        fs::create_dir_all(dir.path().join(".git")).unwrap();
-        fs::create_dir_all(dir.path().join("sub")).unwrap();
-        fs::create_dir_all(dir.path().join("ignored")).unwrap();
-        fs::write(dir.path().join(".gitignore"), "ignored/\n").unwrap();
-        fs::write(dir.path().join(".hidden"), "").unwrap();
-        fs::write(dir.path().join("b.txt"), "").unwrap();
-        fs::write(dir.path().join("sub/a.rs"), "").unwrap();
-        fs::write(dir.path().join("ignored/c.txt"), "").unwrap();
+    fn workspace() -> crate::test_support::TestDir {
+        let dir = crate::test_support::TestDir::new();
+        fs::create_dir_all(dir.join(".git")).unwrap();
+        fs::create_dir_all(dir.join("sub")).unwrap();
+        fs::create_dir_all(dir.join("ignored")).unwrap();
+        fs::write(dir.join(".gitignore"), "ignored/\n").unwrap();
+        fs::write(dir.join(".hidden"), "").unwrap();
+        fs::write(dir.join("b.txt"), "").unwrap();
+        fs::write(dir.join("sub/a.rs"), "").unwrap();
+        fs::write(dir.join("ignored/c.txt"), "").unwrap();
         dir
     }
 
     #[test]
     fn list_workspace_files_skips_ignored_and_hidden_entries() {
         let dir = workspace();
-        assert_eq!(list_workspace_files(dir.path(), 100), ["b.txt", "sub/a.rs"]);
+        assert_eq!(list_workspace_files(&dir, 100), ["b.txt", "sub/a.rs"]);
     }
 
     #[test]
@@ -222,21 +223,16 @@ mod tests {
     #[test]
     fn list_workspace_files_stops_at_max_files() {
         let dir = workspace();
-        assert_eq!(list_workspace_files(dir.path(), 1).len(), 1);
+        assert_eq!(list_workspace_files(&dir, 1).len(), 1);
     }
 
-    #[test]
-    fn patterns_without_uppercase_match_case_insensitively() {
-        let cases = [
-            ("todo", true),
-            ("a.b", true),
-            ("TODO", false),
-            ("toDo", false),
-            ("", true),
-        ];
-        for (pattern, insensitive) in cases {
-            assert_eq!(is_smart_case_insensitive(pattern), insensitive, "{pattern:?}");
-        }
+    #[test_case("todo", true; "lowercase")]
+    #[test_case("a.b", true; "lowercase regex")]
+    #[test_case("TODO", false; "uppercase")]
+    #[test_case("toDo", false; "mixed case")]
+    #[test_case("", true; "empty")]
+    fn patterns_without_uppercase_match_case_insensitively(pattern: &str, insensitive: bool) {
+        assert_eq!(is_smart_case_insensitive(pattern), insensitive);
     }
 
     #[tokio::test]

@@ -325,22 +325,20 @@ impl BlockFormat {
     }
 
     fn top_border_line(&self) -> String {
-        let style = self.border_style;
-        if self.width < 2 {
-            format!("{style}╭{style:#}\n")
-        } else {
-            let inner = self.width.saturating_sub(2);
-            format!("{style}╭{}╮{style:#}\n", "─".repeat(inner))
-        }
+        self.horizontal_border_line('╭', '╮')
     }
 
     fn bottom_border_line(&self) -> String {
+        self.horizontal_border_line('╰', '╯')
+    }
+
+    fn horizontal_border_line(&self, left: char, right: char) -> String {
         let style = self.border_style;
         if self.width < 2 {
-            format!("{style}╰{style:#}\n")
+            format!("{style}{left}{style:#}\n")
         } else {
-            let inner = self.width.saturating_sub(2);
-            format!("{style}╰{}╯{style:#}\n", "─".repeat(inner))
+            let inner = self.width - 2;
+            format!("{style}{left}{}{right}{style:#}\n", "─".repeat(inner))
         }
     }
 
@@ -404,9 +402,20 @@ pub fn terminal_width() -> usize {
 mod tests {
     use super::*;
     use anstyle::{AnsiColor, Color};
+    use test_case::test_case;
 
     fn background() -> Style {
         Style::new().bg_color(Some(Color::Ansi(AnsiColor::Black)))
+    }
+
+    fn ansi_fg(color: AnsiColor) -> Style {
+        Style::new().fg_color(Some(Color::Ansi(color)))
+    }
+
+    fn assert_rows_width(rendered: &str, width: usize) {
+        for line in rendered.lines() {
+            assert_eq!(visible_width(line), width, "line {line:?}");
+        }
     }
 
     #[test]
@@ -416,7 +425,7 @@ mod tests {
             .render_plain("abcdefghij");
         let lines: Vec<&str> = rendered.lines().collect();
         assert_eq!(lines.len(), 5);
-        assert!(lines.iter().all(|line| visible_width(line) == 6));
+        assert_rows_width(&rendered, 6);
         assert!(rendered.contains("abcd"));
         assert!(rendered.contains("efgh"));
         assert!(rendered.contains("ij"));
@@ -427,7 +436,7 @@ mod tests {
         let rendered = BlockFormat::new(background(), 8).render_styled("\x1b[36mabcdefghijkl\x1b[0m");
         let lines: Vec<&str> = rendered.lines().collect();
         assert_eq!(lines.len(), 2);
-        assert!(lines.iter().all(|line| visible_width(line) == 8));
+        assert_rows_width(&rendered, 8);
         assert!(lines[0].starts_with("\x1b[40m \x1b[36m"));
         assert!(lines[1].contains("\x1b[36mghijkl"));
     }
@@ -464,13 +473,13 @@ mod tests {
 
     #[test]
     fn divider_blocks_combine_solid_fill_with_top_and_bottom_rules() {
-        let border_style = Style::new().fg_color(Some(Color::Ansi(AnsiColor::BrightBlack)));
+        let border_style = ansi_fg(AnsiColor::BrightBlack);
         let rendered = BlockFormat::divider(background(), border_style, 20)
             .with_vertical_padding()
             .render_styled("\x1b[32mok\x1b[0m text");
         let lines: Vec<&str> = rendered.lines().collect();
         assert_eq!(lines.len(), 3);
-        assert!(lines.iter().all(|line| visible_width(line) == 20));
+        assert_rows_width(&rendered, 20);
         assert_eq!(strip_ansi(lines[0]), "─".repeat(20));
         assert_eq!(strip_ansi(lines[2]), "─".repeat(20));
         assert!(lines[1].starts_with("\x1b[40m \x1b[32mok\x1b[0m\x1b[40m text"));
@@ -479,13 +488,13 @@ mod tests {
 
     #[test]
     fn border_blocks_render_with_outline_and_fit_requested_width() {
-        let border_style = Style::new().fg_color(Some(Color::Ansi(AnsiColor::Green)));
+        let border_style = ansi_fg(AnsiColor::Green);
         let rendered = BlockFormat::border(border_style, 20)
             .with_vertical_padding()
             .render_plain("hello border world");
         let lines: Vec<&str> = rendered.lines().collect();
         assert!(lines.len() >= 3);
-        assert!(lines.iter().all(|line| visible_width(line) == 20));
+        assert_rows_width(&rendered, 20);
         assert!(lines.first().unwrap().contains('╭'));
         assert!(lines.first().unwrap().contains('╮'));
         assert!(lines.last().unwrap().contains('╰'));
@@ -496,21 +505,21 @@ mod tests {
 
     #[test]
     fn border_blocks_render_styled_content_and_handle_narrow_widths() {
-        let border_style = Style::new().fg_color(Some(Color::Ansi(AnsiColor::Blue)));
+        let border_style = ansi_fg(AnsiColor::Blue);
         let rendered = BlockFormat::border(border_style, 10).render_styled("\x1b[32mok\x1b[0m");
         let lines: Vec<&str> = rendered.lines().collect();
         assert_eq!(lines.len(), 3);
-        assert!(lines.iter().all(|line| visible_width(line) == 10));
+        assert_rows_width(&rendered, 10);
 
         let narrow = BlockFormat::border(border_style, 2).render_plain("x");
         let narrow_lines: Vec<&str> = narrow.lines().collect();
         assert_eq!(narrow_lines.len(), 3);
-        assert!(narrow_lines.iter().all(|line| visible_width(line) == 2));
+        assert_rows_width(&narrow, 2);
     }
 
     #[test]
     fn border_content_line_resets_attributes_before_trailing_padding() {
-        let border_style = Style::new().fg_color(Some(Color::Ansi(AnsiColor::Blue)));
+        let border_style = ansi_fg(AnsiColor::Blue);
         let rendered = BlockFormat::border(border_style, 30).render_styled("word \x1b[7mhighlight\x1b[27m");
         let lines: Vec<&str> = rendered.lines().collect();
         assert_eq!(lines.len(), 3);
@@ -538,7 +547,7 @@ mod tests {
 
     #[test]
     fn border_blocks_strip_carriage_returns_to_protect_borders() {
-        let border_style = Style::new().fg_color(Some(Color::Ansi(AnsiColor::Green)));
+        let border_style = ansi_fg(AnsiColor::Green);
         let rendered = BlockFormat::border(border_style, 30).render_styled("\r00:01 +0: loading\r\n\r00:02 +1: passed");
         let lines: Vec<&str> = rendered.lines().collect();
         assert!(lines.len() >= 4);
@@ -581,56 +590,42 @@ mod tests {
         }
     }
 
-    #[test]
-    fn apply_pending_ansi_tracks_active_sgr() {
-        let cases = [
-            ("", "\x1b[31m", "\x1b[31m"),
-            ("\x1b[31m", "\x1b[0m", ""),
-            ("\x1b[31m", "\x1b[m", ""),
-            ("", "\x1b[1m\x1b[32m", "\x1b[1m\x1b[32m"),
-            ("", "\x1b[38;5;1m", "\x1b[38;5;1m"),
-            ("\x1b[1m", "no ansi here", "\x1b[1m"),
-            ("\x1b[1m", "\x1b[2K\x1b[32m", "\x1b[1m\x1b[32m"),
-            ("\x1b[1m", "\x1b[0m\x1b[4m", "\x1b[4m"),
-            ("", "\x1b", ""),
-        ];
-        for (initial, pending_text, expected) in cases {
-            let mut pending = pending_text.to_string();
-            let mut active = initial.to_string();
-            apply_pending_ansi(&mut pending, &mut active);
-            assert_eq!(active, expected, "pending {pending_text:?}");
-            assert!(pending.is_empty());
-        }
+    #[test_case("", "\x1b[31m", "\x1b[31m"; "sets color")]
+    #[test_case("\x1b[31m", "\x1b[0m", ""; "full reset")]
+    #[test_case("\x1b[31m", "\x1b[m", ""; "short reset")]
+    #[test_case("", "\x1b[1m\x1b[32m", "\x1b[1m\x1b[32m"; "stacks sequences")]
+    #[test_case("", "\x1b[38;5;1m", "\x1b[38;5;1m"; "indexed color")]
+    #[test_case("\x1b[1m", "no ansi here", "\x1b[1m"; "plain text keeps state")]
+    #[test_case("\x1b[1m", "\x1b[2K\x1b[32m", "\x1b[1m\x1b[32m"; "skips non sgr")]
+    #[test_case("\x1b[1m", "\x1b[0m\x1b[4m", "\x1b[4m"; "reset then style")]
+    #[test_case("", "\x1b", ""; "lone escape")]
+    fn apply_pending_ansi_tracks_active_sgr(initial: &str, pending_text: &str, expected: &str) {
+        let mut pending = pending_text.to_string();
+        let mut active = initial.to_string();
+        apply_pending_ansi(&mut pending, &mut active);
+        assert_eq!(active, expected);
+        assert!(pending.is_empty());
     }
 
-    #[test]
-    fn wrap_styled_line_wraps_words_and_reopens_background() {
-        let cases = [
-            ("", 5, Style::new(), vec![""]),
-            ("abc", 0, Style::new(), vec![""]),
-            ("abcdefghijkl", 5, Style::new(), vec!["abcde", "fghij", "kl"]),
-            ("abc defghij", 5, Style::new(), vec!["abc", "defgh", "ij"]),
-            ("abc defgh", 8, Style::new(), vec!["abc", "defgh"]),
-            ("abcdef  g", 3, Style::new(), vec!["abc", "def", "g"]),
-            ("  abc", 10, Style::new(), vec!["  abc"]),
-            ("a\rb", 10, Style::new(), vec!["ab"]),
-            ("\x1b[2Kx", 10, Style::new(), vec!["\x1b[2Kx"]),
-            ("\x1b[0mx", 10, Style::new(), vec!["\x1b[0mx"]),
-            ("\x1b[31mab", 10, background(), vec!["\x1b[31mab"]),
-            ("a\x1b[0mb", 10, background(), vec!["a\x1b[0m\x1b[40mb"]),
-            ("\x1b[0mx", 10, background(), vec!["\x1b[0m\x1b[40mx"]),
-            ("a\x1b[m b", 10, background(), vec!["a\x1b[m\x1b[40m b"]),
-            ("\x1b[49mx", 10, background(), vec!["\x1b[49m\x1b[40mx"]),
-            ("\x1b[38;5;1mx", 10, background(), vec!["\x1b[38;5;1mx"]),
-            ("\x1b[38;2;1;2;3mx", 10, background(), vec!["\x1b[38;2;1;2;3mx"]),
-            ("\x1b[38;5;1;49mx", 10, background(), vec!["\x1b[38;5;1;49m\x1b[40mx"]),
-        ];
-        for (line, width, style, expected) in cases {
-            assert_eq!(
-                wrap_styled_line(line, width, style),
-                expected,
-                "line {line:?} at width {width}"
-            );
-        }
+    #[test_case("", 5, Style::new(), &[""]; "empty line")]
+    #[test_case("abc", 0, Style::new(), &[""]; "zero width")]
+    #[test_case("abcdefghijkl", 5, Style::new(), &["abcde", "fghij", "kl"]; "splits long word")]
+    #[test_case("abc defghij", 5, Style::new(), &["abc", "defgh", "ij"]; "wraps then splits")]
+    #[test_case("abc defgh", 8, Style::new(), &["abc", "defgh"]; "wraps at space")]
+    #[test_case("abcdef  g", 3, Style::new(), &["abc", "def", "g"]; "drops wrap spaces")]
+    #[test_case("  abc", 10, Style::new(), &["  abc"]; "keeps leading spaces")]
+    #[test_case("a\rb", 10, Style::new(), &["ab"]; "strips carriage return")]
+    #[test_case("\x1b[2Kx", 10, Style::new(), &["\x1b[2Kx"]; "keeps erase line")]
+    #[test_case("\x1b[0mx", 10, Style::new(), &["\x1b[0mx"]; "reset without background")]
+    #[test_case("\x1b[31mab", 10, background(), &["\x1b[31mab"]; "foreground keeps background")]
+    #[test_case("a\x1b[0mb", 10, background(), &["a\x1b[0m\x1b[40mb"]; "mid line reset reopens")]
+    #[test_case("\x1b[0mx", 10, background(), &["\x1b[0m\x1b[40mx"]; "leading reset reopens")]
+    #[test_case("a\x1b[m b", 10, background(), &["a\x1b[m\x1b[40m b"]; "short reset reopens")]
+    #[test_case("\x1b[49mx", 10, background(), &["\x1b[49m\x1b[40mx"]; "default background reopens")]
+    #[test_case("\x1b[38;5;1mx", 10, background(), &["\x1b[38;5;1mx"]; "indexed foreground")]
+    #[test_case("\x1b[38;2;1;2;3mx", 10, background(), &["\x1b[38;2;1;2;3mx"]; "rgb foreground")]
+    #[test_case("\x1b[38;5;1;49mx", 10, background(), &["\x1b[38;5;1;49m\x1b[40mx"]; "combined default background")]
+    fn wrap_styled_line_wraps_words_and_reopens_background(line: &str, width: usize, style: Style, expected: &[&str]) {
+        assert_eq!(wrap_styled_line(line, width, style), expected);
     }
 }

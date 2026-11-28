@@ -95,8 +95,8 @@ fn test_classify_event_keys_and_mouse() {
 
 #[tokio::test]
 async fn test_resize_and_focus_helpers() {
-    let temp = tempfile::tempdir().unwrap();
-    let (mut controller, _, _, mut batch, session, _, _, _) = setup_idle_dispatch_harness(temp.path()).await;
+    let temp = rho_test_support::TestDir::new();
+    let (mut controller, _, _, mut batch, session, _, _, _) = setup_idle_dispatch_harness(&temp).await;
 
     assert!(handle_resize(&mut controller, &session.renderer, &mut batch, 90, 35).is_ok());
     assert_eq!(controller.width(), 90);
@@ -111,8 +111,8 @@ async fn test_resize_and_focus_helpers() {
 
 #[tokio::test]
 async fn test_handle_raw_paste() {
-    let temp = tempfile::tempdir().unwrap();
-    let (mut controller, _, completions, mut batch, session, _, _, _) = setup_idle_dispatch_harness(temp.path()).await;
+    let temp = rho_test_support::TestDir::new();
+    let (mut controller, _, completions, mut batch, session, _, _, _) = setup_idle_dispatch_harness(&temp).await;
 
     assert!(
         handle_raw_paste(
@@ -129,9 +129,9 @@ async fn test_handle_raw_paste() {
 
 #[tokio::test]
 async fn test_process_raw_input_events() {
-    let temp = tempfile::tempdir().unwrap();
+    let temp = rho_test_support::TestDir::new();
     let (mut controller, mut history, completions, mut batch, mut session, mut engine, mut input, mut last_escape_time) =
-        setup_idle_dispatch_harness(temp.path()).await;
+        setup_idle_dispatch_harness(&temp).await;
 
     let mut resources = EditorResources {
         history: &mut history,
@@ -215,9 +215,9 @@ async fn test_process_raw_input_events() {
 
 #[tokio::test]
 async fn test_process_raw_input_typing_and_submit() {
-    let temp = tempfile::tempdir().unwrap();
+    let temp = rho_test_support::TestDir::new();
     let (mut controller, mut history, completions, mut batch, mut session, mut engine, mut input, mut last_escape_time) =
-        setup_idle_dispatch_harness(temp.path()).await;
+        setup_idle_dispatch_harness(&temp).await;
 
     let mut resources = EditorResources {
         history: &mut history,
@@ -288,9 +288,9 @@ async fn press(
 
 #[tokio::test]
 async fn prompts_submitted_from_the_editor_are_recorded_in_history() {
-    let temp = tempfile::tempdir().unwrap();
+    let temp = rho_test_support::TestDir::new();
     let (mut controller, mut history, completions, _, mut session, mut engine, _, mut last_escape_time) =
-        setup_idle_dispatch_harness(temp.path()).await;
+        setup_idle_dispatch_harness(&temp).await;
     let mut resources = EditorResources {
         history: &mut history,
         completions: &completions,
@@ -318,9 +318,9 @@ async fn prompts_submitted_from_the_editor_are_recorded_in_history() {
 
 #[tokio::test]
 async fn a_prompt_typed_to_a_shown_agent_is_recorded_as_typed() {
-    let temp = tempfile::tempdir().unwrap();
+    let temp = rho_test_support::TestDir::new();
     let (mut controller, mut history, completions, _, mut session, mut engine, _, mut last_escape_time) =
-        setup_idle_dispatch_harness(temp.path()).await;
+        setup_idle_dispatch_harness(&temp).await;
     let agent = engine.agent_monitor().start("subagents", "audit", "acme/smol", 10);
     agent.set_task("audit-1234");
     agent.finish(rho_harness_core::agents::AgentStatus::Done);
@@ -351,9 +351,9 @@ async fn a_prompt_typed_to_a_shown_agent_is_recorded_as_typed() {
 
 #[tokio::test]
 async fn test_process_raw_input_shift_enter_inserts_newline() {
-    let temp = tempfile::tempdir().unwrap();
+    let temp = rho_test_support::TestDir::new();
     let (mut controller, mut history, completions, mut batch, mut session, mut engine, mut input, mut last_escape_time) =
-        setup_idle_dispatch_harness(temp.path()).await;
+        setup_idle_dispatch_harness(&temp).await;
 
     let mut resources = EditorResources {
         history: &mut history,
@@ -426,9 +426,9 @@ async fn test_process_raw_input_shift_enter_inserts_newline() {
 
 #[tokio::test]
 async fn test_process_raw_input_ctrl_d_exit() {
-    let temp = tempfile::tempdir().unwrap();
+    let temp = rho_test_support::TestDir::new();
     let (mut controller, mut history, completions, mut batch, mut session, mut engine, mut input, mut last_escape_time) =
-        setup_idle_dispatch_harness(temp.path()).await;
+        setup_idle_dispatch_harness(&temp).await;
 
     let mut resources = EditorResources {
         history: &mut history,
@@ -470,9 +470,9 @@ async fn test_process_raw_input_ctrl_d_exit() {
 
 #[tokio::test]
 async fn test_misc_action_completion_and_dequeue() {
-    let temp = tempfile::tempdir().unwrap();
+    let temp = rho_test_support::TestDir::new();
     let (mut controller, mut history, completions, mut batch, _, _, mut input, _) =
-        setup_idle_dispatch_harness(temp.path()).await;
+        setup_idle_dispatch_harness(&temp).await;
 
     let mut resources = EditorResources {
         history: &mut history,

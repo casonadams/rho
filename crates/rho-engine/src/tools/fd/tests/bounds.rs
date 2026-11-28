@@ -1,9 +1,11 @@
 use super::{find, fixture};
+use crate::test_support::{assert_invalid_pattern, assert_timeout_error, outside_workspace_file};
 use crate::tools::fd::entry::format_results;
 use crate::tools::fd::entry::{FdEntry, FdFormat};
 use crate::tools::fd::{FdArgs, FdTool};
 use crate::tools::listing::{Collected, PageRequest};
 use crate::tools::types::generated_schema;
+use rho_test_support::TestDir;
 
 fn file(relative: String) -> FdEntry {
     FdEntry {
@@ -40,7 +42,7 @@ async fn directories_with_listed_entries_appear_only_as_their_header() {
 #[tokio::test]
 async fn directories_without_listed_entries_stay_listed() {
     let dir = fixture();
-    std::fs::create_dir(dir.path().join("empty")).unwrap();
+    std::fs::create_dir(dir.join("empty")).unwrap();
     let result = find(&dir, "empty|ui", |_| {}).await;
     assert_eq!(result.content, "2 paths\n\n./\n  empty/\nsrc/ui/\n  widget.rs");
 }
@@ -109,7 +111,7 @@ async fn path_without_pattern_lists_files_in_subtree() {
         path: Some("src".to_string()),
         ..Default::default()
     };
-    let result = FdTool::new(dir.path()).execute(args).await.unwrap();
+    let result = FdTool::new(&dir).execute(args).await.unwrap();
     assert_eq!(
         result.content,
         "3 paths\n\nsrc/\n  lib.rs\n  main.rs\nsrc/ui/\n  widget.rs"
@@ -152,18 +154,14 @@ async fn file_path_lists_that_file() {
 async fn invalid_regex_names_the_pattern() {
     let dir = fixture();
     let result = find(&dir, "(", |_| {}).await;
-    assert!(result.is_error);
-    assert!(result.content.contains("invalid pattern"));
-    assert!(result.content.contains("\"(\""));
+    assert_invalid_pattern(&result, "(");
 }
 
 #[tokio::test]
 async fn path_outside_workspace_is_searched_successfully() {
     let dir = fixture();
-    let outside = tempfile::tempdir().unwrap();
-    std::fs::write(outside.path().join("external.txt"), "external").unwrap();
-
-    let outside_path = outside.path().to_str().unwrap().to_string();
+    let outside = outside_workspace_file("external.txt", "external");
+    let outside_path = outside.to_str().unwrap().to_string();
     let result = find(&dir, "external", |args| args.path = Some(outside_path)).await;
     assert!(!result.is_error);
     assert!(result.content.contains("  external.txt"));
@@ -214,10 +212,10 @@ fn schema_exposes_renamed_type_property() {
     );
 }
 
-fn query(dir: &tempfile::TempDir) -> super::query::FdQuery {
+fn query(dir: &TestDir) -> super::query::FdQuery {
     super::query::FdQuery {
-        workspace_root: dir.path().to_path_buf(),
-        search_root: dir.path().to_path_buf(),
+        workspace_root: dir.to_path_buf(),
+        search_root: dir.to_path_buf(),
         search_path_display: None,
         regex: None,
         types: None,
@@ -249,6 +247,5 @@ async fn fd_timeout_returns_timeout_error() {
     let mut timed = query(&dir);
     timed.timeout = Some(std::time::Duration::from_millis(0));
     let result = timed.run(PageRequest::default());
-    assert!(result.is_error);
-    assert!(result.content.contains("Search timed out"));
+    assert_timeout_error(&result);
 }

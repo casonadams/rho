@@ -4,6 +4,7 @@ use super::base_input;
 use crate::ui::interactive::layout::{CursorPosition, InteractiveLayout, LayoutInput, layout};
 use crate::ui::interactive::{EditorState, FooterState};
 use crate::ui::theme::Theme;
+use test_case::test_case;
 
 fn editor_layout(editor: &EditorState, width: usize, height: usize) -> InteractiveLayout {
     layout(LayoutInput {
@@ -64,14 +65,17 @@ fn explicit_newlines_grow_the_editor() {
     assert_eq!(layout.height(), 8);
 }
 
-#[test]
-fn editor_height_tracks_content_lines() {
-    for (text, line_count, height) in [("draft", 1, 6), ("line1\nline2\nline3", 3, 8)] {
-        let layout = editor_layout(&editor_with_text(text), 80, 24);
+#[test_case("draft", 1, 6; "one line")]
+#[test_case("line1\nline2\nline3", 3, 8; "three lines")]
+fn editor_height_tracks_content_lines(text: &str, line_count: usize, height: usize) {
+    let layout = editor_layout(&editor_with_text(text), 80, 24);
 
-        assert_eq!(layout.editor_lines.len(), line_count);
-        assert_eq!(layout.height(), height);
-    }
+    assert_eq!(layout.editor_lines.len(), line_count);
+    assert_eq!(layout.height(), height);
+}
+
+#[test]
+fn single_line_editor_cursor_sits_below_the_top_divider() {
     assert_eq!(editor_layout(&editor_with_text("draft"), 80, 24).cursor_row(), 2);
 }
 
@@ -97,22 +101,25 @@ fn window_editor_centers_cursor_in_middle() {
     );
 }
 
-#[test]
-fn window_editor_clamps_at_top() {
+#[test_case(1, "line 0", "line 4", 1; "top")]
+#[test_case(19, "line 15", "line 19", 4; "bottom")]
+fn window_editor_clamps_at_top_and_bottom(row: usize, first: &str, last: &str, cursor_row: usize) {
     let lines: Vec<String> = (0..20).map(|i| format!("line {i}")).collect();
-    let cursor_top = CursorPosition { row: 1, column: 0 };
-    let (windowed, new_cursor) = crate::ui::interactive::layout::editor::window_editor(lines, cursor_top, 5);
+    let (windowed, new_cursor) =
+        crate::ui::interactive::layout::editor::window_editor(lines, CursorPosition { row, column: 0 }, 5);
     let sample = (windowed.len(), windowed[0].as_str(), windowed[4].as_str(), new_cursor);
-    assert_eq!(sample, (5, "line 0", "line 4", CursorPosition { row: 1, column: 0 }));
-}
-
-#[test]
-fn window_editor_clamps_at_bottom() {
-    let lines: Vec<String> = (0..20).map(|i| format!("line {i}")).collect();
-    let cursor_bottom = CursorPosition { row: 19, column: 0 };
-    let (windowed, new_cursor) = crate::ui::interactive::layout::editor::window_editor(lines, cursor_bottom, 5);
-    let sample = (windowed.len(), windowed[0].as_str(), windowed[4].as_str(), new_cursor);
-    assert_eq!(sample, (5, "line 15", "line 19", CursorPosition { row: 4, column: 0 }));
+    assert_eq!(
+        sample,
+        (
+            5,
+            first,
+            last,
+            CursorPosition {
+                row: cursor_row,
+                column: 0
+            }
+        )
+    );
 }
 
 #[test]
@@ -157,63 +164,31 @@ fn minimal_terminal_height_graceful_degradation() {
 // Soft wrap
 // ---------------------------------------------------------------------------
 
-#[test]
-fn soft_wrap_tracks_lines_and_cursor_across_wrapped_lines() {
-    let cases: [(&str, usize, usize, &[&str], CursorPosition); 3] = [
-        ("ab界c", 0, 5, &[" ab界", " c"], CursorPosition { row: 1, column: 2 }),
-        ("abcdef", 2, 4, &[" abc", " def"], CursorPosition { row: 1, column: 2 }),
-        ("界", 0, 3, &[" 界", " "], CursorPosition { row: 1, column: 1 }),
-    ];
-    for (text, left_moves, width, lines, cursor) in cases {
-        let mut editor = editor_with_text(text);
-        for _ in 0..left_moves {
-            editor.move_left();
-        }
-        let layout = editor_layout(&editor, width, 24);
-        assert_eq!(layout.editor_lines, lines, "text {text:?}");
-        assert_eq!(layout.cursor, cursor, "text {text:?}");
+#[test_case("ab界c", 0, 5, &[" ab界", " c"], CursorPosition { row: 1, column: 2 }; "wide char fits")]
+#[test_case("abcdef", 2, 4, &[" abc", " def"], CursorPosition { row: 1, column: 2 }; "cursor mid second line")]
+#[test_case("界", 0, 3, &[" 界", " "], CursorPosition { row: 1, column: 1 }; "wide char fills line")]
+// Word "world" wraps whole to the next line instead of splitting mid-word.
+#[test_case("hello world", 3, 10, &[" hello ", " world"], CursorPosition { row: 1, column: 3 }; "word wraps whole")]
+// Cursor at the start of a wrapped word sits at column 0 of the new line (+1 indent).
+#[test_case("hello world", 5, 10, &[" hello ", " world"], CursorPosition { row: 1, column: 1 }; "cursor at wrapped word start")]
+// Overlong word after a shorter word starts on the next line and hard-breaks only if wider than width.
+#[test_case("hi abcdefg", 1, 6, &[" hi ", " abcde", " fg"], CursorPosition { row: 2, column: 2 }; "overlong word hard breaks")]
+// Trailing space filling the line wraps the end-of-text cursor onto a fresh line.
+#[test_case("hello ", 0, 7, &[" hello ", " "], CursorPosition { row: 1, column: 1 }; "trailing space wraps cursor")]
+fn soft_wrap_tracks_lines_and_cursor_across_wrapped_lines(
+    text: &str,
+    left_moves: usize,
+    width: usize,
+    lines: &[&str],
+    cursor: CursorPosition,
+) {
+    let mut editor = editor_with_text(text);
+    for _ in 0..left_moves {
+        editor.move_left();
     }
-}
-
-#[test]
-fn soft_wrap_breaks_on_word_boundaries_and_tracks_cursor() {
-    let cases: [(&str, usize, usize, &[&str], CursorPosition); 4] = [
-        // Word "world" wraps whole to the next line instead of splitting mid-word.
-        (
-            "hello world",
-            3,
-            10,
-            &[" hello ", " world"],
-            CursorPosition { row: 1, column: 3 },
-        ),
-        // Cursor at the start of a wrapped word sits at column 0 of the new line (+1 indent).
-        (
-            "hello world",
-            5,
-            10,
-            &[" hello ", " world"],
-            CursorPosition { row: 1, column: 1 },
-        ),
-        // Overlong word after a shorter word starts on the next line and hard-breaks only if wider than width.
-        (
-            "hi abcdefg",
-            1,
-            6,
-            &[" hi ", " abcde", " fg"],
-            CursorPosition { row: 2, column: 2 },
-        ),
-        // Trailing space filling the line wraps the end-of-text cursor onto a fresh line.
-        ("hello ", 0, 7, &[" hello ", " "], CursorPosition { row: 1, column: 1 }),
-    ];
-    for (text, left_moves, width, lines, cursor) in cases {
-        let mut editor = editor_with_text(text);
-        for _ in 0..left_moves {
-            editor.move_left();
-        }
-        let layout = editor_layout(&editor, width, 24);
-        assert_eq!(layout.editor_lines, lines, "text {text:?}");
-        assert_eq!(layout.cursor, cursor, "text {text:?}");
-    }
+    let layout = editor_layout(&editor, width, 24);
+    assert_eq!(layout.editor_lines, lines);
+    assert_eq!(layout.cursor, cursor);
 }
 
 #[test]

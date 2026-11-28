@@ -4,6 +4,8 @@ use crate::provider::adapter::{FinishReason, MockAdapter, ModelStreamEvent};
 use crate::test_support::TestDir;
 use futures::StreamExt;
 use rho_harness_core::model::ToolFunction;
+use std::time::Duration;
+use test_case::test_case;
 
 #[derive(Default)]
 struct TestStepBuffers {
@@ -507,30 +509,42 @@ fn probe_runner(model: Arc<MockAdapter>, result: &str) -> (AgentRunner, TestDir)
     (runner, temp)
 }
 
+fn stops(outcome: &Result<(), AppError>) -> bool {
+    matches!(outcome, Err(AppError::CompactionDue { used }) if *used > 183_616)
+}
+
+fn finishes(outcome: &Result<(), AppError>) -> bool {
+    outcome.is_ok()
+}
+
+fn runs_out(outcome: &Result<(), AppError>) -> bool {
+    matches!(outcome, Err(AppError::ModelBudgetExhausted { max_turns: 1 }))
+}
+
+fn large_result() -> String {
+    (0..4_000).map(|i| format!("line {i} ")).collect()
+}
+
+#[test_case(190_000, "ok", 2, stops; "a full prompt")]
+#[test_case(190_000, "ok", 1, runs_out; "no request follows")]
+#[test_case(180_000, &large_result(), 2, stops; "a large tool result")]
+#[test_case(180_000, "ok", 2, finishes; "room left")]
 #[tokio::test]
-async fn a_turn_stops_for_compaction_when_its_next_prompt_would_pass_the_threshold() {
-    type Outcome = fn(&Result<(), AppError>) -> bool;
-    let stops: Outcome = |r| matches!(r, Err(AppError::CompactionDue { used }) if *used > 183_616);
-    let finishes: Outcome = |r| r.is_ok();
-    let runs_out: Outcome = |r| matches!(r, Err(AppError::ModelBudgetExhausted { max_turns: 1 }));
-    let large_result: String = (0..4_000).map(|i| format!("line {i} ")).collect();
-    let cases = [
-        ("a full prompt", 190_000, "ok", 2, stops),
-        ("no request follows", 190_000, "ok", 1, runs_out),
-        ("a large tool result", 180_000, large_result.as_str(), 2, stops),
-        ("room left", 180_000, "ok", 2, finishes),
-    ];
-    for (case, used, result, budget, expected) in cases {
-        let model = Arc::new(MockAdapter::from_turns(vec![
-            probe_then_usage(0, used),
-            vec![ModelStreamEvent::Text("done".into())],
-        ]));
-        let (runner, _temp) = probe_runner(model, result);
+async fn a_turn_stops_for_compaction_when_its_next_prompt_would_pass_the_threshold(
+    used: u64,
+    result: &str,
+    budget: usize,
+    expected: fn(&Result<(), AppError>) -> bool,
+) {
+    let model = Arc::new(MockAdapter::from_turns(vec![
+        probe_then_usage(0, used),
+        vec![ModelStreamEvent::Text("done".into())],
+    ]));
+    let (runner, _temp) = probe_runner(model, result);
 
-        let outcome = run_agent_loop(runner.budget(budget).prompt("go"), &acking_emitter()).await;
+    let outcome = run_agent_loop(runner.budget(budget).prompt("go"), &acking_emitter()).await;
 
-        assert!(expected(&outcome), "{case}: {outcome:?}");
-    }
+    assert!(expected(&outcome), "{outcome:?}");
 }
 
 #[tokio::test]
@@ -861,7 +875,7 @@ async fn a_turn_is_reminded_once_about_worktrees_its_session_still_owns() {
     ]));
     let (runner, _temp, _, _) = test_agent_env(model.clone());
     let (dir, root) = crate::worktree::git::test_repo::create(&[("a.rs", "base\n")]);
-    let store = crate::worktree::WorktreeStore::new(dir.path().join("store"));
+    let store = crate::worktree::WorktreeStore::new(dir.join("store"));
     let session = runner.session_file().session_id.clone();
     let mine = store
         .create(&root, "subagent fix", Some(&session))
@@ -1029,37 +1043,32 @@ fn dropped() -> Vec<Result<ModelStreamEvent, AppError>> {
     ))]
 }
 
+#[test_case(vec![dropped(), dropped(), dropped()], 4; "retries exhausted")]
+#[test_case(vec![vec![Err(AppError::Provider("invalid request".into()))]], 2; "not retryable")]
 #[tokio::test(start_paused = true)]
-async fn failed_turns_keep_completed_tool_work_as_checkpoint() {
-    let cases = [
-        ("retries exhausted", vec![dropped(), dropped(), dropped()], 4),
-        (
-            "not retryable",
-            vec![vec![Err(AppError::Provider("invalid request".into()))]],
-            2,
-        ),
-    ];
-    for (name, failures, expected_requests) in cases {
-        let model = tool_turn_then(failures);
+async fn failed_turns_keep_completed_tool_work_as_checkpoint(
+    failures: Vec<Vec<Result<ModelStreamEvent, AppError>>>,
+    expected_requests: usize,
+) {
+    let model = tool_turn_then(failures);
 
-        let (runner, result, _temp) = run_prompt(Arc::clone(&model)).await;
+    let (runner, result, _temp) = run_prompt(Arc::clone(&model)).await;
 
-        assert!(result.is_err(), "{name}");
-        assert_eq!(model.requests().len(), expected_requests, "{name}");
-        let checkpoint = runner
-            .session_file()
-            .load_checkpoint()
-            .await
-            .unwrap()
-            .unwrap_or_else(|| panic!("{name}: tool work from the failed turn must be checkpointed"));
-        assert_eq!(checkpoint.first(), Some(&ChatMessage::user("do it")), "{name}");
-        assert!(has_signed_reasoning(&checkpoint), "{name}");
-        assert!(
-            matches!(checkpoint.last(), Some(ChatMessage::User { content })
-                if content.iter().any(|c| matches!(c, rho_harness_core::model::UserContent::ToolResult(_)))),
-            "{name}: {checkpoint:?}"
-        );
-    }
+    assert!(result.is_err());
+    assert_eq!(model.requests().len(), expected_requests);
+    let checkpoint = runner
+        .session_file()
+        .load_checkpoint()
+        .await
+        .unwrap()
+        .expect("tool work from the failed turn must be checkpointed");
+    assert_eq!(checkpoint.first(), Some(&ChatMessage::user("do it")));
+    assert!(has_signed_reasoning(&checkpoint));
+    assert!(
+        matches!(checkpoint.last(), Some(ChatMessage::User { content })
+            if content.iter().any(|c| matches!(c, rho_harness_core::model::UserContent::ToolResult(_)))),
+        "{checkpoint:?}"
+    );
 }
 
 #[tokio::test]
@@ -1209,62 +1218,62 @@ async fn a_turn_on_a_memory_store_keeps_its_conversation_there_and_owns_its_own_
     assert!(runner.session_file().load_checkpoint().await.unwrap().is_none());
 }
 
+#[test_case(5, 2; "turns left")]
+#[test_case(1, 1; "last turn")]
 #[tokio::test]
-async fn a_message_waiting_at_the_final_answer_keeps_the_agent_working_except_on_its_last_turn() {
-    for (budget, expected_requests) in [(5, 2), (1, 1)] {
-        let model = Arc::new(MockAdapter::from_turns(vec![
-            vec![ModelStreamEvent::Text("first answer".into())],
-            vec![ModelStreamEvent::Text("revised answer".into())],
-        ]));
-        let (runner, _temp, _, _) = test_agent_env(model.clone());
-        let owner = AgentId::from(runner.session_file().session_id.clone());
-        let runner = runner.prompt("review").budget(budget);
-        let inbox = runner.inbox.clone().unwrap();
-        inbox
-            .registry()
-            .send(crate::mailbox::Envelope::new(
-                crate::mailbox::Party::User,
-                &owner,
-                crate::mailbox::Kind::Command,
-                "also check the tests",
-            ))
-            .unwrap();
+async fn a_message_waiting_at_the_final_answer_keeps_the_agent_working_except_on_its_last_turn(
+    budget: usize,
+    expected_requests: usize,
+) {
+    let model = Arc::new(MockAdapter::from_turns(vec![
+        vec![ModelStreamEvent::Text("first answer".into())],
+        vec![ModelStreamEvent::Text("revised answer".into())],
+    ]));
+    let (runner, _temp, _, _) = test_agent_env(model.clone());
+    let owner = AgentId::from(runner.session_file().session_id.clone());
+    let runner = runner.prompt("review").budget(budget);
+    let inbox = runner.inbox.clone().unwrap();
+    inbox
+        .registry()
+        .send(crate::mailbox::Envelope::new(
+            crate::mailbox::Party::User,
+            &owner,
+            crate::mailbox::Kind::Command,
+            "also check the tests",
+        ))
+        .unwrap();
 
-        run_agent_loop(runner, &acking_emitter()).await.unwrap();
+    run_agent_loop(runner, &acking_emitter()).await.unwrap();
 
-        let requests = model.requests();
-        assert_eq!(requests.len(), expected_requests, "budget {budget}");
-        if budget > 1 {
-            let sent = serde_json::to_string(&*requests[1].messages).unwrap();
-            assert!(
-                sent.contains("first answer") && sent.contains("also check the tests"),
-                "{sent}"
-            );
-            assert_eq!(inbox.pending(), 0);
-        } else {
-            assert_eq!(inbox.pending(), 1, "the last turn leaves the message waiting");
-        }
+    let requests = model.requests();
+    assert_eq!(requests.len(), expected_requests);
+    if budget > 1 {
+        let sent = serde_json::to_string(&*requests[1].messages).unwrap();
+        assert!(
+            sent.contains("first answer") && sent.contains("also check the tests"),
+            "{sent}"
+        );
+        assert_eq!(inbox.pending(), 0);
+    } else {
+        assert_eq!(inbox.pending(), 1, "the last turn leaves the message waiting");
     }
 }
 
-#[test]
-fn retry_delay_honors_provider_waits_up_to_the_cap() {
-    use std::time::Duration;
-    let limited = |secs: Option<u64>| AppError::RateLimited {
+fn rate_limited(secs: Option<u64>) -> AppError {
+    AppError::RateLimited {
         message: "slow".into(),
         retry_after: secs.map(Duration::from_secs),
-    };
-    let cases = [
-        (1, limited(None), Duration::from_secs(2)),
-        (2, limited(None), Duration::from_secs(4)),
-        (1, limited(Some(7)), Duration::from_secs(7)),
-        (1, limited(Some(0)), Duration::ZERO),
-        (1, limited(Some(600)), crate::provider::error::MAX_RETRY_AFTER),
-        (1, AppError::Network("reset".into()), Duration::from_secs(2)),
-    ];
-    for (attempt, error, expected) in cases {
-        assert_eq!(retry_delay(attempt, &error), expected, "{error}");
     }
+}
+
+#[test_case(1, rate_limited(None), Duration::from_secs(2); "first backoff")]
+#[test_case(2, rate_limited(None), Duration::from_secs(4); "second backoff")]
+#[test_case(1, rate_limited(Some(7)), Duration::from_secs(7); "provider wait")]
+#[test_case(1, rate_limited(Some(0)), Duration::ZERO; "zero provider wait")]
+#[test_case(1, rate_limited(Some(600)), crate::provider::error::MAX_RETRY_AFTER; "capped provider wait")]
+#[test_case(1, AppError::Network("reset".into()), Duration::from_secs(2); "network error")]
+fn retry_delay_honors_provider_waits_up_to_the_cap(attempt: usize, error: AppError, expected: Duration) {
+    assert_eq!(retry_delay(attempt, &error), expected);
 }
 
 #[tokio::test(start_paused = true)]

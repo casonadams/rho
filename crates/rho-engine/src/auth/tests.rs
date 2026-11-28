@@ -2,6 +2,7 @@ use super::*;
 use rho_harness_core::auth::StoredCredential;
 use rho_test_support::{EnvVarGuard, TestFile};
 use std::collections::HashMap;
+use test_case::test_case;
 
 #[test]
 fn loads_legacy_flat_key_json() {
@@ -34,7 +35,7 @@ fn stores_and_persists_oauth_credentials() {
     assert_eq!(reloaded.get_key_sync("chatgpt").unwrap().as_deref(), Some("acc_999"));
 }
 
-fn store_with(provider: &str, credential: StoredCredential) -> (tempfile::TempDir, AuthStore) {
+fn store_with(provider: &str, credential: StoredCredential) -> (crate::test_support::TestDir, AuthStore) {
     let (dir, mut store) = crate::test_support::temp_auth_store();
     store.set_credential(provider, credential).unwrap();
     (dir, store)
@@ -120,37 +121,30 @@ async fn env_references_in_api_keys_are_expanded() {
     assert_eq!(store.resolved_secret_values().await, vec!["env_secret_123".to_string()]);
 }
 
+#[test_case(
+    "anthropic",
+    StoredCredential::api_key("sk-ant-api03-test".to_string()),
+    Some("sk-ant-api03-test");
+    "api key"
+)]
+#[test_case("antigravity", StoredCredential::oauth("stale_token", None, Some(1799999999000)), None; "oauth without refresh token")]
+#[test_case("claude:me@work.com", StoredCredential::oauth("stale_token", None, Some(1_000)), None; "expired account oauth")]
 #[tokio::test]
-async fn force_refresh_returns_api_keys_and_rejects_oauth_without_refresh_token() {
-    let cases = [
-        (
-            "anthropic",
-            StoredCredential::api_key("sk-ant-api03-test".to_string()),
-            Some("sk-ant-api03-test"),
-        ),
-        (
-            "antigravity",
-            StoredCredential::oauth("stale_token", None, Some(1799999999000)),
-            None,
-        ),
-        (
-            "claude:me@work.com",
-            StoredCredential::oauth("stale_token", None, Some(1_000)),
-            None,
-        ),
-    ];
-    for (provider, credential, expected_key) in cases {
-        let (_file, mut store) = store_with(provider, credential);
-        let result = AuthStore::force_refresh(&mut store, provider).await;
-        match expected_key {
-            Some(key) => assert_eq!(result.unwrap().as_deref(), Some(key)),
-            None => {
-                let message = result.unwrap_err().to_string();
-                assert!(
-                    message.contains("No refresh token") || message.contains("expired"),
-                    "{provider}: {message}"
-                );
-            }
+async fn force_refresh_returns_api_keys_and_rejects_oauth_without_refresh_token(
+    provider: &str,
+    credential: StoredCredential,
+    expected_key: Option<&str>,
+) {
+    let (_file, mut store) = store_with(provider, credential);
+    let result = AuthStore::force_refresh(&mut store, provider).await;
+    match expected_key {
+        Some(key) => assert_eq!(result.unwrap().as_deref(), Some(key)),
+        None => {
+            let message = result.unwrap_err().to_string();
+            assert!(
+                message.contains("No refresh token") || message.contains("expired"),
+                "{message}"
+            );
         }
     }
 }
@@ -237,31 +231,28 @@ async fn unparseable_non_empty_auth_file_fails_closed_async() {
     assert!(result.is_err(), "Loading corrupt auth file must fail closed");
 }
 
+const FAR_FUTURE_MS: i64 = 4_102_444_800_000;
+
+#[test_case(Some(1_000), false; "expired token")]
+#[test_case(Some(FAR_FUTURE_MS), true; "rejected live token")]
 #[tokio::test]
-async fn refresh_adopts_credential_another_process_saved_to_disk() {
-    let far_future = 4_102_444_800_000;
-    let cases = [
-        ("expired token", Some(1_000), false),
-        ("rejected live token", Some(far_future), true),
-    ];
-    for (name, memory_expiry, force) in cases {
-        let (dir, mut store) = store_with(
-            "claude",
-            StoredCredential::oauth("stale_access", Some("dead_refresh".into()), memory_expiry),
-        );
-        let mut other_process = AuthStore::load(dir.path().join("auth.json")).unwrap();
-        let rotated = StoredCredential::oauth("fresh_access", Some("rotated_refresh".into()), Some(far_future));
-        other_process.set_credential("claude", rotated.clone()).unwrap();
+async fn refresh_adopts_credential_another_process_saved_to_disk(memory_expiry: Option<i64>, force: bool) {
+    let (dir, mut store) = store_with(
+        "claude",
+        StoredCredential::oauth("stale_access", Some("dead_refresh".into()), memory_expiry),
+    );
+    let mut other_process = AuthStore::load(dir.join("auth.json")).unwrap();
+    let rotated = StoredCredential::oauth("fresh_access", Some("rotated_refresh".into()), Some(FAR_FUTURE_MS));
+    other_process.set_credential("claude", rotated.clone()).unwrap();
 
-        let key = if force {
-            store.force_refresh("claude").await
-        } else {
-            store.get_key("claude").await
-        };
+    let key = if force {
+        store.force_refresh("claude").await
+    } else {
+        store.get_key("claude").await
+    };
 
-        assert_eq!(key.unwrap().as_deref(), Some("fresh_access"), "{name}");
-        assert_eq!(store.get_credential("claude"), Some(&rotated), "{name}");
-    }
+    assert_eq!(key.unwrap().as_deref(), Some("fresh_access"));
+    assert_eq!(store.get_credential("claude"), Some(&rotated));
 }
 
 #[test]
@@ -270,14 +261,14 @@ fn saving_from_a_stale_store_keeps_other_providers_rotated_credentials() {
         "claude",
         StoredCredential::oauth("old_access", Some("old_refresh".into()), None),
     );
-    let mut renewed = AuthStore::load(dir.path().join("auth.json")).unwrap();
+    let mut renewed = AuthStore::load(dir.join("auth.json")).unwrap();
     let rotated = StoredCredential::oauth("new_access", Some("new_refresh".into()), Some(4_102_444_800_000));
     renewed.set_credential("claude", rotated.clone()).unwrap();
 
     stale.set_key("openrouter", "sk-or-key").unwrap();
     stale.remove_key("openrouter").unwrap();
 
-    let on_disk = AuthStore::load(dir.path().join("auth.json")).unwrap();
+    let on_disk = AuthStore::load(dir.join("auth.json")).unwrap();
     assert_eq!(on_disk.get_credential("claude"), Some(&rotated));
 }
 
@@ -287,13 +278,13 @@ async fn refresh_never_replaces_memory_with_an_older_disk_credential() {
     let newer = StoredCredential::oauth("newer_access", Some("newer_refresh".into()), Some(far_future + 1_000));
     let (dir, mut store) = store_with("openrouter", newer.clone());
     let older = StoredCredential::oauth("older_access", Some("older_refresh".into()), Some(far_future));
-    let mut stale_process = AuthStore::load(dir.path().join("auth.json")).unwrap();
+    let mut stale_process = AuthStore::load(dir.join("auth.json")).unwrap();
     stale_process.set_credential("openrouter", older).unwrap();
 
     let key = store.force_refresh("openrouter").await.unwrap();
 
     assert_eq!(key.as_deref(), Some("newer_access"));
-    let on_disk = AuthStore::load(dir.path().join("auth.json")).unwrap();
+    let on_disk = AuthStore::load(dir.join("auth.json")).unwrap();
     assert_eq!(on_disk.get_credential("openrouter"), Some(&newer));
 }
 
@@ -302,8 +293,8 @@ async fn refresh_waits_for_another_process_holding_the_auth_lock() {
     let far_future = 4_102_444_800_000;
     let expired = StoredCredential::oauth("stale_access", Some("stale_refresh".into()), Some(1_000));
     let (dir, mut store) = store_with("openrouter", expired);
-    let path = dir.path().join("auth.json");
-    let other_process = std::fs::File::create(dir.path().join("auth.json.lock")).unwrap();
+    let path = dir.join("auth.json");
+    let other_process = std::fs::File::create(dir.join("auth.json.lock")).unwrap();
     other_process.lock().unwrap();
 
     let refresh = tokio::spawn(async move { store.get_key("openrouter").await });

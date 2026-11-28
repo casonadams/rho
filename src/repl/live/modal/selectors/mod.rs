@@ -42,8 +42,8 @@ pub(crate) mod test_support {
     }
 
     pub(crate) fn create_test_session() -> ReplSession {
-        let temp = tempfile::tempdir().unwrap();
-        ReplSession::new(test_config(temp.path()), rho_engine::auth::AuthStore::default(), None)
+        let temp = rho_test_support::TestDir::new();
+        ReplSession::new(test_config(&temp), rho_engine::auth::AuthStore::default(), None)
     }
 
     pub(crate) fn open_in_test_controller(

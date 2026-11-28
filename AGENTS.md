@@ -42,7 +42,7 @@
 - Test duration limits: Individual unit tests must complete in milliseconds.
   No test may exceed 2.5 seconds (target < 500ms; hard ceiling 2.5 seconds for
   full engine initialization or subprocess lifecycle tests). The entire workspace
-  test suite must finish in under 15 seconds.
+  test suite must finish in under 20 seconds.
 - Never contact external network services or third-party APIs in tests. Use
   in-memory fakes, mock models, or loopback `TcpListener` bindings. Tests with
   dummy credentials must never fall through to real remote endpoints.

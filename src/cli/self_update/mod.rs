@@ -349,8 +349,8 @@ mod tests {
             }
         });
 
-        let temp = tempfile::tempdir().unwrap();
-        let current_exe = temp.path().join("rho");
+        let temp = rho_test_support::TestDir::new();
+        let current_exe = temp.join("rho");
         std::fs::write(&current_exe, b"#!/bin/sh\necho old\n").unwrap();
 
         let client = GitHubClient::with_base_url(format!("http://{addr}"));

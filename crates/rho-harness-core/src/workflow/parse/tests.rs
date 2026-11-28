@@ -1,5 +1,6 @@
 use super::*;
 use crate::workflow::types::Items;
+use test_case::test_case;
 
 fn no_files(path: &str) -> Result<String, String> {
     Err(format!("no file {path}"))
@@ -128,25 +129,22 @@ fn each_variable_is_only_visible_inside_its_body() {
     assert_eq!(err.matches("unknown reference '{{x}}'").count(), 1, "{err}");
 }
 
-#[test]
-fn rejects_bad_documents_and_roots() {
-    let cases = [
-        ("<steps/>", "root element must be <workflow>"),
-        ("<workflow></workflow>", "has no steps"),
-        (
-            "<workflow isolation=\"branch\"><run cmd=\"x\"/></workflow>",
-            "every workflow now runs in its own git worktree",
-        ),
-        ("<workflow><run cmd=\"x\">", "never closed"),
-        (
-            "<workflow><agent use=\"a\" prompt-file=\"p.md\">inline</agent></workflow>",
-            "not both",
-        ),
-    ];
-    for (text, expected) in cases {
-        let err = parse(text).unwrap_err();
-        assert!(err.contains(expected), "missing '{expected}' in:\n{err}");
-    }
+#[test_case("<steps/>", "root element must be <workflow>"; "wrong root")]
+#[test_case("<workflow></workflow>", "has no steps"; "no steps")]
+#[test_case(
+    "<workflow isolation=\"branch\"><run cmd=\"x\"/></workflow>",
+    "every workflow now runs in its own git worktree";
+    "removed isolation attribute"
+)]
+#[test_case("<workflow><run cmd=\"x\">", "never closed"; "unclosed document")]
+#[test_case(
+    "<workflow><agent use=\"a\" prompt-file=\"p.md\">inline</agent></workflow>",
+    "not both";
+    "prompt file and inline prompt"
+)]
+fn rejects_bad_documents_and_roots(text: &str, expected: &str) {
+    let err = parse(text).unwrap_err();
+    assert!(err.contains(expected), "{err}");
 }
 
 #[test]
@@ -174,17 +172,16 @@ fn loads_prompt_files_through_the_reader() {
     );
 }
 
+#[test_case("make all", &["make", "all"]; "plain words")]
+#[test_case("git commit -m 'a b' \"c d\"", &["git", "commit", "-m", "a b", "c d"]; "single and double quotes")]
+#[test_case("echo ''", &["echo", ""]; "empty quoted argument")]
+#[test_case("  x  ", &["x"]; "surrounding whitespace")]
+fn splits_commands_on_whitespace_with_quotes(cmd: &str, expected: &[&str]) {
+    assert_eq!(split_command(cmd).unwrap(), expected);
+}
+
 #[test]
-fn splits_commands_on_whitespace_with_quotes() {
-    let cases: [(&str, &[&str]); 4] = [
-        ("make all", &["make", "all"]),
-        ("git commit -m 'a b' \"c d\"", &["git", "commit", "-m", "a b", "c d"]),
-        ("echo ''", &["echo", ""]),
-        ("  x  ", &["x"]),
-    ];
-    for (cmd, expected) in cases {
-        assert_eq!(split_command(cmd).unwrap(), expected, "{cmd}");
-    }
+fn blank_commands_are_rejected() {
     assert!(split_command("   ").unwrap_err().contains("empty"));
 }
 

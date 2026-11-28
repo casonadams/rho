@@ -139,7 +139,7 @@ struct BuiltinEngine {
 async fn builtin_engine(label: &str) -> BuiltinEngine {
     let (config, dir) = test_config(label);
     let auth_store = AuthStore::load(&config.auth_file).unwrap_or_default();
-    let base_dir = std::env::temp_dir();
+    let base_dir = dir.to_path_buf();
     let built = crate::tools::build_builtin_tools(&base_dir, &config, None).unwrap();
     let tool_count = built.tools.len();
     let tools_runtime = built.runtime.clone();
@@ -250,9 +250,9 @@ async fn repeated_rebuilds_do_not_leak_mcp_children() {
 #[tokio::test]
 async fn builder_attaches_dynamic_tools() {
     let _env = with_dummy_provider_key();
-    let (config, _dir) = test_config("custom_tools");
+    let (config, dir) = test_config("custom_tools");
     let auth_store = AuthStore::load(&config.auth_file).unwrap_or_default();
-    let base_dir = std::env::temp_dir();
+    let base_dir = dir.to_path_buf();
 
     let custom_tool = Arc::new(crate::tools::GenericTool::new(
         "generate_image",
@@ -281,10 +281,10 @@ async fn builder_attaches_dynamic_tools() {
 #[tokio::test]
 async fn refresh_quota_non_antigravity_is_noop() {
     let _env = with_dummy_provider_key();
-    let (config, _dir) = test_config("quota_noop");
+    let (config, dir) = test_config("quota_noop");
     let auth_store = AuthStore::load(&config.auth_file).unwrap_or_default();
     let engine = builder::AgentEngineBuilder::new(config.clone(), auth_store.clone())
-        .base_dir(std::env::temp_dir())
+        .base_dir(dir.to_path_buf())
         .lsp(None)
         .build()
         .await

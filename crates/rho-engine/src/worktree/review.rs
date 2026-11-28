@@ -137,6 +137,7 @@ mod tests {
     use super::super::git::test_repo::{create, write};
     use super::*;
     use rho_test_support::TestDir;
+    use test_case::test_case;
 
     const SHARED: &str = "fn shared_block(items: &[String]) -> usize {\n    let mut running_total = 0;\n    for current_item in items {\n        running_total += current_item.len();\n        if current_item.is_empty() {\n            running_total += 1;\n        }\n    }\n    let average_length = running_total / items.len().max(1);\n    running_total + average_length + items.len()\n}\n";
 
@@ -162,7 +163,7 @@ mod tests {
     #[tokio::test]
     async fn a_worktree_review_reports_what_the_change_added_and_nothing_else() {
         let (dir, root) = create(&[("src/shared.rs", SHARED), ("src/lib.rs", "pub fn old() {}\n")]);
-        let store = WorktreeStore::new(dir.path().join("store"));
+        let store = WorktreeStore::new(dir.join("store"));
         let wt = store.create(&root, "subagent fix", None).await.unwrap().unwrap();
         let copied = format!("{SHARED}\n#[allow(dead_code)]\nfn unused() {{\n    dbg!(1);\n}}\n");
         write(&wt.path, "src/copy.rs", &copied.replace("shared_block", "copied_block"));
@@ -186,25 +187,21 @@ mod tests {
         assert!(review.findings[1].message.contains("src/shared.rs:2 (7 lines)"));
     }
 
-    #[test]
-    fn patches_over_the_cap_are_cut_at_a_file_boundary() {
-        let patch = "diff --git a/a\n+1\ndiff --git a/b\n+2\ndiff --git a/c\n+3\n";
-        let cases = [
-            (patch.len(), patch.to_string(), 0),
-            (40, "diff --git a/a\n+1\ndiff --git a/b\n+2\n".to_string(), 1),
-            (20, "diff --git a/a\n+1\n".to_string(), 2),
-            (5, String::new(), 3),
-        ];
-        for (max, kept, omitted) in cases {
-            let (got, cut) = cap_patch(patch.as_bytes().to_vec(), max);
-            assert_eq!((String::from_utf8(got).unwrap(), cut), (kept, omitted), "cap {max}");
-        }
+    const PATCH: &str = "diff --git a/a\n+1\ndiff --git a/b\n+2\ndiff --git a/c\n+3\n";
+
+    #[test_case(PATCH.len(), PATCH, 0; "whole patch fits")]
+    #[test_case(40, "diff --git a/a\n+1\ndiff --git a/b\n+2\n", 1; "one file cut")]
+    #[test_case(20, "diff --git a/a\n+1\n", 2; "two files cut")]
+    #[test_case(5, "", 3; "no file fits")]
+    fn patches_over_the_cap_are_cut_at_a_file_boundary(max: usize, kept: &str, omitted: usize) {
+        let (got, cut) = cap_patch(PATCH.as_bytes().to_vec(), max);
+        assert_eq!((String::from_utf8(got).unwrap().as_str(), cut), (kept, omitted));
     }
 
     #[tokio::test]
     async fn files_too_large_to_review_are_left_out_with_a_note() {
         let (dir, root) = create(&[("src/lib.rs", "pub fn old() {}\n")]);
-        let store = WorktreeStore::new(dir.path().join("store"));
+        let store = WorktreeStore::new(dir.join("store"));
         let wt = store.create(&root, "subagent big", None).await.unwrap().unwrap();
         let big = "fn f() {\n    dbg!(1);\n}\n".repeat(MAX_FILE_BYTES as usize / 20);
         write(&wt.path, "src/big.rs", &big);
@@ -225,7 +222,7 @@ mod tests {
     #[tokio::test]
     async fn duplicated_blocks_name_the_existing_file_and_clean_changes_have_no_findings() {
         let (dir, root) = create(&[("src/shared.rs", SHARED)]);
-        let store = WorktreeStore::new(dir.path().join("store"));
+        let store = WorktreeStore::new(dir.join("store"));
         let wt = store.create(&root, "subagent dup", None).await.unwrap().unwrap();
         write(&wt.path, "src/copy.rs", &format!("// copied\n{SHARED}"));
 

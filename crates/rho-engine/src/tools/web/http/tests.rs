@@ -1,32 +1,24 @@
 use super::*;
 use crate::tools::web::test_server::{CannedResponse, serve_once};
+use test_case::test_case;
 
-#[test]
-fn test_private_host_detection() {
-    let cases = [
-        ("127.0.0.1", true),
-        ("localhost", true),
-        ("192.168.1.1", true),
-        ("10.0.0.5", true),
-        ("example.com", false),
-        ("8.8.8.8", false),
-    ];
-    for (host, expected) in cases {
-        assert_eq!(is_private_host(host), expected);
-    }
+#[test_case("127.0.0.1", true; "loopback")]
+#[test_case("localhost", true; "localhost")]
+#[test_case("192.168.1.1", true; "lan class c")]
+#[test_case("10.0.0.5", true; "lan class a")]
+#[test_case("example.com", false; "public domain")]
+#[test_case("8.8.8.8", false; "public ip")]
+fn test_private_host_detection(host: &str, expected: bool) {
+    assert_eq!(is_private_host(host), expected);
 }
 
-#[test]
-fn blocks_private_urls_before_network_io() {
+#[test_case("http://127.0.0.1/"; "ipv4 loopback")]
+#[test_case("http://[::1]/"; "ipv6 loopback")]
+#[test_case("http://host.local/"; "mdns host")]
+#[test_case("http://100.64.0.1/"; "carrier grade nat")]
+fn blocks_private_urls_before_network_io(url: &str) {
     let client = HttpClient::new(false).unwrap();
-    for url in [
-        "http://127.0.0.1/",
-        "http://[::1]/",
-        "http://host.local/",
-        "http://100.64.0.1/",
-    ] {
-        assert!(client.validate_url(url).is_err(), "{url}");
-    }
+    assert!(client.validate_url(url).is_err());
 }
 
 #[test]

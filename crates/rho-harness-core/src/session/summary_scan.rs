@@ -148,6 +148,7 @@ mod tests {
     use crate::session::SessionManager;
     use crate::session::format::load_file;
     use crate::session::tests::{LEGACY_V2_ID, LEGACY_V2_SESSION, tool_round};
+    use test_case::test_case;
 
     async fn scan(manager: &SessionManager) -> ScannedSession {
         scan_session(&manager.file_path, &manager.session_id).unwrap().1
@@ -247,20 +248,20 @@ mod tests {
         assert_eq!(scanned.root_text, Some(Some("first".to_string())));
     }
 
-    #[test]
-    fn scan_rejects_headerless_and_malformed_files() {
+    #[test_case("", "mandatory version header"; "empty file")]
+    #[test_case("not a header\n", "legacy session"; "headerless legacy file")]
+    #[test_case(
+        r#"{"record_type":"header","version":2,"session_id":"bad","created_at":"2020-01-02T03:04:05Z"}
+{malformed}
+"#,
+        "malformed committed record";
+        "malformed record after header"
+    )]
+    fn scan_rejects_headerless_and_malformed_files(body: &str, expected: &str) {
         let dir = crate::test_support::temp_dir();
-        let header = r#"{"record_type":"header","version":2,"session_id":"bad","created_at":"2020-01-02T03:04:05Z"}"#;
-        let cases = [
-            ("", "mandatory version header"),
-            ("not a header\n", "legacy session"),
-            (&*format!("{header}\n{{malformed}}\n"), "malformed committed record"),
-        ];
-        for (body, expected) in cases {
-            let path = dir.join("bad.jsonl");
-            std::fs::write(&path, body).unwrap();
-            let error = scan_session(&path, "bad").unwrap_err().to_string();
-            assert!(error.contains(expected), "{body:?}: {error}");
-        }
+        let path = dir.join("bad.jsonl");
+        std::fs::write(&path, body).unwrap();
+        let error = scan_session(&path, "bad").unwrap_err().to_string();
+        assert!(error.contains(expected), "{error}");
     }
 }

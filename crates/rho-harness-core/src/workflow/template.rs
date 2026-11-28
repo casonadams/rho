@@ -195,6 +195,7 @@ fn preview(template: &str) -> String {
 mod tests {
     use super::*;
     use serde_json::json;
+    use test_case::test_case;
 
     #[test]
     fn extracts_references_with_whitespace() {
@@ -228,24 +229,26 @@ mod tests {
         assert_eq!(evaluate("n={{ok}}", &scope), json!("n=true"));
     }
 
+    fn filter_scope() -> Value {
+        json!({"f": [{"p": "P1"}, null, {"p": "P2"}, {"p": "P1"}], "list": [1, 2], "empty": []})
+    }
+
+    #[test_case("{{f | count}}", json!(4); "count")]
+    #[test_case("{{f | compact | count}}", json!(3); "compact then count")]
+    #[test_case("{{f | compact | pluck:p}}", json!(["P1", "P2", "P1"]); "pluck")]
+    #[test_case("{{f | compact | count_by:p}}", json!({"P1": 2, "P2": 1}); "count by")]
+    #[test_case("{{missing | count}}", json!(0); "count missing")]
+    #[test_case("{{missing | default:list}}", json!([1, 2]); "default for missing")]
+    #[test_case("{{empty | default:list}}", json!([1, 2]); "default for empty")]
+    #[test_case("{{list | default:empty}}", json!([1, 2]); "default ignored when present")]
+    #[test_case("{{f | compact | pluck:p | json}}", json!("[\"P1\",\"P2\",\"P1\"]"); "json")]
+    fn filters_transform_values_in_order(template: &str, expected: Value) {
+        assert_eq!(evaluate(template, &filter_scope()), expected);
+    }
+
     #[test]
-    fn filters_transform_values_in_order() {
-        let scope = json!({"f": [{"p": "P1"}, null, {"p": "P2"}, {"p": "P1"}], "list": [1, 2], "empty": []});
-        let cases = [
-            ("{{f | count}}", json!(4)),
-            ("{{f | compact | count}}", json!(3)),
-            ("{{f | compact | pluck:p}}", json!(["P1", "P2", "P1"])),
-            ("{{f | compact | count_by:p}}", json!({"P1": 2, "P2": 1})),
-            ("{{missing | count}}", json!(0)),
-            ("{{missing | default:list}}", json!([1, 2])),
-            ("{{empty | default:list}}", json!([1, 2])),
-            ("{{list | default:empty}}", json!([1, 2])),
-            ("{{f | compact | pluck:p | json}}", json!("[\"P1\",\"P2\",\"P1\"]")),
-        ];
-        for (template, expected) in cases {
-            assert_eq!(evaluate(template, &scope), expected, "{template}");
-        }
-        assert_eq!(render("n={{f | count}}", &scope), "n=4");
+    fn render_interpolates_filtered_values() {
+        assert_eq!(render("n={{f | count}}", &filter_scope()), "n=4");
     }
 
     #[test]
@@ -260,25 +263,20 @@ mod tests {
         assert!(references("{{ a | pluck }}").is_err());
     }
 
-    #[test]
-    fn truthiness_follows_emptiness() {
-        let cases = [
-            (json!(null), false),
-            (json!(false), false),
-            (json!(0), false),
-            (json!(""), false),
-            (json!("false"), false),
-            (json!("0"), false),
-            (json!([]), false),
-            (json!({}), false),
-            (json!(true), true),
-            (json!(1), true),
-            (json!("x"), true),
-            (json!([1]), true),
-            (json!({"a": 1}), true),
-        ];
-        for (value, expected) in cases {
-            assert_eq!(is_truthy(&value), expected, "{value}");
-        }
+    #[test_case(json!(null), false; "null")]
+    #[test_case(json!(false), false; "false")]
+    #[test_case(json!(0), false; "zero")]
+    #[test_case(json!(""), false; "empty string")]
+    #[test_case(json!("false"), false; "false string")]
+    #[test_case(json!("0"), false; "zero string")]
+    #[test_case(json!([]), false; "empty array")]
+    #[test_case(json!({}), false; "empty object")]
+    #[test_case(json!(true), true; "true")]
+    #[test_case(json!(1), true; "one")]
+    #[test_case(json!("x"), true; "non empty string")]
+    #[test_case(json!([1]), true; "non empty array")]
+    #[test_case(json!({"a": 1}), true; "non empty object")]
+    fn truthiness_follows_emptiness(value: Value, expected: bool) {
+        assert_eq!(is_truthy(&value), expected);
     }
 }

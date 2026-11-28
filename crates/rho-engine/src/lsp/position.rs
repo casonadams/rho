@@ -72,22 +72,22 @@ pub fn locate_symbol(line: &str, symbol: Option<&str>) -> Result<usize, String> 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use test_case::test_case;
+
+    #[test_case("let foobar = foo(1);", Some("foo"), 13; "whole word over prefix")]
+    #[test_case("let foobar = foo(1);", Some("bar"), 7; "substring when no whole word")]
+    #[test_case("    self.run()", None, 4; "first non blank")]
+    #[test_case("Widget::new()", Some("widget"), 0; "case insensitive")]
+    #[test_case("\u{130}x Foo", Some("foo"), 4; "after multibyte lowercase")]
+    #[test_case("a.b", Some(".b"), 1; "leading punctuation")]
+    #[test_case("xfoo.bar foo.bar", Some("foo.bar"), 9; "dotted whole word")]
+    #[test_case("(foo) xfoo", Some("(foo)"), 0; "bracketed symbol")]
+    fn symbols_resolve_to_whole_words_before_substrings(line: &str, symbol: Option<&str>, expected: usize) {
+        assert_eq!(locate_symbol(line, symbol), Ok(expected));
+    }
 
     #[test]
-    fn symbols_resolve_to_whole_words_before_substrings() {
-        let cases = [
-            ("let foobar = foo(1);", Some("foo"), Ok(13)),
-            ("let foobar = foo(1);", Some("bar"), Ok(7)),
-            ("    self.run()", None, Ok(4)),
-            ("Widget::new()", Some("widget"), Ok(0)),
-            ("\u{130}x Foo", Some("foo"), Ok(4)),
-            ("a.b", Some(".b"), Ok(1)),
-            ("xfoo.bar foo.bar", Some("foo.bar"), Ok(9)),
-            ("(foo) xfoo", Some("(foo)"), Ok(0)),
-        ];
-        for (line, symbol, expected) in cases {
-            assert_eq!(locate_symbol(line, symbol), expected, "{line} {symbol:?}");
-        }
+    fn a_missing_symbol_error_quotes_the_line() {
         assert!(
             locate_symbol("fn main()", Some("missing"))
                 .unwrap_err()

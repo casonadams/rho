@@ -156,8 +156,17 @@ mod tests {
     use crate::ui::interactive::{NullBackend, TerminalController};
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
     use rho_harness_core::skills::{ResolvedSkill, SkillMetadata, SkillOrigin};
+    use test_case::test_case;
 
     use super::*;
+
+    fn key(code: KeyCode) -> KeyEvent {
+        KeyEvent::new(code, KeyModifiers::NONE)
+    }
+
+    fn ctrl(c: char) -> KeyEvent {
+        KeyEvent::new(KeyCode::Char(c), KeyModifiers::CONTROL)
+    }
 
     fn sample_skill_completions(skills: &[(&str, &str)]) -> CompletionSet {
         let list = skills
@@ -240,60 +249,19 @@ mod tests {
         assert_tab_completes(&mut controller, &completions, "/skill spec ");
     }
 
-    #[test]
-    fn test_autocomplete_arrow_down_navigation() {
+    #[test_case(&[(key(KeyCode::Down), 1), (key(KeyCode::Down), 2), (key(KeyCode::Down), 0)]; "arrow down")]
+    #[test_case(&[(key(KeyCode::Up), 2), (key(KeyCode::Up), 1), (key(KeyCode::Up), 0)]; "arrow up")]
+    #[test_case(&[(ctrl('n'), 1), (ctrl('p'), 0)]; "ctrl n then ctrl p")]
+    #[test_case(&[(KeyEvent::new(KeyCode::Tab, KeyModifiers::SHIFT), 2)]; "shift tab")]
+    #[test_case(&[(key(KeyCode::BackTab), 2)]; "backtab")]
+    fn autocomplete_navigation_keys_move_selection(steps: &[(KeyEvent, usize)]) {
         let completions = sample_skill_completions(&[("lean", "Lean"), ("plan", "Plan"), ("spec", "Spec")]);
         let mut controller = init_autocomplete_controller("/skill ", &completions);
-        press_key(&mut controller, &completions, KeyCode::Down);
-        assert_eq!(controller.state().autocomplete.selected, 1);
-        press_key(&mut controller, &completions, KeyCode::Down);
-        assert_eq!(controller.state().autocomplete.selected, 2);
-        press_key(&mut controller, &completions, KeyCode::Down);
-        assert_eq!(controller.state().autocomplete.selected, 0);
-    }
-
-    #[test]
-    fn test_autocomplete_arrow_up_navigation() {
-        let completions = sample_skill_completions(&[("lean", "Lean"), ("plan", "Plan"), ("spec", "Spec")]);
-        let mut controller = init_autocomplete_controller("/skill ", &completions);
-        press_key(&mut controller, &completions, KeyCode::Up);
-        assert_eq!(controller.state().autocomplete.selected, 2);
-        press_key(&mut controller, &completions, KeyCode::Up);
-        assert_eq!(controller.state().autocomplete.selected, 1);
-        press_key(&mut controller, &completions, KeyCode::Up);
-        assert_eq!(controller.state().autocomplete.selected, 0);
-    }
-
-    #[test]
-    fn test_autocomplete_ctrl_navigation() {
-        let completions = sample_skill_completions(&[("lean", "Lean"), ("plan", "Plan"), ("spec", "Spec")]);
-        let mut controller = init_autocomplete_controller("/skill ", &completions);
-        let ctrl_n = KeyEvent::new(KeyCode::Char('n'), KeyModifiers::CONTROL);
-        handle_autocomplete_key_generic(&mut controller, &completions, ctrl_n);
-        assert_eq!(controller.state().autocomplete.selected, 1);
-        let ctrl_p = KeyEvent::new(KeyCode::Char('p'), KeyModifiers::CONTROL);
-        handle_autocomplete_key_generic(&mut controller, &completions, ctrl_p);
-        assert_eq!(controller.state().autocomplete.selected, 0);
-    }
-
-    #[test]
-    fn test_autocomplete_shift_tab_key() {
-        let completions = sample_skill_completions(&[("lean", "Lean"), ("plan", "Plan"), ("spec", "Spec")]);
-        let mut controller = init_autocomplete_controller("/skill ", &completions);
-        let shift_tab = KeyEvent::new(KeyCode::Tab, KeyModifiers::SHIFT);
-        let res = handle_autocomplete_key_generic(&mut controller, &completions, shift_tab);
-        assert!(matches!(res, AutocompleteKeyResult::Handled));
-        assert_eq!(controller.state().autocomplete.selected, 2);
-    }
-
-    #[test]
-    fn test_autocomplete_backtab_key() {
-        let completions = sample_skill_completions(&[("lean", "Lean"), ("plan", "Plan"), ("spec", "Spec")]);
-        let mut controller = init_autocomplete_controller("/skill ", &completions);
-        let backtab = KeyEvent::new(KeyCode::BackTab, KeyModifiers::NONE);
-        let res = handle_autocomplete_key_generic(&mut controller, &completions, backtab);
-        assert!(matches!(res, AutocompleteKeyResult::Handled));
-        assert_eq!(controller.state().autocomplete.selected, 2);
+        for (step_key, expected) in steps {
+            let res = handle_autocomplete_key_generic(&mut controller, &completions, *step_key);
+            assert!(matches!(res, AutocompleteKeyResult::Handled));
+            assert_eq!(controller.state().autocomplete.selected, *expected);
+        }
     }
 
     #[test]

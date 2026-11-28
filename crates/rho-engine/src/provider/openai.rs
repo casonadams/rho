@@ -507,6 +507,7 @@ mod tests {
         AssistantContent, ChatMessage, ImageContent, TextContent, ToolCall, ToolFunction, ToolResult,
         ToolResultContent, UserContent,
     };
+    use test_case::test_case;
 
     #[test]
     fn test_convert_openai_user_and_assistant() {
@@ -575,41 +576,33 @@ mod tests {
         );
     }
 
-    #[test]
-    fn error_chunks_and_error_finish_surface_as_typed_errors() {
-        let cases = [
-            (
-                r#"{"error":{"code":429,"message":"Rate limit exceeded"}}"#,
-                "rate_limited",
-            ),
-            (
-                r#"{"error":{"code":"insufficient_quota","message":"out of credit"}}"#,
-                "provider",
-            ),
-            (
-                r#"{"error":{"code":502,"message":"Provider overloaded"}}"#,
-                "unavailable",
-            ),
-            (
-                r#"{"error":{"code":"server_is_overloaded","message":"busy"}}"#,
-                "unavailable",
-            ),
-            (r#"{"choices":[{"delta":{},"finish_reason":"error"}]}"#, "provider"),
-            (
-                r#"{"error":{"code":"server_error","message":"upstream died"},"choices":[{"delta":{"content":""},"finish_reason":"error"}]}"#,
-                "unavailable",
-            ),
-        ];
-        for (line, expected) in cases {
-            let events = OpenAiSseParser::new().feed(format!("data: {line}\n\n").as_bytes());
-            let kind = match events.as_slice() {
-                [Err(AppError::RateLimited { .. })] => "rate_limited",
-                [Err(AppError::ProviderUnavailable { .. })] => "unavailable",
-                [Err(AppError::Provider(_))] => "provider",
-                other => panic!("{line}: {other:?}"),
-            };
-            assert_eq!(kind, expected, "{line}");
-        }
+    #[test_case(r#"{"error":{"code":429,"message":"Rate limit exceeded"}}"#, "rate_limited"; "rate limit code")]
+    #[test_case(
+        r#"{"error":{"code":"insufficient_quota","message":"out of credit"}}"#,
+        "provider";
+        "insufficient quota"
+    )]
+    #[test_case(r#"{"error":{"code":502,"message":"Provider overloaded"}}"#, "unavailable"; "bad gateway code")]
+    #[test_case(
+        r#"{"error":{"code":"server_is_overloaded","message":"busy"}}"#,
+        "unavailable";
+        "overloaded code"
+    )]
+    #[test_case(r#"{"choices":[{"delta":{},"finish_reason":"error"}]}"#, "provider"; "error finish reason")]
+    #[test_case(
+        r#"{"error":{"code":"server_error","message":"upstream died"},"choices":[{"delta":{"content":""},"finish_reason":"error"}]}"#,
+        "unavailable";
+        "server error with error finish"
+    )]
+    fn error_chunks_and_error_finish_surface_as_typed_errors(line: &str, expected: &str) {
+        let events = OpenAiSseParser::new().feed(format!("data: {line}\n\n").as_bytes());
+        let kind = match events.as_slice() {
+            [Err(AppError::RateLimited { .. })] => "rate_limited",
+            [Err(AppError::ProviderUnavailable { .. })] => "unavailable",
+            [Err(AppError::Provider(_))] => "provider",
+            other => panic!("{other:?}"),
+        };
+        assert_eq!(kind, expected);
     }
 
     #[test]
@@ -639,19 +632,11 @@ mod tests {
         );
     }
 
-    #[test]
-    fn open_failures_name_the_provider() {
-        let cases = [
-            (HttpFailure::status(401, "bad key"), "HTTP 401 from groq: bad key"),
-            (
-                HttpFailure::Transport("refused".into()),
-                "Failed to connect to groq: refused",
-            ),
-            (HttpFailure::Local("no key".into()), "no key"),
-        ];
-        for (failure, expected) in cases {
-            assert_eq!(name_provider(failure, "groq").body(), expected);
-        }
+    #[test_case(HttpFailure::status(401, "bad key"), "HTTP 401 from groq: bad key"; "http status")]
+    #[test_case(HttpFailure::Transport("refused".into()), "Failed to connect to groq: refused"; "transport")]
+    #[test_case(HttpFailure::Local("no key".into()), "no key"; "local")]
+    fn open_failures_name_the_provider(failure: HttpFailure, expected: &str) {
+        assert_eq!(name_provider(failure, "groq").body(), expected);
     }
 
     #[test]

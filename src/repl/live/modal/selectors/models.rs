@@ -88,6 +88,7 @@ pub fn handle_models_key<B: TerminalBackend>(
 mod tests {
     use super::super::test_support::{assert_selector_opens_and_selects, create_test_session, open_in_test_controller};
     use super::*;
+    use test_case::test_case;
 
     #[test]
     fn build_models_options_lists_all_roles() {
@@ -118,27 +119,22 @@ mod tests {
         );
     }
 
-    #[test]
-    fn update_models_role_description_updates_the_matching_row() {
-        let cases = [
-            (None, 0),
-            (Some(ModelRole::SMOL), 1),
-            (Some(ModelRole::SLOW), 2),
-            (Some(ModelRole::GUARD), 3),
-            (Some(ModelRole::WIDGET), 5),
-        ];
-        for (role, idx) in cases {
-            let mut controller = open_in_test_controller(open_models_selector);
-            update_models_role_description(&mut controller, role.as_ref(), "model-x");
-            let options = &controller.state().active_modal().unwrap().options;
-            let updated: Vec<usize> = options
-                .iter()
-                .enumerate()
-                .filter(|(_, o)| o.description.as_deref() == Some("model-x"))
-                .map(|(i, _)| i)
-                .collect();
-            assert_eq!(updated, vec![idx]);
-        }
+    #[test_case(None, 0; "default model")]
+    #[test_case(Some(ModelRole::SMOL), 1; "smol")]
+    #[test_case(Some(ModelRole::SLOW), 2; "slow")]
+    #[test_case(Some(ModelRole::GUARD), 3; "guard")]
+    #[test_case(Some(ModelRole::WIDGET), 5; "widget")]
+    fn update_models_role_description_updates_the_matching_row(role: Option<ModelRole>, idx: usize) {
+        let mut controller = open_in_test_controller(open_models_selector);
+        update_models_role_description(&mut controller, role.as_ref(), "model-x");
+        let options = &controller.state().active_modal().unwrap().options;
+        let updated: Vec<usize> = options
+            .iter()
+            .enumerate()
+            .filter(|(_, o)| o.description.as_deref() == Some("model-x"))
+            .map(|(i, _)| i)
+            .collect();
+        assert_eq!(updated, vec![idx]);
     }
 
     #[test]

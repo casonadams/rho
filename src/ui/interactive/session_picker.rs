@@ -374,8 +374,8 @@ mod tests {
 
     #[test]
     fn prompt_session_picker_without_sessions_returns_none() {
-        let dir = tempfile::tempdir().unwrap();
-        let result = prompt_session_picker(dir.path(), &Theme::default()).unwrap();
+        let dir = rho_test_support::TestDir::new();
+        let result = prompt_session_picker(&dir, &Theme::default()).unwrap();
         assert_eq!(result, None);
     }
 }

@@ -4,8 +4,10 @@ use crate::claude::request::{normalize_model_alias, resolve_thinking_budget};
 use crate::claude::test_util::{login_body, message_marks};
 use crate::provider::adapter::{ModelCompletionRequest, ModelToolDefinition};
 use crate::test_support::{ScriptedTokenProvider, serve_raw_http};
+use rho_harness_core::config::CacheRetention;
 use rho_harness_core::model::{AssistantContent, ChatMessage, ToolCall, ToolFunction};
 use std::sync::atomic::Ordering;
+use test_case::test_case;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 
@@ -22,65 +24,55 @@ fn sample_request() -> ModelCompletionRequest {
     }
 }
 
-#[test]
-fn test_model_alias_normalization() {
-    let cases = [
-        ("default", "claude-sonnet-4-6"),
-        ("sonnet", "claude-sonnet-4-6"),
-        ("claude-sonnet-4-6", "claude-sonnet-4-6"),
-        ("claude-sonnet-4-5", "claude-sonnet-4-5-20250929"),
-        ("opus", "claude-opus-4-6"),
-        ("claude-opus-4-6", "claude-opus-4-6"),
-        ("haiku", "claude-haiku-4-5"),
-        ("claude-haiku-4-5", "claude-haiku-4-5"),
-        ("sonnet-5", "claude-sonnet-5"),
-        ("claude-sonnet-5", "claude-sonnet-5"),
-        ("opus-5", "claude-opus-5"),
-        ("claude-opus-5", "claude-opus-5"),
-        ("opus-5-5", "claude-opus-5-5"),
-        ("opus-5.5", "claude-opus-5-5"),
-        ("claude-opus-5-5", "claude-opus-5-5"),
-        ("claude-opus-5.5", "claude-opus-5-5"),
-        ("sonnet-5-5", "claude-sonnet-5-5"),
-        ("sonnet-5.5", "claude-sonnet-5-5"),
-        ("claude-sonnet-5-5", "claude-sonnet-5-5"),
-        ("claude-sonnet-5.5", "claude-sonnet-5-5"),
-        ("haiku-5", "claude-haiku-5-5"),
-        ("claude-haiku-5", "claude-haiku-5-5"),
-        ("haiku-5-5", "claude-haiku-5-5"),
-        ("haiku-5.5", "claude-haiku-5-5"),
-        ("claude-haiku-5-5", "claude-haiku-5-5"),
-        ("claude-haiku-5.5", "claude-haiku-5-5"),
-        ("fable", "claude-fable-5-1"),
-        ("claude-fable-5", "claude-fable-5-1"),
-        ("claude-fable-5.1", "claude-fable-5-1"),
-        ("claude-fable-5-1", "claude-fable-5-1"),
-        ("mythos", "claude-mythos-5-1"),
-        ("claude-mythos-5", "claude-mythos-5-1"),
-        ("claude-mythos-5.1", "claude-mythos-5-1"),
-        ("claude-mythos-5-1", "claude-mythos-5-1"),
-        ("claude-3-7-sonnet-20250219", "claude-3-7-sonnet-20250219"),
-    ];
-    for (alias, expected) in cases {
-        assert_eq!(normalize_model_alias(alias), expected);
-    }
+#[test_case("default", "claude-sonnet-4-6"; "default")]
+#[test_case("sonnet", "claude-sonnet-4-6"; "sonnet")]
+#[test_case("claude-sonnet-4-6", "claude-sonnet-4-6"; "claude sonnet 4 6")]
+#[test_case("claude-sonnet-4-5", "claude-sonnet-4-5-20250929"; "claude sonnet 4 5")]
+#[test_case("opus", "claude-opus-4-6"; "opus")]
+#[test_case("claude-opus-4-6", "claude-opus-4-6"; "claude opus 4 6")]
+#[test_case("haiku", "claude-haiku-4-5"; "haiku")]
+#[test_case("claude-haiku-4-5", "claude-haiku-4-5"; "claude haiku 4 5")]
+#[test_case("sonnet-5", "claude-sonnet-5"; "sonnet 5")]
+#[test_case("claude-sonnet-5", "claude-sonnet-5"; "claude sonnet 5")]
+#[test_case("opus-5", "claude-opus-5"; "opus 5")]
+#[test_case("claude-opus-5", "claude-opus-5"; "claude opus 5")]
+#[test_case("opus-5-5", "claude-opus-5-5"; "opus 5 5")]
+#[test_case("opus-5.5", "claude-opus-5-5"; "opus 5 dot 5")]
+#[test_case("claude-opus-5-5", "claude-opus-5-5"; "claude opus 5 5")]
+#[test_case("claude-opus-5.5", "claude-opus-5-5"; "claude opus 5 dot 5")]
+#[test_case("sonnet-5-5", "claude-sonnet-5-5"; "sonnet 5 5")]
+#[test_case("sonnet-5.5", "claude-sonnet-5-5"; "sonnet 5 dot 5")]
+#[test_case("claude-sonnet-5-5", "claude-sonnet-5-5"; "claude sonnet 5 5")]
+#[test_case("claude-sonnet-5.5", "claude-sonnet-5-5"; "claude sonnet 5 dot 5")]
+#[test_case("haiku-5", "claude-haiku-5-5"; "haiku 5")]
+#[test_case("claude-haiku-5", "claude-haiku-5-5"; "claude haiku 5")]
+#[test_case("haiku-5-5", "claude-haiku-5-5"; "haiku 5 5")]
+#[test_case("haiku-5.5", "claude-haiku-5-5"; "haiku 5 dot 5")]
+#[test_case("claude-haiku-5-5", "claude-haiku-5-5"; "claude haiku 5 5")]
+#[test_case("claude-haiku-5.5", "claude-haiku-5-5"; "claude haiku 5 dot 5")]
+#[test_case("fable", "claude-fable-5-1"; "fable")]
+#[test_case("claude-fable-5", "claude-fable-5-1"; "claude fable 5")]
+#[test_case("claude-fable-5.1", "claude-fable-5-1"; "claude fable 5 dot 1")]
+#[test_case("claude-fable-5-1", "claude-fable-5-1"; "claude fable 5 1")]
+#[test_case("mythos", "claude-mythos-5-1"; "mythos")]
+#[test_case("claude-mythos-5", "claude-mythos-5-1"; "claude mythos 5")]
+#[test_case("claude-mythos-5.1", "claude-mythos-5-1"; "claude mythos 5 dot 1")]
+#[test_case("claude-mythos-5-1", "claude-mythos-5-1"; "claude mythos 5 1")]
+#[test_case("claude-3-7-sonnet-20250219", "claude-3-7-sonnet-20250219"; "dated legacy id")]
+fn test_model_alias_normalization(alias: &str, expected: &str) {
+    assert_eq!(normalize_model_alias(alias), expected);
 }
 
-#[test]
-fn test_thinking_budget_resolution() {
-    let cases = [
-        (Some("minimal"), Some(1024)),
-        (Some("low"), Some(2048)),
-        (Some("medium"), Some(4096)),
-        (Some("high"), Some(16384)),
-        (Some("xhigh"), Some(16384)),
-        (Some("max"), Some(16384)),
-        (Some("off"), None),
-        (None, None),
-    ];
-    for (input, expected) in cases {
-        assert_eq!(resolve_thinking_budget(input), expected);
-    }
+#[test_case(Some("minimal"), Some(1024); "minimal")]
+#[test_case(Some("low"), Some(2048); "low")]
+#[test_case(Some("medium"), Some(4096); "medium")]
+#[test_case(Some("high"), Some(16384); "high")]
+#[test_case(Some("xhigh"), Some(16384); "xhigh")]
+#[test_case(Some("max"), Some(16384); "max")]
+#[test_case(Some("off"), None; "off")]
+#[test_case(None, None; "unset")]
+fn test_thinking_budget_resolution(input: Option<&str>, expected: Option<u64>) {
+    assert_eq!(resolve_thinking_budget(input), expected);
 }
 
 #[test]
@@ -457,18 +449,17 @@ fn test_thinking_level_request_shapes() {
     }
 }
 
-#[test]
-fn short_lived_copy_shortens_only_auto_retention() {
-    use rho_harness_core::config::CacheRetention::{Auto, Long, Short};
-    for (configured, expected) in [(Auto, Some(Short)), (Short, None), (Long, None)] {
-        let client = ClaudeClient::new("t", "claude-sonnet-5-5")
-            .with_thinking_level(Some("high"))
-            .with_cache_retention(configured);
-        let copy = client.short_lived();
-        assert_eq!(copy.as_ref().map(|c| c.cache_retention), expected, "{configured}");
-        if let Some(copy) = copy {
-            assert_eq!(copy.thinking_level.as_deref(), Some("high"));
-        }
+#[test_case(CacheRetention::Auto, Some(CacheRetention::Short); "auto shortens")]
+#[test_case(CacheRetention::Short, None; "short unchanged")]
+#[test_case(CacheRetention::Long, None; "long unchanged")]
+fn short_lived_copy_shortens_only_auto_retention(configured: CacheRetention, expected: Option<CacheRetention>) {
+    let client = ClaudeClient::new("t", "claude-sonnet-5-5")
+        .with_thinking_level(Some("high"))
+        .with_cache_retention(configured);
+    let copy = client.short_lived();
+    assert_eq!(copy.as_ref().map(|c| c.cache_retention), expected);
+    if let Some(copy) = copy {
+        assert_eq!(copy.thinking_level.as_deref(), Some("high"));
     }
 }
 

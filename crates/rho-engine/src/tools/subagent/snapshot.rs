@@ -178,6 +178,7 @@ fn change(root: &Path, path: &Path) -> WorkspaceChange {
 mod tests {
     use super::*;
     use crate::tools::subagent::test_repo::{committed_repo, git};
+    use test_case::test_case;
 
     fn labels(changes: &BTreeSet<WorkspaceChange>) -> Vec<String> {
         changes.iter().map(WorkspaceChange::label).collect()
@@ -224,8 +225,8 @@ mod tests {
 
     #[tokio::test]
     async fn outside_git_a_bounded_walk_finds_edits_new_files_and_deletions() {
-        let dir = tempfile::tempdir().unwrap();
-        let root = dir.path().canonicalize().unwrap();
+        let dir = crate::test_support::TestDir::new();
+        let root = dir.canonicalize().unwrap();
         std::fs::write(root.join("a.rs"), "1").unwrap();
         std::fs::write(root.join("b.rs"), "1").unwrap();
         let before = Snapshot::take(&root, None).await.unwrap().unwrap();
@@ -254,13 +255,20 @@ mod tests {
         assert_ne!(snapshot_print(&large), fingerprint(&large));
     }
 
-    #[test]
-    fn path_lists_over_the_cap_are_truncated_and_marked_incomplete() {
-        let paths = |n: usize| (0..n).map(|i| PathBuf::from(format!("f{i}"))).collect::<BTreeSet<_>>();
-        for (count, max, kept, complete) in [(2, 3, 2, true), (3, 3, 3, true), (4, 3, 3, false)] {
-            let (got, whole) = capped(paths(count), max);
-            assert_eq!((got.len(), whole), (kept, complete), "{count} paths, cap {max}");
-        }
+    #[test_case(2, 3, 2, true; "under the cap")]
+    #[test_case(3, 3, 3, true; "at the cap")]
+    #[test_case(4, 3, 3, false; "over the cap")]
+    fn path_lists_over_the_cap_are_truncated_and_marked_incomplete(
+        count: usize,
+        max: usize,
+        kept: usize,
+        complete: bool,
+    ) {
+        let paths = (0..count)
+            .map(|i| PathBuf::from(format!("f{i}")))
+            .collect::<BTreeSet<_>>();
+        let (got, whole) = capped(paths, max);
+        assert_eq!((got.len(), whole), (kept, complete));
     }
 
     #[tokio::test]

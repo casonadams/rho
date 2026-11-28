@@ -9,11 +9,8 @@ fn schema_lists_path_before_edits_so_the_card_can_number_lines_while_edits_strea
     assert_eq!(keys, ["path", "edits"]);
 }
 
-fn fixture(label: &str) -> tempfile::TempDir {
-    tempfile::Builder::new()
-        .prefix(&format!("edit-{label}-"))
-        .tempdir()
-        .unwrap()
+fn fixture(label: &str) -> crate::test_support::TestDir {
+    crate::test_support::TestDir::with_prefix(&format!("edit-{label}-"))
 }
 
 async fn edit_file(workspace: &Path, file: &Path, old_text: &str, new_text: &str) -> ToolResult {
@@ -108,7 +105,7 @@ async fn assert_edit_applies(workspace: &Path, file: &Path, case: &SuccessCase) 
 async fn test_edit_applies_replacements() {
     for case in SUCCESS_CASES {
         let dir = fixture("success");
-        assert_edit_applies(dir.path(), &dir.path().join("sample.txt"), case).await;
+        assert_edit_applies(&dir, &dir.join("sample.txt"), case).await;
     }
 }
 
@@ -116,10 +113,10 @@ async fn test_edit_applies_replacements() {
 async fn test_edit_failures_leave_file_unchanged() {
     for case in FAILURE_CASES {
         let dir = fixture("failure");
-        let file = dir.path().join("sample.txt");
+        let file = dir.join("sample.txt");
         tokio::fs::write(&file, case.initial).await.unwrap();
 
-        let res = edit_file(dir.path(), &file, case.old_text, "replacement").await;
+        let res = edit_file(&dir, &file, case.old_text, "replacement").await;
 
         assert!(res.is_error, "{}", case.name);
         for needle in case.expected {
@@ -135,7 +132,7 @@ async fn test_edit_failures_leave_file_unchanged() {
 #[tokio::test]
 async fn region_and_replace_all_edits_apply_in_order() {
     let dir = fixture("forms");
-    let file = dir.path().join("lib.rs");
+    let file = dir.join("lib.rs");
     tokio::fs::write(&file, "use a;\nfn old() {\n    a();\n}\nfn keep() { a(); }\n")
         .await
         .unwrap();
@@ -148,7 +145,7 @@ async fn region_and_replace_all_edits_apply_in_order() {
     }))
     .unwrap();
 
-    let res = EditTool::new(dir.path()).execute(args).await.unwrap();
+    let res = EditTool::new(&dir).execute(args).await.unwrap();
 
     assert!(!res.is_error, "{}", res.content);
     assert_eq!(read_disk(&file).await, "use b;\nfn keep() { b(); }\n");
@@ -157,7 +154,7 @@ async fn region_and_replace_all_edits_apply_in_order() {
 #[tokio::test]
 async fn result_shows_each_changed_region_with_line_numbers() {
     let dir = fixture("preview");
-    let file = dir.path().join("lib.rs");
+    let file = dir.join("lib.rs");
     let body: String = (1..=20).map(|n| format!("line {n}\n")).collect();
     tokio::fs::write(&file, &body).await.unwrap();
     let args: EditArgs = serde_json::from_value(serde_json::json!({
@@ -169,7 +166,7 @@ async fn result_shows_each_changed_region_with_line_numbers() {
     }))
     .unwrap();
 
-    let res = EditTool::new(dir.path()).execute(args).await.unwrap();
+    let res = EditTool::new(&dir).execute(args).await.unwrap();
 
     let path = file.to_str().unwrap();
     assert_eq!(
@@ -204,10 +201,10 @@ fn preview_caps_the_lines_it_shows() {
 #[tokio::test]
 async fn test_edit_rejects_directory() {
     let dir = fixture("dir");
-    let sub = dir.path().join("subdir");
+    let sub = dir.join("subdir");
     tokio::fs::create_dir_all(&sub).await.unwrap();
 
-    let res = edit_file(dir.path(), &sub, "a", "b").await;
+    let res = edit_file(&dir, &sub, "a", "b").await;
 
     assert!(res.is_error);
     assert!(res.content.contains("target path is a directory"));
@@ -218,14 +215,14 @@ async fn test_edit_rejects_directory() {
 async fn test_edit_inaccessible_file_is_not_reported_as_missing() {
     use std::os::unix::fs::PermissionsExt;
     let dir = fixture("denied");
-    let locked = dir.path().join("locked");
+    let locked = dir.join("locked");
     std::fs::create_dir(&locked).unwrap();
     let file = locked.join("file.txt");
     std::fs::write(&file, "a").unwrap();
     std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o000)).unwrap();
     let denied = std::fs::metadata(&file).is_err();
 
-    let res = edit_file(dir.path(), &file, "a", "b").await;
+    let res = edit_file(&dir, &file, "a", "b").await;
     std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o755)).unwrap();
 
     if !denied {
@@ -241,21 +238,16 @@ async fn test_edit_inaccessible_file_is_not_reported_as_missing() {
 async fn test_edit_external_file_successfully() {
     let workspace = fixture("ws");
     let external = fixture("ext");
-    assert_edit_applies(
-        workspace.path(),
-        &external.path().join("external_edit.txt"),
-        &EXTERNAL_CASE,
-    )
-    .await;
+    assert_edit_applies(&workspace, &external.join("external_edit.txt"), &EXTERNAL_CASE).await;
 }
 
 #[tokio::test]
 async fn an_lf_file_with_one_stray_crlf_keeps_lf_for_multi_line_edits() {
     let dir = fixture("mixed-lf");
-    let file = dir.path().join("a.txt");
+    let file = dir.join("a.txt");
     std::fs::write(&file, "one\ntwo\nthree\nfour\r\nfive\n").unwrap();
 
-    let res = edit_file(dir.path(), &file, "one\ntwo", "ONE\nTWO\nextra").await;
+    let res = edit_file(&dir, &file, "one\ntwo", "ONE\nTWO\nextra").await;
 
     assert!(!res.is_error, "{}", res.content);
     assert_eq!(

@@ -118,6 +118,7 @@ pub fn check_critical_danger(command: &str) -> Option<GuardVerdict> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use test_case::test_case;
 
     #[test]
     fn catches_destructive_rm_patterns() {
@@ -155,8 +156,35 @@ mod tests {
         }
     }
 
+    fn intercepted(cmd: &str) -> GuardVerdict {
+        let verdict = check_critical_danger(cmd).unwrap_or_else(|| panic!("should intercept {cmd}"));
+        assert!(!verdict.safe, "{cmd}");
+        verdict
+    }
+
+    #[test_case(":(){ :|:& };:", "denial of service"; "fork bomb")]
+    #[test_case("mkfs.ext4 /dev/sda1", "destructive drive format"; "mkfs")]
+    #[test_case("dd if=/dev/zero of=/dev/sda", "raw disk or partition overwrite"; "dd to disk")]
+    #[test_case("echo evil > /dev/sda", "raw storage device overwrite"; "redirect to disk")]
+    #[test_case("cat file >> /dev/nvme0n1", "raw storage device overwrite"; "append to nvme")]
+    #[test_case("git reset --hard HEAD~1", "git working tree state"; "git reset hard")]
+    fn catches_destructive_commands_by_their_reason(cmd: &str, reason: &str) {
+        let verdict = intercepted(cmd);
+        assert!(verdict.reason.contains(reason), "{}", verdict.reason);
+    }
+
+    #[test_case(":(){ :|:& };:", "Executes a shell fork bomb"; "fork bomb")]
+    #[test_case(
+        "git reset --hard HEAD~1",
+        "Resets git working tree and index discarding uncommitted changes";
+        "git reset hard"
+    )]
+    fn critical_commands_describe_their_action(cmd: &str, action: &str) {
+        assert_eq!(intercepted(cmd).action.as_deref(), Some(action));
+    }
+
     #[test]
-    fn argv_check_leaves_ordinary_rm_alone() {
+    fn ordinary_commands_are_not_intercepted() {
         let ok = [
             "rm -r build",
             "rm -rf ./target",
@@ -164,68 +192,16 @@ mod tests {
             "rm -f /tmp/a.log",
             "rm /",
             "rm -- -r /",
+            "rm -rf target",
+            "rm file.txt",
+            "rm -f test.log",
+            "git status",
+            "git reset HEAD file.txt",
+            "cargo test",
+            "echo 'hello world'",
         ];
         for cmd in ok {
             assert!(check_critical_danger(cmd).is_none(), "{cmd}");
         }
-    }
-
-    #[test]
-    fn allows_safe_rm_target() {
-        assert!(check_critical_danger("rm -rf target").is_none());
-        assert!(check_critical_danger("rm file.txt").is_none());
-        assert!(check_critical_danger("rm -f test.log").is_none());
-    }
-
-    #[test]
-    fn catches_fork_bomb() {
-        let cmd = ":(){ :|:& };:";
-        let verdict = check_critical_danger(cmd).expect("should intercept fork bomb");
-        assert!(!verdict.safe);
-        assert!(verdict.reason.contains("denial of service"));
-        assert_eq!(verdict.action.as_deref(), Some("Executes a shell fork bomb"));
-    }
-
-    #[test]
-    fn catches_disk_format_mkfs() {
-        let verdict = check_critical_danger("mkfs.ext4 /dev/sda1").expect("should intercept mkfs");
-        assert!(!verdict.safe);
-        assert!(verdict.reason.contains("destructive drive format"));
-    }
-
-    #[test]
-    fn catches_dd_if() {
-        let verdict = check_critical_danger("dd if=/dev/zero of=/dev/sda").expect("should intercept dd");
-        assert!(!verdict.safe);
-        assert!(verdict.reason.contains("raw disk or partition overwrite"));
-    }
-
-    #[test]
-    fn catches_dev_storage_redirection() {
-        let verdict = check_critical_danger("echo evil > /dev/sda").expect("should intercept dev redirection");
-        assert!(!verdict.safe);
-        assert!(verdict.reason.contains("raw storage device overwrite"));
-
-        let nvme = check_critical_danger("cat file >> /dev/nvme0n1").expect("should intercept nvme");
-        assert!(!nvme.safe);
-    }
-
-    #[test]
-    fn catches_git_reset_hard() {
-        let verdict = check_critical_danger("git reset --hard HEAD~1").expect("should intercept git reset --hard");
-        assert!(!verdict.safe);
-        assert!(verdict.reason.contains("git working tree state"));
-        assert_eq!(
-            verdict.action.as_deref(),
-            Some("Resets git working tree and index discarding uncommitted changes")
-        );
-    }
-
-    #[test]
-    fn allows_benign_commands() {
-        assert!(check_critical_danger("git status").is_none());
-        assert!(check_critical_danger("git reset HEAD file.txt").is_none());
-        assert!(check_critical_danger("cargo test").is_none());
-        assert!(check_critical_danger("echo 'hello world'").is_none());
     }
 }

@@ -117,50 +117,40 @@ mod tests {
     use super::*;
     use crate::test_support::serve_http;
     use serde_json::json;
+    use test_case::test_case;
 
-    #[test]
-    fn normalize_host_follows_ollama_host_rules() {
-        let cases = [
-            (None, "http://127.0.0.1:11434"),
-            (Some("  "), "http://127.0.0.1:11434"),
-            (Some("http://localhost:11434/"), "http://localhost:11434"),
-            (Some("127.0.0.1"), "http://127.0.0.1:11434"),
-            (Some("box.lan:9000"), "http://box.lan:9000"),
-            (Some("0.0.0.0"), "http://127.0.0.1:11434"),
-            (Some("[::]:8080"), "http://[::1]:8080"),
-            (Some("https://ollama.example"), "https://ollama.example"),
-            (Some("http://gpu.lan/ollama"), "http://gpu.lan/ollama"),
-        ];
-        for (raw, expected) in cases {
-            assert_eq!(normalize_host(raw), expected, "{raw:?}");
-        }
+    #[test_case(None, "http://127.0.0.1:11434"; "unset")]
+    #[test_case(Some("  "), "http://127.0.0.1:11434"; "blank")]
+    #[test_case(Some("http://localhost:11434/"), "http://localhost:11434"; "trailing slash")]
+    #[test_case(Some("127.0.0.1"), "http://127.0.0.1:11434"; "bare ip")]
+    #[test_case(Some("box.lan:9000"), "http://box.lan:9000"; "host and port")]
+    #[test_case(Some("0.0.0.0"), "http://127.0.0.1:11434"; "unspecified ipv4")]
+    #[test_case(Some("[::]:8080"), "http://[::1]:8080"; "unspecified ipv6")]
+    #[test_case(Some("https://ollama.example"), "https://ollama.example"; "https url")]
+    #[test_case(Some("http://gpu.lan/ollama"), "http://gpu.lan/ollama"; "url with path")]
+    fn normalize_host_follows_ollama_host_rules(raw: Option<&str>, expected: &str) {
+        assert_eq!(normalize_host(raw), expected);
     }
 
-    #[test]
-    fn show_context_prefers_num_ctx_then_architecture_key() {
-        let cases = [
-            (
-                json!({ "parameters": "stop \"<|im_start|>\"\nnum_ctx 16384", "model_info": { "llama.context_length": 8192 } }),
-                Some(16_384),
-            ),
-            (
-                json!({ "model_info": {
-                    "general.architecture": "qwen2",
-                    "clip.context_length": 77,
-                    "qwen2.context_length": 32_768
-                } }),
-                Some(32_768),
-            ),
-            (
-                json!({ "model_info": { "qwen3_5.context_length": 262_144 } }),
-                Some(262_144),
-            ),
-            (json!({ "parameters": "temperature 0.7", "model_info": {} }), None),
-            (json!({}), None),
-        ];
-        for (body, expected) in cases {
-            assert_eq!(parse_show_context(&body), expected, "{body}");
-        }
+    #[test_case(
+        json!({ "parameters": "stop \"<|im_start|>\"\nnum_ctx 16384", "model_info": { "llama.context_length": 8192 } }),
+        Some(16_384);
+        "num ctx wins"
+    )]
+    #[test_case(
+        json!({ "model_info": {
+            "general.architecture": "qwen2",
+            "clip.context_length": 77,
+            "qwen2.context_length": 32_768
+        } }),
+        Some(32_768);
+        "architecture key"
+    )]
+    #[test_case(json!({ "model_info": { "qwen3_5.context_length": 262_144 } }), Some(262_144); "single context key")]
+    #[test_case(json!({ "parameters": "temperature 0.7", "model_info": {} }), None; "no context")]
+    #[test_case(json!({}), None; "empty")]
+    fn show_context_prefers_num_ctx_then_architecture_key(body: serde_json::Value, expected: Option<usize>) {
+        assert_eq!(parse_show_context(&body), expected);
     }
 
     #[test]

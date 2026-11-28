@@ -374,8 +374,8 @@ mod tests {
     #[test]
     fn finished_jobs_are_bounded_and_evict_their_logs() {
         let mgr = JobManager::default();
-        let dir = tempfile::tempdir().unwrap();
-        let first_log = dir.path().join("first.log");
+        let dir = crate::test_support::TestDir::new();
+        let first_log = dir.join("first.log");
         std::fs::write(&first_log, "output").unwrap();
         mgr.register(&id("me"), job("job-0"), "cmd".into());
         mgr.attach_log(&job("job-0"), first_log.clone());

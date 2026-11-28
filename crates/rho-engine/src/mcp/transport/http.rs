@@ -385,6 +385,7 @@ impl HttpTransport {
 mod tests {
     use super::super::McpTransport;
     use super::*;
+    use test_case::test_case;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::net::TcpListener;
 
@@ -603,39 +604,35 @@ mod tests {
         );
     }
 
+    #[test_case("X-Bad", "secret\nvalue"; "newline in value")]
+    #[test_case("Bad Name", "secret"; "space in name")]
     #[tokio::test]
-    async fn invalid_configured_headers_are_reported_by_name_without_the_value() {
-        for (name, value) in [("X-Bad", "secret\nvalue"), ("Bad Name", "secret")] {
-            let (listener, url) = loopback().await;
-            drop(listener);
-            let headers = BTreeMap::from([(name.to_string(), value.to_string())]);
+    async fn invalid_configured_headers_are_reported_by_name_without_the_value(name: &str, value: &str) {
+        let (listener, url) = loopback().await;
+        drop(listener);
+        let headers = BTreeMap::from([(name.to_string(), value.to_string())]);
 
-            let err = transport(url, headers).request("tools/list", None).await.unwrap_err();
+        let err = transport(url, headers).request("tools/list", None).await.unwrap_err();
 
-            assert!(matches!(err, AppError::Config(_)), "{err}");
-            assert!(err.to_string().contains(&format!("'{name}'")), "{err}");
-            assert!(!err.to_string().contains("secret"), "{err}");
-        }
+        assert!(matches!(err, AppError::Config(_)), "{err}");
+        assert!(err.to_string().contains(&format!("'{name}'")), "{err}");
+        assert!(!err.to_string().contains("secret"), "{err}");
     }
 
+    #[test_case("500 Internal Server Error", "HTTP error 500"; "server error")]
+    #[test_case("401 Unauthorized", "Unauthorized"; "unauthorized")]
     #[tokio::test]
-    async fn notify_reports_rejected_notifications() {
-        let cases = [
-            ("500 Internal Server Error", "HTTP error 500"),
-            ("401 Unauthorized", "Unauthorized"),
-        ];
-        for (status, expected) in cases {
-            let (listener, url) = loopback().await;
-            let response = format!("HTTP/1.1 {status}\r\nConnection: close\r\nContent-Length: 0\r\n\r\n");
-            tokio::spawn(async move { answer_once(&listener, &response).await });
+    async fn notify_reports_rejected_notifications(status: &str, expected: &str) {
+        let (listener, url) = loopback().await;
+        let response = format!("HTTP/1.1 {status}\r\nConnection: close\r\nContent-Length: 0\r\n\r\n");
+        tokio::spawn(async move { answer_once(&listener, &response).await });
 
-            let err = transport(url, BTreeMap::new())
-                .notify("notifications/initialized", None)
-                .await
-                .unwrap_err();
+        let err = transport(url, BTreeMap::new())
+            .notify("notifications/initialized", None)
+            .await
+            .unwrap_err();
 
-            assert!(err.to_string().contains(expected), "{status}: {err}");
-        }
+        assert!(err.to_string().contains(expected), "{err}");
     }
 
     #[tokio::test]

@@ -247,8 +247,8 @@ mod tests {
 
     #[test]
     fn writes_jsonl_events_and_renders_a_step_table() {
-        let dir = tempfile::tempdir().unwrap();
-        let log = RunLog::create(dir.path(), "refine").unwrap();
+        let dir = crate::test_support::TestDir::new();
+        let log = RunLog::create(&dir, "refine").unwrap();
         log.event("run_started", json!({ "workflow": "refine" }));
         log.record("refine › round 1 › scan", StepStatus::Done, "3 items");
         log.record("refine › round 1 › implement", StepStatus::Skipped, "");

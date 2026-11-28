@@ -1,7 +1,8 @@
-use rho::tokens::{calculate_context_tokens, context_window_size, estimate_text_tokens, find_token_cut_point};
+use rho::tokens::{calculate_context_tokens, context_window_size, estimate_text_tokens};
 use rho_harness_core::model::{
     AssistantContent, ChatMessage, TextContent, ToolCall, ToolFunction, ToolResult, ToolResultContent, UserContent,
 };
+use test_case::test_case;
 
 #[test]
 fn test_exact_bpe_token_calculation() {
@@ -25,21 +26,16 @@ fn test_exact_bpe_token_calculation() {
     assert_ne!(gpt4_rich, gpt4o_rich);
 }
 
-#[test]
-fn test_context_window_ceilings() {
-    let cases = [
-        ("gpt-5-luna", 372_000),
-        ("gpt-6-sol", 372_000),
-        ("gpt-6-terra", 372_000),
-        ("gpt-6-luna", 372_000),
-        ("claude-3-7-sonnet-20250219", 1_000_000),
-        ("claude-3-haiku-20240307", 200_000),
-        ("gemini-2.0-flash", 1_000_000),
-        ("deepseek-chat", 128_000),
-    ];
-    for (model, expected) in cases {
-        assert_eq!(context_window_size(model), expected);
-    }
+#[test_case("gpt-5-luna", 372_000; "gpt 5 luna")]
+#[test_case("gpt-6-sol", 372_000; "gpt 6 sol")]
+#[test_case("gpt-6-terra", 372_000; "gpt 6 terra")]
+#[test_case("gpt-6-luna", 372_000; "gpt 6 luna")]
+#[test_case("claude-3-7-sonnet-20250219", 1_000_000; "claude 3 7 sonnet")]
+#[test_case("claude-3-haiku-20240307", 200_000; "claude 3 haiku")]
+#[test_case("gemini-2.0-flash", 1_000_000; "gemini 2 flash")]
+#[test_case("deepseek-chat", 128_000; "deepseek chat")]
+fn test_context_window_ceilings(model: &str, expected: usize) {
+    assert_eq!(context_window_size(model), expected);
 }
 
 #[test]
@@ -67,32 +63,6 @@ fn test_hybrid_context_tokens_with_provider_anchor() {
     assert_eq!(stats.usage_anchor_tokens, 1250);
     assert!(stats.trailing_estimated_tokens > 0);
     assert_eq!(stats.total_tokens, 1250 + stats.trailing_estimated_tokens);
-}
-
-#[test]
-fn test_cut_point_preserves_tool_pairs() {
-    let messages = vec![
-        ChatMessage::user("User prompt 1"),
-        ChatMessage::Assistant {
-            id: None,
-            content: vec![AssistantContent::ToolCall(ToolCall::new(
-                "c1",
-                ToolFunction::new("read", serde_json::json!({"path": "src/main.rs"})),
-            ))],
-        },
-        ChatMessage::User {
-            content: vec![UserContent::ToolResult(ToolResult {
-                call: "c1".to_string(),
-                provider: None,
-                name: "read".to_string(),
-                content: vec![ToolResultContent::Text(TextContent::new("file content here"))],
-            })],
-        },
-        ChatMessage::assistant("Assistant summary"),
-    ];
-
-    let cut = find_token_cut_point(&messages, 10, "gpt-4");
-    assert!(cut.cut_index <= 1);
 }
 
 #[test]

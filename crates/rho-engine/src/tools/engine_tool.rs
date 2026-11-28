@@ -185,9 +185,9 @@ mod tests {
 
     #[tokio::test]
     async fn typed_tools_supply_name_description_schema_and_parsing() {
-        let dir = tempfile::tempdir().unwrap();
-        std::fs::write(dir.path().join("a.txt"), "hello").unwrap();
-        let read: &dyn EngineTool = &ReadTool::new(dir.path());
+        let dir = crate::test_support::TestDir::new();
+        std::fs::write(dir.join("a.txt"), "hello").unwrap();
+        let read: &dyn EngineTool = &ReadTool::new(&dir);
 
         assert_eq!(read.name(), "read");
         assert_eq!(
@@ -214,9 +214,9 @@ mod tests {
 
     #[test]
     fn typed_tools_declare_whether_their_calls_may_run_together() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = crate::test_support::TestDir::new();
         let none = serde_json::json!({});
-        assert!(ReadTool::new(dir.path()).concurrency_safe(&none));
-        assert!(!BashTool::new(dir.path()).concurrency_safe(&none));
+        assert!(ReadTool::new(&dir).concurrency_safe(&none));
+        assert!(!BashTool::new(&dir).concurrency_safe(&none));
     }
 }

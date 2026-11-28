@@ -74,6 +74,16 @@ pub fn controller_with_size(
     (controller_for(backend), operations, width, height)
 }
 
+pub fn write_count(ops: &[Operation], needle: &str) -> usize {
+    ops.iter()
+        .filter(|op| matches!(op, Operation::Write(text) if text.contains(needle)))
+        .count()
+}
+
+pub fn wrote(ops: &[Operation], needle: &str) -> bool {
+    write_count(ops, needle) > 0
+}
+
 fn controller_for(backend: FakeTerminal) -> TerminalController<FakeTerminal> {
     TerminalController::new(backend, InteractiveState::default()).unwrap()
 }

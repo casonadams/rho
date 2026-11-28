@@ -1,4 +1,5 @@
 use super::*;
+use test_case::test_case;
 
 #[test]
 fn stable_project_id_is_deterministic() {
@@ -43,22 +44,14 @@ async fn exchange_code_maps_google_token_payload() {
     assert_eq!(token.expires_in, Some(3599));
 }
 
+#[test_case("400 Bad Request", r#"{"error":"invalid_grant"}"#, "Google token exchange failed"; "http failure")]
+#[test_case("200 OK", r#"{"access_token":"ya29.x"}"#, "No refresh token received"; "missing refresh token")]
+#[test_case("200 OK", "not json", "Failed to parse Google token exchange response"; "invalid json")]
 #[tokio::test]
-async fn exchange_code_rejects_failed_or_incomplete_responses() {
-    let cases = [
-        (
-            "400 Bad Request",
-            r#"{"error":"invalid_grant"}"#,
-            "Google token exchange failed",
-        ),
-        ("200 OK", r#"{"access_token":"ya29.x"}"#, "No refresh token received"),
-        ("200 OK", "not json", "Failed to parse Google token exchange response"),
-    ];
-    for (status, body, expected) in cases {
-        let token_url = crate::test_support::serve_http(vec![(status, body.to_string())]).await;
-        let err = exchange_code(&token_url, "code", "verifier").await.unwrap_err();
-        assert!(err.to_string().contains(expected), "{status}: {err}");
-    }
+async fn exchange_code_rejects_failed_or_incomplete_responses(status: &'static str, body: &str, expected: &str) {
+    let token_url = crate::test_support::serve_http(vec![(status, body.to_string())]).await;
+    let err = exchange_code(&token_url, "code", "verifier").await.unwrap_err();
+    assert!(err.to_string().contains(expected), "{err}");
 }
 
 #[tokio::test]
@@ -73,59 +66,51 @@ async fn refresh_google_token_returns_refreshed_access_token() {
     assert_eq!(token.refresh_token, None);
 }
 
+#[test_case("200 OK", r#"{"email":"dev@example.com"}"#, Some("dev@example.com"); "email present")]
+#[test_case("200 OK", r#"{"name":"no email here"}"#, None; "email missing")]
+#[test_case("403 Forbidden", r#"{"email":"dev@example.com"}"#, None; "http failure")]
+#[test_case("200 OK", "<html>", None; "not json")]
 #[tokio::test]
-async fn fetch_user_email_reads_email_only_from_successful_json() {
-    let cases = [
-        ("200 OK", r#"{"email":"dev@example.com"}"#, Some("dev@example.com")),
-        ("200 OK", r#"{"name":"no email here"}"#, None),
-        ("403 Forbidden", r#"{"email":"dev@example.com"}"#, None),
-        ("200 OK", "<html>", None),
-    ];
-    for (status, body, expected) in cases {
-        let userinfo_url = crate::test_support::serve_http(vec![(status, body.to_string())]).await;
-        assert_eq!(
-            fetch_user_email(&userinfo_url, "ya29.token").await.as_deref(),
-            expected,
-            "{status} {body}"
-        );
-    }
+async fn fetch_user_email_reads_email_only_from_successful_json(
+    status: &'static str,
+    body: &str,
+    expected: Option<&str>,
+) {
+    let userinfo_url = crate::test_support::serve_http(vec![(status, body.to_string())]).await;
+    assert_eq!(fetch_user_email(&userinfo_url, "ya29.token").await.as_deref(), expected);
 }
 
-const REFRESH_CASES: [(&str, &str); 2] = [
-    (
-        r#"{"access_token":"ya29.refreshed","refresh_token":"1//rotated","expires_in":3599}"#,
-        "1//rotated",
-    ),
-    (
-        r#"{"access_token":"ya29.refreshed","expires_in":3599}"#,
-        "1//old-refresh",
-    ),
-];
-
+#[test_case(
+    r#"{"access_token":"ya29.refreshed","refresh_token":"1//rotated","expires_in":3599}"#,
+    "1//rotated";
+    "rotated refresh token"
+)]
+#[test_case(r#"{"access_token":"ya29.refreshed","expires_in":3599}"#, "1//old-refresh"; "refresh token kept")]
 #[tokio::test]
-async fn exchange_refresh_token_keeps_account_and_previous_refresh_when_not_rotated() {
-    for (body, expected_refresh) in REFRESH_CASES {
-        let token_url = crate::test_support::serve_http(vec![("200 OK", body.to_string())]).await;
-        let account = crate::auth::oauth::OAuthAccount {
-            id: Some("project-1".to_string()),
-            email: Some("dev@example.com".to_string()),
-        };
-        let cred = exchange_refresh_token(&token_url, "1//old-refresh".to_string(), account)
-            .await
-            .unwrap();
-        let StoredCredential::OAuth {
-            access_token,
-            refresh_token,
-            account_id,
-            account_email,
-            ..
-        } = cred
-        else {
-            panic!("expected OAuth credential");
-        };
-        assert_eq!(access_token, "ya29.refreshed");
-        assert_eq!(refresh_token.as_deref(), Some(expected_refresh));
-        assert_eq!(account_id.as_deref(), Some("project-1"));
-        assert_eq!(account_email.as_deref(), Some("dev@example.com"));
-    }
+async fn exchange_refresh_token_keeps_account_and_previous_refresh_when_not_rotated(
+    body: &str,
+    expected_refresh: &str,
+) {
+    let token_url = crate::test_support::serve_http(vec![("200 OK", body.to_string())]).await;
+    let account = crate::auth::oauth::OAuthAccount {
+        id: Some("project-1".to_string()),
+        email: Some("dev@example.com".to_string()),
+    };
+    let cred = exchange_refresh_token(&token_url, "1//old-refresh".to_string(), account)
+        .await
+        .unwrap();
+    let StoredCredential::OAuth {
+        access_token,
+        refresh_token,
+        account_id,
+        account_email,
+        ..
+    } = cred
+    else {
+        panic!("expected OAuth credential");
+    };
+    assert_eq!(access_token, "ya29.refreshed");
+    assert_eq!(refresh_token.as_deref(), Some(expected_refresh));
+    assert_eq!(account_id.as_deref(), Some("project-1"));
+    assert_eq!(account_email.as_deref(), Some("dev@example.com"));
 }

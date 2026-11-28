@@ -3,6 +3,7 @@ use crate::model::{
     AssistantContent, ChatMessage, ImageContent, TextContent, ToolCall, ToolFunction, ToolResult, ToolResultContent,
     UserContent,
 };
+use test_case::test_case;
 
 #[test]
 fn test_estimate_text_tokens_exact_or_fallback() {
@@ -157,74 +158,64 @@ fn test_find_token_cut_point_and_tool_pair_preservation() {
     assert!(cut.cut_index <= 1);
 }
 
-#[test]
-fn test_context_window_size() {
-    let cases = [
-        ("claude-sonnet-4-6", 1_000_000),
-        ("claude-opus-4-6", 1_000_000),
-        ("claude-opus-5-5", 1_000_000),
-        ("claude-sonnet-5-5", 1_000_000),
-        ("claude-haiku-5-5", 1_000_000),
-        ("claude-haiku-5.5", 1_000_000),
-        ("haiku-5.5", 1_000_000),
-        ("haiku 5.5", 1_000_000),
-        ("anthropic/claude-haiku-5-5", 1_000_000),
-        ("anthropic/haiku-5.5", 1_000_000),
-        ("claude-mythos-5.1", 1_000_000),
-        ("claude-mythos-5-1", 1_000_000),
-        ("claude-fable-5.1", 1_000_000),
-        ("claude-fable-5-1", 1_000_000),
-        ("claude-haiku-4-5", 200_000),
-        ("anthropic/haiku-3.5", 200_000),
-        ("o4-mini", 200_000),
-        ("gpt-4o", 128_000),
-        ("deepseek-chat", 128_000),
-        ("qwen-2.5-coder", 128_000),
-        ("gemini-2.5-pro", 2_000_000),
-        ("gemini-2.5-flash", 1_000_000),
-        ("gpt-6-astra", 1_050_000),
-        ("gpt-6.2-astra", 1_050_000),
-        ("gpt-6.2-sol", 372_000),
-        ("gpt-6.1-terra", 372_000),
-        ("gpt-6.1-sol", 372_000),
-        ("gpt-6-sol", 372_000),
-        ("gpt-6-terra", 372_000),
-        ("gpt-6-luna", 372_000),
-        ("gpt-5.6", 372_000),
-        ("gpt-5.4", 272_000),
-        ("unknown-model", 128_000),
-    ];
-    for (model, expected) in cases {
-        assert_eq!(context_window_size(model), expected);
-    }
+#[test_case("claude-sonnet-4-6", 1_000_000; "claude sonnet 4 6")]
+#[test_case("claude-opus-4-6", 1_000_000; "claude opus 4 6")]
+#[test_case("claude-opus-5-5", 1_000_000; "claude opus 5 5")]
+#[test_case("claude-sonnet-5-5", 1_000_000; "claude sonnet 5 5")]
+#[test_case("claude-haiku-5-5", 1_000_000; "claude haiku 5 5 dashed")]
+#[test_case("claude-haiku-5.5", 1_000_000; "claude haiku 5 5 dotted")]
+#[test_case("haiku-5.5", 1_000_000; "bare haiku 5 5 dashed")]
+#[test_case("haiku 5.5", 1_000_000; "bare haiku 5 5 spaced")]
+#[test_case("anthropic/claude-haiku-5-5", 1_000_000; "anthropic claude haiku 5 5")]
+#[test_case("anthropic/haiku-5.5", 1_000_000; "anthropic haiku 5 5")]
+#[test_case("claude-mythos-5.1", 1_000_000; "claude mythos 5 1 dotted")]
+#[test_case("claude-mythos-5-1", 1_000_000; "claude mythos 5 1 dashed")]
+#[test_case("claude-fable-5.1", 1_000_000; "claude fable 5 1 dotted")]
+#[test_case("claude-fable-5-1", 1_000_000; "claude fable 5 1 dashed")]
+#[test_case("claude-haiku-4-5", 200_000; "claude haiku 4 5")]
+#[test_case("anthropic/haiku-3.5", 200_000; "anthropic haiku 3 5")]
+#[test_case("o4-mini", 200_000; "o4 mini")]
+#[test_case("gpt-4o", 128_000; "gpt 4o")]
+#[test_case("deepseek-chat", 128_000; "deepseek chat")]
+#[test_case("qwen-2.5-coder", 128_000; "qwen 2 5 coder")]
+#[test_case("gemini-2.5-pro", 2_000_000; "gemini 2 5 pro")]
+#[test_case("gemini-2.5-flash", 1_000_000; "gemini 2 5 flash")]
+#[test_case("gpt-6-astra", 1_050_000; "gpt 6 astra")]
+#[test_case("gpt-6.2-astra", 1_050_000; "gpt 6 2 astra")]
+#[test_case("gpt-6.2-sol", 372_000; "gpt 6 2 sol")]
+#[test_case("gpt-6.1-terra", 372_000; "gpt 6 1 terra")]
+#[test_case("gpt-6.1-sol", 372_000; "gpt 6 1 sol")]
+#[test_case("gpt-6-sol", 372_000; "gpt 6 sol")]
+#[test_case("gpt-6-terra", 372_000; "gpt 6 terra")]
+#[test_case("gpt-6-luna", 372_000; "gpt 6 luna")]
+#[test_case("gpt-5.6", 372_000; "gpt 5 6")]
+#[test_case("gpt-5.4", 272_000; "gpt 5 4")]
+#[test_case("unknown-model", 128_000; "unknown model")]
+fn test_context_window_size(model: &str, expected: usize) {
+    assert_eq!(context_window_size(model), expected);
 }
 
-#[test]
-fn context_window_size_is_provider_aware_for_gpt_6_astra() {
-    for model in ["gpt-6-astra", "gpt-6.2-astra"] {
-        assert_eq!(context_window_size_for_provider(model, "openai"), 1_050_000);
-        assert_eq!(context_window_size_for_provider(model, "chatgpt"), 272_000);
-    }
+#[test_case("gpt-6-astra"; "gpt 6 astra")]
+#[test_case("gpt-6.2-astra"; "gpt 6 2 astra")]
+fn context_window_size_is_provider_aware_for_gpt_6_astra(model: &str) {
+    assert_eq!(context_window_size_for_provider(model, "openai"), 1_050_000);
+    assert_eq!(context_window_size_for_provider(model, "chatgpt"), 272_000);
 }
 
-#[test]
-fn context_window_size_for_gpt_6_reasoning_models_is_provider_aware() {
-    for model in [
-        "gpt-6.2-sol",
-        "gpt-6.1-sol",
-        "gpt-6-sol",
-        "gpt-6.1-terra",
-        "gpt-6-terra",
-        "gpt-6-luna",
-    ] {
-        assert_eq!(context_window_size_for_provider(model, "openai"), 1_050_000);
-    }
-    for model in ["gpt-6.2-sol", "gpt-6.1-sol", "gpt-6.1-terra"] {
-        assert_eq!(context_window_size_for_provider(model, "chatgpt"), 500_000);
-    }
-    for model in ["gpt-6-sol", "gpt-6-terra", "gpt-6-luna"] {
-        assert_eq!(context_window_size_for_provider(model, "chatgpt"), 272_000);
-    }
+#[test_case("gpt-6.2-sol", "openai", 1_050_000; "openai gpt 6 2 sol")]
+#[test_case("gpt-6.1-sol", "openai", 1_050_000; "openai gpt 6 1 sol")]
+#[test_case("gpt-6-sol", "openai", 1_050_000; "openai gpt 6 sol")]
+#[test_case("gpt-6.1-terra", "openai", 1_050_000; "openai gpt 6 1 terra")]
+#[test_case("gpt-6-terra", "openai", 1_050_000; "openai gpt 6 terra")]
+#[test_case("gpt-6-luna", "openai", 1_050_000; "openai gpt 6 luna")]
+#[test_case("gpt-6.2-sol", "chatgpt", 500_000; "chatgpt gpt 6 2 sol")]
+#[test_case("gpt-6.1-sol", "chatgpt", 500_000; "chatgpt gpt 6 1 sol")]
+#[test_case("gpt-6.1-terra", "chatgpt", 500_000; "chatgpt gpt 6 1 terra")]
+#[test_case("gpt-6-sol", "chatgpt", 272_000; "chatgpt gpt 6 sol")]
+#[test_case("gpt-6-terra", "chatgpt", 272_000; "chatgpt gpt 6 terra")]
+#[test_case("gpt-6-luna", "chatgpt", 272_000; "chatgpt gpt 6 luna")]
+fn context_window_size_for_gpt_6_reasoning_models_is_provider_aware(model: &str, provider: &str, expected: usize) {
+    assert_eq!(context_window_size_for_provider(model, provider), expected);
 }
 
 #[test]

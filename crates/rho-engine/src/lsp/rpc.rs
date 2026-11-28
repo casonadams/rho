@@ -327,7 +327,9 @@ async fn write_loop(mut writer: BoxedWriter, mut queue: mpsc::Receiver<Value>, g
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::ErrorKind;
     use std::sync::atomic::AtomicUsize;
+    use test_case::test_case;
 
     #[derive(Default)]
     struct Recorder {
@@ -402,27 +404,20 @@ mod tests {
         (connection, recorder, BufReader::new(server_read), server_write)
     }
 
-    #[tokio::test]
-    async fn oversized_content_length_is_rejected_before_allocating() {
-        let mut huge = BufReader::new(&b"Content-Length: 2147483648\r\n\r\n"[..]);
-        let error = read_message(&mut huge).await.unwrap_err();
-        assert_eq!(error.kind(), std::io::ErrorKind::InvalidData, "{error}");
+    fn endless_header() -> Vec<u8> {
+        let mut header = b"X-Pad: ".to_vec();
+        header.extend(std::iter::repeat_n(b'a', 20_000));
+        header.extend_from_slice(b"\r\nContent-Length: 2\r\n\r\n{}");
+        header
     }
 
+    #[test_case(b"Content-Length: 2147483648\r\n\r\n".to_vec(), ErrorKind::InvalidData; "oversized content length")]
+    #[test_case(endless_header(), ErrorKind::InvalidData; "endless header line")]
+    #[test_case(b"Content-Length: 33554432\r\n\r\n{}".to_vec(), ErrorKind::UnexpectedEof; "body shorter than its content length")]
     #[tokio::test]
-    async fn an_endless_header_line_is_rejected() {
-        let mut text = b"X-Pad: ".to_vec();
-        text.extend(std::iter::repeat_n(b'a', 20_000));
-        text.extend_from_slice(b"\r\nContent-Length: 2\r\n\r\n{}");
-        let error = read_message(&mut BufReader::new(&text[..])).await.unwrap_err();
-        assert_eq!(error.kind(), std::io::ErrorKind::InvalidData, "{error}");
-    }
-
-    #[tokio::test]
-    async fn a_body_shorter_than_its_content_length_is_an_unexpected_eof() {
-        let mut short = BufReader::new(&b"Content-Length: 33554432\r\n\r\n{}"[..]);
-        let error = read_message(&mut short).await.unwrap_err();
-        assert_eq!(error.kind(), std::io::ErrorKind::UnexpectedEof, "{error}");
+    async fn malformed_frames_are_rejected_with_the_matching_error_kind(bytes: Vec<u8>, kind: ErrorKind) {
+        let error = read_message(&mut BufReader::new(bytes.as_slice())).await.unwrap_err();
+        assert_eq!(error.kind(), kind, "{error}");
     }
 
     #[tokio::test]

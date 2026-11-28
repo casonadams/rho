@@ -2,7 +2,7 @@
 //! extracts path arguments, and formats compound commands for display.
 
 use super::lexer::{Token, TokenKind, tokenize};
-use super::normalize::normalize_segment;
+use super::normalize::{is_assignment, is_duration, normalize_segment};
 
 // ---------------------------------------------------------------------------
 // Token filtering: wrapper stripping, assignments, and path extraction
@@ -48,17 +48,6 @@ pub(crate) fn strip_assignments(words: &mut Vec<Token>, path_tokens: &mut Vec<St
         }
         words.remove(0);
     }
-}
-
-fn is_assignment(raw: &str) -> bool {
-    let Some((key, _)) = raw.split_once('=') else {
-        return false;
-    };
-    if key.is_empty() {
-        return false;
-    }
-    let first = key.chars().next().unwrap();
-    (first.is_ascii_alphabetic() || first == '_') && key.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
 }
 
 fn try_strip_rtk(words: &mut Vec<Token>) -> bool {
@@ -112,11 +101,6 @@ pub(crate) fn strip_wrappers(words: &mut Vec<Token>) {
             break;
         }
     }
-}
-
-fn is_duration(text: &str) -> bool {
-    let trimmed = text.trim_end_matches(['s', 'm', 'h', 'd']);
-    !trimmed.is_empty() && trimmed.parse::<f64>().is_ok()
 }
 
 pub(crate) fn collect_arg_paths(words: &[Token], path_tokens: &mut Vec<String>) {

@@ -266,6 +266,7 @@ mod tests {
         OptionLayout,
     };
     use crate::ui::interactive::{OutputEvent, TranscriptItem};
+    use test_case::test_case;
     use tokio::sync::{mpsc, oneshot};
 
     #[test]
@@ -339,37 +340,28 @@ mod tests {
         (controller, batch)
     }
 
-    #[test]
-    fn flush_without_pending_work_keeps_activity_idle() {
-        for redraw in [false, true] {
-            let mut controller = crate::repl::test_controller();
-            let mut batch = LiveBatch::new();
-            batch.flush(&mut controller, redraw).unwrap();
-            assert_eq!(controller.state().footer().activity, Activity::Idle);
-        }
+    #[test_case(false; "without redraw")]
+    #[test_case(true; "with redraw")]
+    fn flush_without_pending_work_keeps_activity_idle(redraw: bool) {
+        let mut controller = crate::repl::test_controller();
+        let mut batch = LiveBatch::new();
+        batch.flush(&mut controller, redraw).unwrap();
+        assert_eq!(controller.state().footer().activity, Activity::Idle);
     }
 
-    #[test]
-    fn flush_applies_activity_per_batch_kind() {
-        type Step = (Activity, Activity);
-        let cases: [(bool, Vec<Step>); 2] = [
-            (true, vec![(Activity::Idle, Activity::Working)]),
-            (
-                false,
-                vec![
-                    (Activity::Thinking, Activity::Thinking),
-                    (Activity::Idle, Activity::Idle),
-                ],
-            ),
-        ];
-        for (turn, steps) in cases {
-            let mut controller = crate::repl::test_controller();
-            let mut batch = if turn { LiveBatch::turn() } else { LiveBatch::new() };
-            for (event, expected) in steps {
-                queue(&mut batch, vec![UiEvent::Activity(event)]);
-                batch.flush(&mut controller, false).unwrap();
-                assert_eq!(controller.state().footer().activity, expected);
-            }
+    #[test_case(true, &[(Activity::Idle, Activity::Working)]; "turn batch")]
+    #[test_case(
+        false,
+        &[(Activity::Thinking, Activity::Thinking), (Activity::Idle, Activity::Idle)];
+        "idle batch"
+    )]
+    fn flush_applies_activity_per_batch_kind(turn: bool, steps: &[(Activity, Activity)]) {
+        let mut controller = crate::repl::test_controller();
+        let mut batch = if turn { LiveBatch::turn() } else { LiveBatch::new() };
+        for (event, expected) in steps {
+            queue(&mut batch, vec![UiEvent::Activity(event.clone())]);
+            batch.flush(&mut controller, false).unwrap();
+            assert_eq!(controller.state().footer().activity, *expected);
         }
     }
 

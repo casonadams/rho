@@ -1,11 +1,7 @@
 use super::*;
-use crate::lsp::test_server::FakeLauncher;
-use rho_test_support::TestDir;
+use crate::lsp::test_server::{FakeLauncher, project};
+use crate::test_support::TestDir;
 use serde_json::json;
-
-fn project() -> (TestDir, PathBuf) {
-    super::tests::project()
-}
 
 fn write_lsp_json(path: &Path, text: &str, modified: SystemTime) {
     std::fs::create_dir_all(path.parent().unwrap()).unwrap();

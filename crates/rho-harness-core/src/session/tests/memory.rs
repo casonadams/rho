@@ -1,5 +1,6 @@
 use super::{SessionEventKind, SessionManager, complete_tool_turn, temp_dir};
 use crate::model::{ChatMessage, UserContent};
+use test_case::test_case;
 
 #[tokio::test]
 async fn empty_v2_session_round_trips_after_reopen() {
@@ -140,33 +141,23 @@ async fn concurrent_appends_are_serialized_without_interleaving() {
     assert_eq!(reopened.load_events().await.unwrap().len(), 20);
 }
 
+#[test_case(&["key: credential-", "sentinel done"], "key: [REDACTED] done"; "split in two")]
+#[test_case(&["key: c", "r", "edential-sentin", "el done"], "key: [REDACTED] done"; "split in many")]
+#[test_case(&["key: credential-sentinel done"], "key: [REDACTED] done"; "single chunk")]
+#[test_case(&["key: cred", "it card done"], "key: credit card done"; "near miss released")]
 #[tokio::test]
-async fn streamed_redaction_hides_secrets_split_across_chunks() {
+async fn streamed_redaction_hides_secrets_split_across_chunks(chunks: &[&str], expected: &str) {
     let dir = temp_dir();
     let store = SessionManager::new_with_secrets(&dir, None, vec!["credential-sentinel".to_string()]).unwrap();
-    let cases: [&[&str]; 4] = [
-        &["key: credential-", "sentinel done"],
-        &["key: c", "r", "edential-sentin", "el done"],
-        &["key: credential-sentinel done"],
-        &["key: cred", "it card done"],
-    ];
-    let expected = [
-        "key: [REDACTED] done",
-        "key: [REDACTED] done",
-        "key: [REDACTED] done",
-        "key: credit card done",
-    ];
-    for (chunks, expected) in cases.iter().zip(expected) {
-        let mut carry = String::new();
-        let mut shown = String::new();
-        for chunk in *chunks {
-            let released = store.redact_credentials_streamed(&mut carry, chunk);
-            assert!(!released.contains("credential-"), "{chunks:?} released {released:?}");
-            shown.push_str(&released);
-        }
-        shown.push_str(&carry);
-        assert_eq!(shown, expected, "{chunks:?}");
+    let mut carry = String::new();
+    let mut shown = String::new();
+    for chunk in chunks {
+        let released = store.redact_credentials_streamed(&mut carry, chunk);
+        assert!(!released.contains("credential-"), "released {released:?}");
+        shown.push_str(&released);
     }
+    shown.push_str(&carry);
+    assert_eq!(shown, expected);
 }
 
 #[tokio::test]

@@ -195,8 +195,8 @@ fn query(url: &str) -> HashMap<String, String> {
 #[tokio::test]
 async fn unauthenticated_requests_point_to_the_login_command() {
     let (base, _state) = fake_server().await;
-    let dir = tempfile::tempdir().unwrap();
-    let store = McpTokenStore::in_config_dir(dir.path());
+    let dir = crate::test_support::TestDir::new();
+    let store = McpTokenStore::in_config_dir(&dir);
     let err = transport(&base, &store).request("tools/list", None).await.unwrap_err();
     assert!(
         err.to_string().contains("MCP server 'srv' requires authorization"),
@@ -208,8 +208,8 @@ async fn unauthenticated_requests_point_to_the_login_command() {
 #[tokio::test]
 async fn login_discovers_registers_and_authorizes_then_requests_carry_the_token() {
     let (base, state) = fake_server().await;
-    let dir = tempfile::tempdir().unwrap();
-    let store = McpTokenStore::in_config_dir(dir.path());
+    let dir = crate::test_support::TestDir::new();
+    let store = McpTokenStore::in_config_dir(&dir);
     let browser = Browser::default();
     let url = format!("{base}/mcp");
     login(
@@ -248,10 +248,7 @@ async fn login_discovers_registers_and_authorizes_then_requests_carry_the_token(
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        let mode = std::fs::metadata(dir.path().join(TOKEN_FILE))
-            .unwrap()
-            .permissions()
-            .mode();
+        let mode = std::fs::metadata(dir.join(TOKEN_FILE)).unwrap().permissions().mode();
         assert_eq!(mode & 0o777, 0o600);
     }
 
@@ -262,8 +259,8 @@ async fn login_discovers_registers_and_authorizes_then_requests_carry_the_token(
 #[tokio::test]
 async fn a_rejected_token_is_refreshed_once_and_the_request_retried() {
     let (base, state) = fake_server().await;
-    let dir = tempfile::tempdir().unwrap();
-    let store = McpTokenStore::in_config_dir(dir.path());
+    let dir = crate::test_support::TestDir::new();
+    let store = McpTokenStore::in_config_dir(&dir);
     store
         .save(
             "srv",
@@ -297,8 +294,8 @@ async fn a_rejected_token_is_refreshed_once_and_the_request_retried() {
 async fn expired_tokens_are_refreshed_before_the_request() {
     let (base, state) = fake_server().await;
     state.lock().unwrap().accepted_token = "tok-2".into();
-    let dir = tempfile::tempdir().unwrap();
-    let store = McpTokenStore::in_config_dir(dir.path());
+    let dir = crate::test_support::TestDir::new();
+    let store = McpTokenStore::in_config_dir(&dir);
     let tokens = McpTokens {
         access_token: "old".into(),
         refresh_token: Some("ref-1".into()),
@@ -322,8 +319,8 @@ async fn expired_tokens_are_refreshed_before_the_request() {
 #[tokio::test]
 async fn a_failed_refresh_asks_the_user_to_sign_in_again() {
     let (base, _state) = fake_server().await;
-    let dir = tempfile::tempdir().unwrap();
-    let store = McpTokenStore::in_config_dir(dir.path());
+    let dir = crate::test_support::TestDir::new();
+    let store = McpTokenStore::in_config_dir(&dir);
     let tokens = McpTokens {
         access_token: "old".into(),
         refresh_token: Some("revoked".into()),
@@ -345,8 +342,8 @@ async fn a_failed_refresh_asks_the_user_to_sign_in_again() {
 #[tokio::test]
 async fn tokens_issued_for_another_url_are_never_sent() {
     let (base, state) = fake_server().await;
-    let dir = tempfile::tempdir().unwrap();
-    let store = McpTokenStore::in_config_dir(dir.path());
+    let dir = crate::test_support::TestDir::new();
+    let store = McpTokenStore::in_config_dir(&dir);
     for (resource, server_url) in [
         (format!("{base}/mcp"), Some("https://other.example.com/mcp".to_string())),
         ("https://other.example.com/mcp".to_string(), None),
@@ -372,8 +369,8 @@ async fn tokens_issued_for_another_url_are_never_sent() {
 #[tokio::test]
 async fn preregistered_clients_skip_dynamic_registration() {
     let (base, state) = fake_server().await;
-    let dir = tempfile::tempdir().unwrap();
-    let store = McpTokenStore::in_config_dir(dir.path());
+    let dir = crate::test_support::TestDir::new();
+    let store = McpTokenStore::in_config_dir(&dir);
     let browser = Browser::default();
     let config = McpOAuthConfig {
         client_id: Some("my-app".into()),
@@ -400,8 +397,8 @@ async fn preregistered_clients_skip_dynamic_registration() {
 #[tokio::test]
 async fn configured_redirect_uri_and_authorization_params_reach_the_provider() {
     let (base, state) = fake_server().await;
-    let dir = tempfile::tempdir().unwrap();
-    let store = McpTokenStore::in_config_dir(dir.path());
+    let dir = crate::test_support::TestDir::new();
+    let store = McpTokenStore::in_config_dir(&dir);
     let browser = Browser::default();
     let port = std::net::TcpListener::bind("127.0.0.1:0")
         .unwrap()
@@ -478,10 +475,10 @@ fn a_refresh_reply_updates_expiry_and_keeps_the_old_refresh_token_unless_replace
 
 #[test]
 fn forget_reports_whether_tokens_were_removed() {
-    let dir = tempfile::tempdir().unwrap();
-    let store = McpTokenStore::in_config_dir(dir.path());
+    let dir = crate::test_support::TestDir::new();
+    let store = McpTokenStore::in_config_dir(&dir);
     assert!(!store.forget("srv").unwrap());
-    McpTokenStore::update(&dir.path().join(TOKEN_FILE), "srv", Some(sample_tokens())).unwrap();
+    McpTokenStore::update(&dir.join(TOKEN_FILE), "srv", Some(sample_tokens())).unwrap();
     assert!(store.is_signed_in("srv"));
     assert!(store.forget("srv").unwrap());
     assert!(!store.is_signed_in("srv"));
@@ -490,9 +487,9 @@ fn forget_reports_whether_tokens_were_removed() {
 
 #[test]
 fn an_unreadable_token_file_is_an_error_not_an_empty_store() {
-    let dir = tempfile::tempdir().unwrap();
-    assert!(matches!(McpTokenStore::read_all(dir.path()), Err(AppError::Auth(_))));
-    let store = McpTokenStore::new(dir.path());
+    let dir = crate::test_support::TestDir::new();
+    assert!(matches!(McpTokenStore::read_all(&dir), Err(AppError::Auth(_))));
+    let store = McpTokenStore::new(dir.to_path_buf());
     assert!(matches!(store.forget("srv"), Err(AppError::Auth(_))));
     assert!(!store.is_signed_in("srv"));
 }

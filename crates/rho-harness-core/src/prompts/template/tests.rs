@@ -1,4 +1,5 @@
 use super::*;
+use test_case::test_case;
 
 #[test]
 fn test_template_frontmatter() {
@@ -30,29 +31,24 @@ fn test_positional_and_slice_parameters() {
     );
 }
 
-#[test]
-fn expand_resolves_positional_default_and_slice_patterns() {
-    let cases: &[(&str, &[&str], &str)] = &[
-        ("${1}", &["a", "b"], "a"),
-        ("${3}", &["a"], ""),
-        ("${@}", &["a", "b"], "a b"),
-        ("${ARGUMENTS}", &["a", "b"], "a b"),
-        ("${2:-dflt}", &["a"], "dflt"),
-        ("${2:-dflt}", &["a", " ", "c"], "dflt"),
-        ("${ARGUMENTS:-none}", &[], "none"),
-        ("${ARGUMENTS:-none}", &["x", "y"], "x y"),
-        ("${2:-dflt}", &["a", "b"], "b"),
-        ("${@:2:1}", &["a", "b", "c"], "b"),
-        ("${@:5}", &["a"], ""),
-        ("$1$2 $ARGUMENTS", &["x", "y"], "xy x y"),
-        ("path ${HOME} end", &["a"], "path ${HOME} end"),
-        ("${HOME} ${1}", &["a"], "${HOME} a"),
-        ("${@:-none}", &[], "none"),
-        ("${@:-none}", &["x"], "x"),
-        ("open ${1", &["a"], "open ${1"),
-    ];
-    for (body, args, expected) in cases {
-        let tmpl = PromptTemplate::parse("t", body, "user");
-        assert_eq!(tmpl.expand(args), *expected, "{body}");
-    }
+#[test_case("${1}", &["a", "b"], "a"; "braced positional")]
+#[test_case("${3}", &["a"], ""; "missing positional is empty")]
+#[test_case("${@}", &["a", "b"], "a b"; "braced all args")]
+#[test_case("${ARGUMENTS}", &["a", "b"], "a b"; "braced arguments")]
+#[test_case("${2:-dflt}", &["a"], "dflt"; "default for missing positional")]
+#[test_case("${2:-dflt}", &["a", " ", "c"], "dflt"; "default for blank positional")]
+#[test_case("${ARGUMENTS:-none}", &[], "none"; "default for no arguments")]
+#[test_case("${ARGUMENTS:-none}", &["x", "y"], "x y"; "arguments override default")]
+#[test_case("${2:-dflt}", &["a", "b"], "b"; "positional overrides default")]
+#[test_case("${@:2:1}", &["a", "b", "c"], "b"; "slice with length")]
+#[test_case("${@:5}", &["a"], ""; "slice past end is empty")]
+#[test_case("$1$2 $ARGUMENTS", &["x", "y"], "xy x y"; "unbraced forms")]
+#[test_case("path ${HOME} end", &["a"], "path ${HOME} end"; "unknown variable kept")]
+#[test_case("${HOME} ${1}", &["a"], "${HOME} a"; "unknown variable kept beside positional")]
+#[test_case("${@:-none}", &[], "none"; "all args default when empty")]
+#[test_case("${@:-none}", &["x"], "x"; "all args override default")]
+#[test_case("open ${1", &["a"], "open ${1"; "unclosed brace kept")]
+fn expand_resolves_positional_default_and_slice_patterns(body: &str, args: &[&str], expected: &str) {
+    let tmpl = PromptTemplate::parse("t", body, "user");
+    assert_eq!(tmpl.expand(args), expected);
 }

@@ -1,16 +1,6 @@
 use super::*;
-use crate::lsp::test_server::{FakeOptions, fake_manager, fake_manager_with, fake_server, until};
-use rho_test_support::TestDir;
+use crate::lsp::test_server::{FakeOptions, fake_manager, fake_manager_with, fake_server, project, until};
 use serde_json::{Value, json};
-
-fn project() -> (TestDir, std::path::PathBuf) {
-    let dir = TestDir::new();
-    std::fs::write(dir.as_ref().join("Cargo.toml"), "").unwrap();
-    std::fs::create_dir(dir.as_ref().join("src")).unwrap();
-    let lib = dir.as_ref().join("src/lib.rs");
-    std::fs::write(&lib, "fn ok() {}\n").unwrap();
-    (dir, lib)
-}
 
 #[tokio::test(start_paused = true)]
 async fn errors_in_other_files_count_only_files_that_still_exist() {
@@ -220,7 +210,8 @@ async fn servers_hear_about_files_rho_creates_changes_and_deletes() {
 
     manager.files_changed(&[lib.clone(), gone.clone()]);
     manager.files_created(std::slice::from_ref(&made));
-    manager.files_changed(&[std::env::temp_dir().join("elsewhere.rs")]);
+    let elsewhere = crate::test_support::TestDir::new();
+    manager.files_changed(&[elsewhere.join("elsewhere.rs")]);
     client
         .request("workspace/symbol", json!({ "query": "" }))
         .await

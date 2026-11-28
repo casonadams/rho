@@ -1,22 +1,29 @@
 use super::super::activation::activate_path_instructions_async;
 use super::super::*;
-use std::path::Path;
+use crate::test_support::TestDir;
+use std::path::{Path, PathBuf};
 
-fn setup_monorepo_dirs(repo_root: &Path) {
-    let sub_crate = repo_root.join("crates").join("rho-subcrate");
-    let sub_src = sub_crate.join("src");
-    std::fs::create_dir_all(repo_root.join(".git")).unwrap();
-    std::fs::create_dir_all(&sub_src).unwrap();
-    std::fs::write(repo_root.join("AGENTS.md"), "# Root Instructions\n").unwrap();
-    std::fs::write(sub_crate.join("AGENTS.md"), "# Subcrate Instructions\n").unwrap();
-    std::fs::write(sub_src.join("lib.rs"), "pub fn run() {}\n").unwrap();
+const MONOREPO: &[(&str, &str)] = &[
+    ("AGENTS.md", "# Root Instructions\n"),
+    ("crates/rho-subcrate/AGENTS.md", "# Subcrate Instructions\n"),
+    ("crates/rho-subcrate/src/lib.rs", "pub fn run() {}\n"),
+];
+
+async fn fixture_repo(files: &[(impl AsRef<str>, impl AsRef<str>)]) -> (TestDir, PathBuf) {
+    let temp_dir = TestDir::new();
+    let repo_root = temp_dir.join("repo");
+    tokio::fs::create_dir_all(repo_root.join(".git")).await.unwrap();
+    for (rel, text) in files {
+        let path = repo_root.join(rel.as_ref());
+        tokio::fs::create_dir_all(path.parent().unwrap()).await.unwrap();
+        tokio::fs::write(path, text.as_ref()).await.unwrap();
+    }
+    (temp_dir, repo_root)
 }
 
 #[tokio::test]
 async fn test_dynamic_path_activation_in_monorepo() {
-    let temp_dir = crate::test_support::TestDir::new();
-    let repo_root = temp_dir.join("repo");
-    setup_monorepo_dirs(&repo_root);
+    let (_temp_dir, repo_root) = fixture_repo(MONOREPO).await;
 
     let mut ctx = ProjectContext::discover(&repo_root, None).await;
     assert_eq!(
@@ -36,13 +43,7 @@ async fn test_dynamic_path_activation_in_monorepo() {
 
 #[tokio::test]
 async fn dynamic_instructions_are_cut_to_the_byte_budget_on_a_character_boundary() {
-    let dir = tempfile::tempdir().unwrap();
-    let repo_root = dir.path().join("repo");
-    let sub = repo_root.join("pkg");
-    std::fs::create_dir_all(repo_root.join(".git")).unwrap();
-    std::fs::create_dir_all(&sub).unwrap();
-    std::fs::write(sub.join("AGENTS.md"), "éé").unwrap();
-    std::fs::write(sub.join("a.rs"), "fn a() {}\n").unwrap();
+    let (_temp_dir, repo_root) = fixture_repo(&[("pkg/AGENTS.md", "éé"), ("pkg/a.rs", "fn a() {}\n")]).await;
 
     let mut ctx = ProjectContext::discover(&repo_root, None).await;
     ctx.dynamic_instructions_bytes = super::super::activation::MAX_DYNAMIC_INSTRUCTION_BYTES - 3;
@@ -53,17 +54,13 @@ async fn dynamic_instructions_are_cut_to_the_byte_budget_on_a_character_boundary
 
 #[tokio::test]
 async fn test_dynamic_path_activation_deduplication() {
-    let temp_dir = crate::test_support::TestDir::new();
-    let repo_root = temp_dir.join("repo");
-    let sub = repo_root.join("packages").join("pkg-a");
-
-    tokio::fs::create_dir_all(repo_root.join(".git")).await.unwrap();
-    tokio::fs::create_dir_all(&sub).await.unwrap();
-
-    tokio::fs::write(repo_root.join("AGENTS.md"), "# Root\n").await.unwrap();
-    tokio::fs::write(sub.join("AGENTS.md"), "# Package A\n").await.unwrap();
-    tokio::fs::write(sub.join("a.rs"), "fn a() {}\n").await.unwrap();
-    tokio::fs::write(sub.join("b.rs"), "fn b() {}\n").await.unwrap();
+    let (_temp_dir, repo_root) = fixture_repo(&[
+        ("AGENTS.md", "# Root\n"),
+        ("packages/pkg-a/AGENTS.md", "# Package A\n"),
+        ("packages/pkg-a/a.rs", "fn a() {}\n"),
+        ("packages/pkg-a/b.rs", "fn b() {}\n"),
+    ])
+    .await;
 
     let mut ctx = ProjectContext::discover(&repo_root, None).await;
     assert_eq!(ctx.instruction_files.len(), 1);
@@ -80,20 +77,15 @@ async fn test_dynamic_path_activation_deduplication() {
 
 #[tokio::test]
 async fn test_dynamic_path_activation_bounds_file_limit() {
-    let temp_dir = crate::test_support::TestDir::new();
-    let repo_root = temp_dir.join("repo");
-    tokio::fs::create_dir_all(repo_root.join(".git")).await.unwrap();
-
-    for i in 0..15 {
-        let pkg_dir = repo_root.join("packages").join(format!("pkg_{i}"));
-        tokio::fs::create_dir_all(&pkg_dir).await.unwrap();
-        tokio::fs::write(pkg_dir.join("AGENTS.md"), format!("# Pkg {i}\n"))
-            .await
-            .unwrap();
-        tokio::fs::write(pkg_dir.join("main.rs"), "fn main() {}\n")
-            .await
-            .unwrap();
-    }
+    let files: Vec<(String, String)> = (0..15)
+        .flat_map(|i| {
+            [
+                (format!("packages/pkg_{i}/AGENTS.md"), format!("# Pkg {i}\n")),
+                (format!("packages/pkg_{i}/main.rs"), "fn main() {}\n".to_string()),
+            ]
+        })
+        .collect();
+    let (_temp_dir, repo_root) = fixture_repo(&files).await;
 
     let mut ctx = ProjectContext::discover(&repo_root, None).await;
     assert_eq!(ctx.instruction_files.len(), 0);
@@ -108,18 +100,12 @@ async fn test_dynamic_path_activation_bounds_file_limit() {
 
 #[tokio::test]
 async fn test_dynamic_path_activation_bounds_byte_limit() {
-    let temp_dir = crate::test_support::TestDir::new();
-    let repo_root = temp_dir.join("repo");
-    let sub = repo_root.join("sub");
-
-    tokio::fs::create_dir_all(repo_root.join(".git")).await.unwrap();
-    tokio::fs::create_dir_all(&sub).await.unwrap();
-
     let large_instructions = "x".repeat(70 * 1024);
-    tokio::fs::write(sub.join("AGENTS.md"), &large_instructions)
-        .await
-        .unwrap();
-    tokio::fs::write(sub.join("file.rs"), "fn foo() {}\n").await.unwrap();
+    let (_temp_dir, repo_root) = fixture_repo(&[
+        ("sub/AGENTS.md", large_instructions.as_str()),
+        ("sub/file.rs", "fn foo() {}\n"),
+    ])
+    .await;
 
     let mut ctx = ProjectContext::discover(&repo_root, None).await;
     ctx.activate_path_instructions(Path::new("sub/file.rs"));
@@ -131,16 +117,12 @@ async fn test_dynamic_path_activation_bounds_byte_limit() {
 
 #[tokio::test]
 async fn test_dynamic_path_activation_respects_no_context_files() {
-    let temp_dir = crate::test_support::TestDir::new();
-    let repo_root = temp_dir.join("repo");
-    let sub = repo_root.join("sub");
-
-    tokio::fs::create_dir_all(repo_root.join(".git")).await.unwrap();
-    tokio::fs::create_dir_all(&sub).await.unwrap();
-
-    tokio::fs::write(repo_root.join("AGENTS.md"), "# Root\n").await.unwrap();
-    tokio::fs::write(sub.join("AGENTS.md"), "# Sub\n").await.unwrap();
-    tokio::fs::write(sub.join("main.rs"), "fn main() {}\n").await.unwrap();
+    let (_temp_dir, repo_root) = fixture_repo(&[
+        ("AGENTS.md", "# Root\n"),
+        ("sub/AGENTS.md", "# Sub\n"),
+        ("sub/main.rs", "fn main() {}\n"),
+    ])
+    .await;
 
     let mut ctx = ProjectContext::discover_with_dirs(
         &repo_root,
@@ -158,16 +140,9 @@ async fn test_dynamic_path_activation_respects_no_context_files() {
 
 #[tokio::test]
 async fn test_dynamic_path_activation_confinement() {
-    let temp_dir = crate::test_support::TestDir::new();
-    let repo_root = temp_dir.join("repo");
+    let (temp_dir, repo_root) = fixture_repo(&[("AGENTS.md", "# Repo Rules\n")]).await;
     let external_dir = temp_dir.join("external");
-
-    tokio::fs::create_dir_all(repo_root.join(".git")).await.unwrap();
     tokio::fs::create_dir_all(&external_dir).await.unwrap();
-
-    tokio::fs::write(repo_root.join("AGENTS.md"), "# Repo Rules\n")
-        .await
-        .unwrap();
     tokio::fs::write(external_dir.join("AGENTS.md"), "# External Secret Rules\n")
         .await
         .unwrap();
@@ -185,21 +160,12 @@ async fn test_dynamic_path_activation_confinement() {
 
 #[tokio::test]
 async fn test_dynamic_path_activation_with_transclusion() {
-    let temp_dir = crate::test_support::TestDir::new();
-    let repo_root = temp_dir.join("repo");
-    let sub = repo_root.join("crates").join("sub");
-    let docs = sub.join("docs");
-
-    tokio::fs::create_dir_all(repo_root.join(".git")).await.unwrap();
-    tokio::fs::create_dir_all(&docs).await.unwrap();
-
-    tokio::fs::write(docs.join("standards.md"), "Subtree coding standards.\n")
-        .await
-        .unwrap();
-    tokio::fs::write(sub.join("AGENTS.md"), "# Subtree Rules\n@docs/standards.md\n")
-        .await
-        .unwrap();
-    tokio::fs::write(sub.join("mod.rs"), "pub mod sub;\n").await.unwrap();
+    let (_temp_dir, repo_root) = fixture_repo(&[
+        ("crates/sub/docs/standards.md", "Subtree coding standards.\n"),
+        ("crates/sub/AGENTS.md", "# Subtree Rules\n@docs/standards.md\n"),
+        ("crates/sub/mod.rs", "pub mod sub;\n"),
+    ])
+    .await;
 
     let mut ctx = ProjectContext::discover(&repo_root, None).await;
     assert_eq!(ctx.instruction_files.len(), 0);
@@ -212,9 +178,7 @@ async fn test_dynamic_path_activation_with_transclusion() {
 
 #[tokio::test]
 async fn test_async_path_activation_loads_subcrate_and_honors_no_context() {
-    let temp_dir = crate::test_support::TestDir::new();
-    let repo_root = temp_dir.join("repo");
-    setup_monorepo_dirs(&repo_root);
+    let (_temp_dir, repo_root) = fixture_repo(MONOREPO).await;
 
     let mut ctx = ProjectContext::discover(&repo_root, None).await;
     activate_path_instructions_async(&mut ctx, Path::new("crates/rho-subcrate/src/lib.rs")).await;

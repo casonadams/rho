@@ -304,6 +304,7 @@ mod tests {
     use super::*;
     use rho_test_support::TestDir;
     use std::sync::Arc;
+    use test_case::test_case;
 
     fn store() -> (TestDir, MemoryStore) {
         let dir = TestDir::new();
@@ -311,18 +312,11 @@ mod tests {
         (dir, store)
     }
 
-    #[test]
-    fn credential_shapes_shared_with_session_redaction_are_refused() {
-        for note in [
-            "rotate sk-abcdefghijklmnop",
-            "rotate sk-abcdefghijklmnopqrs soon",
-            "secret_key=hunter2hunter2",
-        ] {
-            assert!(
-                matches!(checked_note(&[], note), Err(MemoryError::LooksLikeSecret)),
-                "{note:?}"
-            );
-        }
+    #[test_case("rotate sk-abcdefghijklmnop"; "short openai key")]
+    #[test_case("rotate sk-abcdefghijklmnopqrs soon"; "openai key mid sentence")]
+    #[test_case("secret_key=hunter2hunter2"; "secret key assignment")]
+    fn credential_shapes_shared_with_session_redaction_are_refused(note: &str) {
+        assert!(matches!(checked_note(&[], note), Err(MemoryError::LooksLikeSecret)));
     }
 
     #[test]

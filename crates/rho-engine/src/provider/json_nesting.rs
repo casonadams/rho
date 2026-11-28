@@ -45,20 +45,16 @@ impl JsonNesting {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use test_case::test_case;
 
-    #[test]
-    fn reports_the_depth_closing_brackets_return_to_outside_strings() {
-        let cases: [(&[&str], &[Option<usize>]); 5] = [
-            (&["{\"a\": [1, {\"b\"", ": 2}]", "}"], &[None, Some(1), Some(0)]),
-            (&["{\"s\": \"}]\\\"{", "\"", "}  "], &[None, None, Some(0)]),
-            (&["{\"s\": \"x\\", "\"}\"", "}"], &[None, None, Some(0)]),
-            (&["{}", "]"], &[Some(0), None]),
-            (&["{\"e\": [{}, {", "}]}"], &[Some(2), Some(0)]),
-        ];
-        for (fragments, expected) in cases {
-            let mut nesting = JsonNesting::default();
-            let closes: Vec<Option<usize>> = fragments.iter().map(|f| nesting.feed(f)).collect();
-            assert_eq!(closes, expected, "{fragments:?}");
-        }
+    #[test_case(&["{\"a\": [1, {\"b\"", ": 2}]", "}"], &[None, Some(1), Some(0)]; "nested closes")]
+    #[test_case(&["{\"s\": \"}]\\\"{", "\"", "}  "], &[None, None, Some(0)]; "brackets inside string")]
+    #[test_case(&["{\"s\": \"x\\", "\"}\"", "}"], &[None, None, Some(0)]; "escape split across fragments")]
+    #[test_case(&["{}", "]"], &[Some(0), None]; "unbalanced close ignored")]
+    #[test_case(&["{\"e\": [{}, {", "}]}"], &[Some(2), Some(0)]; "multiple closes in fragment")]
+    fn reports_the_depth_closing_brackets_return_to_outside_strings(fragments: &[&str], expected: &[Option<usize>]) {
+        let mut nesting = JsonNesting::default();
+        let closes: Vec<Option<usize>> = fragments.iter().map(|f| nesting.feed(f)).collect();
+        assert_eq!(closes, expected);
     }
 }

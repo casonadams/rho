@@ -354,12 +354,12 @@ fn enter_while_an_agent_is_shown_takes_the_prompt_for_that_agent() {
     assert_eq!(take_submission(&mut c, &key(KeyCode::Enter)), None, "nothing typed");
 }
 
-async fn engine() -> (crate::engine::AgentEngine, tempfile::TempDir) {
-    let temp = tempfile::tempdir().unwrap();
+async fn engine() -> (crate::engine::AgentEngine, rho_test_support::TestDir) {
+    let temp = rho_test_support::TestDir::new();
     let config = rho_harness_core::config::Config {
         provider: "local".to_string(),
         model: "llama3.2".to_string(),
-        ..crate::repl::live::modal::selectors::test_support::test_config(temp.path())
+        ..crate::repl::live::modal::selectors::test_support::test_config(&temp)
     };
     let engine = crate::engine::builder::AgentEngineBuilder::new(config, rho_engine::auth::AuthStore::default())
         .build()

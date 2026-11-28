@@ -1,5 +1,6 @@
 use super::*;
 use rho_test_support::TestDir;
+use test_case::test_case;
 
 fn layer(json: Value) -> Map<String, Value> {
     json.as_object().unwrap().clone()
@@ -224,23 +225,22 @@ fn a_malformed_untrusted_project_file_is_a_notice_not_a_failure() {
     );
 }
 
-#[test]
-fn idle_timeouts_must_be_unsigned_integers_and_others_are_ignored_with_a_notice() {
+#[test_case(json!(5000), Some(5000), false; "unsigned integer")]
+#[test_case(json!("5000"), None, true; "string")]
+#[test_case(json!(-1), None, true; "negative")]
+#[test_case(json!(1.5), None, true; "fraction")]
+fn idle_timeouts_must_be_unsigned_integers_and_others_are_ignored_with_a_notice(
+    value: Value,
+    expected: Option<u64>,
+    notice: bool,
+) {
     let dir = TestDir::new();
-    let cases = [
-        (json!(5000), Some(5000), false),
-        (json!("5000"), None, true),
-        (json!(-1), None, true),
-        (json!(1.5), None, true),
-    ];
-    for (value, expected, notice) in cases {
-        write_layer(
-            &dir.as_ref().join(".agents/lsp.json"),
-            json!({ "idleTimeoutMs": value }),
-        );
-        let set = load_servers(Some(dir.as_ref()), &dir.as_ref().join("ws"), false).unwrap();
-        assert_eq!(set.idle_timeout_ms, expected, "{value}");
-        let noticed = set.notice.is_some_and(|n| n.contains("idleTimeoutMs"));
-        assert_eq!(noticed, notice, "{value}");
-    }
+    write_layer(
+        &dir.as_ref().join(".agents/lsp.json"),
+        json!({ "idleTimeoutMs": value }),
+    );
+    let set = load_servers(Some(dir.as_ref()), &dir.as_ref().join("ws"), false).unwrap();
+    assert_eq!(set.idle_timeout_ms, expected);
+    let noticed = set.notice.is_some_and(|n| n.contains("idleTimeoutMs"));
+    assert_eq!(noticed, notice);
 }

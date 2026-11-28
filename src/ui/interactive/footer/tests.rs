@@ -6,7 +6,9 @@ use super::path::abbreviate_home;
 use super::text::{fit_right_aligned, sanitize_status_text, truncate_to_width};
 use crate::ui::block::visible_width;
 use crate::ui::interactive::Activity;
+use rho_harness_core::config::StatusBarPreset;
 use std::path::Path;
+use test_case::test_case;
 
 #[test]
 fn abbreviate_home_replaces_prefix_with_tilde() {
@@ -186,28 +188,21 @@ fn format_model_details_formats_provider_model_and_thinking() {
     assert_eq!(format_model_details(&footer), "no-model/high");
 }
 
-#[test]
-fn model_details_name_the_account_and_shorten_long_ones() {
-    let cases = [
-        ("claude:me@work.com", "claude:me@work.com/opus/high"),
-        (
-            "claude:cason.adams.long@company.com",
-            "claude:cason.adams…@company.com/opus/high",
-        ),
-        (
-            "claude:x@very-long-subsidiary-name.example.com",
-            "claude:x@very-long-subsidiary-…/opus/high",
-        ),
-    ];
-    for (provider, expected) in cases {
-        let footer = FooterState {
-            provider: provider.into(),
-            model: "opus".into(),
-            thinking_level: Some("high".into()),
-            ..FooterState::default()
-        };
-        assert_eq!(format_model_details(&footer), expected);
-    }
+#[test_case("claude:me@work.com", "claude:me@work.com/opus/high"; "short account")]
+#[test_case("claude:cason.adams.long@company.com", "claude:cason.adams…@company.com/opus/high"; "long local part")]
+#[test_case(
+    "claude:x@very-long-subsidiary-name.example.com",
+    "claude:x@very-long-subsidiary-…/opus/high";
+    "long domain"
+)]
+fn model_details_name_the_account_and_shorten_long_ones(provider: &str, expected: &str) {
+    let footer = FooterState {
+        provider: provider.into(),
+        model: "opus".into(),
+        thinking_level: Some("high".into()),
+        ..FooterState::default()
+    };
+    assert_eq!(format_model_details(&footer), expected);
 }
 
 #[test]
@@ -226,10 +221,10 @@ fn truncate_to_width_counts_only_visible_columns() {
 
 #[tokio::test]
 async fn get_git_branch_async_reads_head_without_blocking_worker() {
-    let dir = tempfile::tempdir().unwrap();
-    std::fs::create_dir_all(dir.path().join(".git")).unwrap();
-    std::fs::write(dir.path().join(".git/HEAD"), "ref: refs/heads/feature/async\n").unwrap();
-    let branch = super::path::get_git_branch_async(dir.path().to_path_buf()).await;
+    let dir = rho_test_support::TestDir::new();
+    std::fs::create_dir_all(dir.join(".git")).unwrap();
+    std::fs::write(dir.join(".git/HEAD"), "ref: refs/heads/feature/async\n").unwrap();
+    let branch = super::path::get_git_branch_async(dir.to_path_buf()).await;
     assert_eq!(branch.as_deref(), Some("feature/async"));
 }
 
@@ -281,34 +276,17 @@ fn default_status_bar_config_matches_legacy_two_line_footer() {
     assert_eq!(format_footer_lines(&with_default_cfg, 80, Some("Saved")), legacy);
 }
 
-#[test]
-fn presets_render_single_line_with_expected_segments() {
+#[test_case(StatusBarPreset::Minimal, &["/tmp/rho-work", "main", "slice3", "42.0%"]; "minimal")]
+#[test_case(StatusBarPreset::Compact, &["claude-sonnet-4-5", "main", "$0.025", "42.0%"]; "compact")]
+#[test_case(StatusBarPreset::Full, &["workstation", "claude-sonnet-4-5", "⟳ 2", "⚡67%", "1m35s", "42.0%"]; "full")]
+#[test_case(StatusBarPreset::Nerd, &["workstation", "12345678", "↑1.5k", "↓500", "200k", "1m35s"]; "nerd")]
+#[test_case(StatusBarPreset::Ascii, &["git:main", "tok:2.0k", "$0.025", "42.0%"]; "ascii")]
+fn presets_render_single_line_with_expected_segments(preset: StatusBarPreset, needles: &[&str]) {
     use crate::ui::block::strip_ansi;
-    use rho_harness_core::config::{PathSegmentOptions, StatusBarConfig, StatusBarPreset, StatusBarSegmentOptions};
+    use rho_harness_core::config::{PathSegmentOptions, StatusBarConfig, StatusBarSegmentOptions};
 
-    let mut footer = rich_segmented_footer();
-    let presets = [
-        (
-            StatusBarPreset::Minimal,
-            &["/tmp/rho-work", "main", "slice3", "42.0%"][..],
-        ),
-        (
-            StatusBarPreset::Compact,
-            &["claude-sonnet-4-5", "main", "$0.025", "42.0%"],
-        ),
-        (
-            StatusBarPreset::Full,
-            &["workstation", "claude-sonnet-4-5", "⟳ 2", "⚡67%", "1m35s", "42.0%"],
-        ),
-        (
-            StatusBarPreset::Nerd,
-            &["workstation", "12345678", "↑1.5k", "↓500", "200k", "1m35s"],
-        ),
-        (StatusBarPreset::Ascii, &["git:main", "tok:2.0k", "$0.025", "42.0%"]),
-    ];
-
-    for (preset, needles) in presets {
-        footer.status_bar_config = Some(StatusBarConfig {
+    let footer = FooterState {
+        status_bar_config: Some(StatusBarConfig {
             preset: Some(preset),
             segment_options: Some(StatusBarSegmentOptions {
                 path: Some(PathSegmentOptions {
@@ -318,17 +296,15 @@ fn presets_render_single_line_with_expected_segments() {
                 ..StatusBarSegmentOptions::default()
             }),
             ..StatusBarConfig::default()
-        });
-        let lines = format_footer_lines(&footer, 200, None);
-        assert_eq!(lines.len(), 1, "preset {preset:?} should render 1 line");
-        assert!(visible_width(&lines[0]) <= 200);
-        let plain = strip_ansi(&lines[0]);
-        for needle in needles {
-            assert!(
-                plain.contains(needle),
-                "preset {preset:?} missing {needle:?} in {plain:?}"
-            );
-        }
+        }),
+        ..rich_segmented_footer()
+    };
+    let lines = format_footer_lines(&footer, 200, None);
+    assert_eq!(lines.len(), 1);
+    assert!(visible_width(&lines[0]) <= 200);
+    let plain = strip_ansi(&lines[0]);
+    for needle in needles {
+        assert!(plain.contains(needle), "missing {needle:?} in {plain:?}");
     }
 }
 

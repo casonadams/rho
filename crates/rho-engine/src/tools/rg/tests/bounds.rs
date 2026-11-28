@@ -1,16 +1,18 @@
 use super::{fixture, search};
+use crate::test_support::{assert_invalid_pattern, assert_timeout_error, outside_workspace_file};
 use crate::tools::listing::LISTING_PAGE_BYTES;
 use crate::tools::listing::PageRequest;
 use crate::tools::rg::entry::RG_COLLECTION_CEILING;
 use crate::tools::rg::{RgArgs, RgOutputMode};
 use crate::tools::types::generated_schema;
+use rho_test_support::TestDir;
 
 const MODE_HINT: &str = "output_mode 'files' or 'count' covers every matching file in far fewer bytes";
 
 #[tokio::test]
 async fn long_match_lines_are_truncated_with_a_marked_suffix_and_notice() {
     let dir = fixture();
-    std::fs::write(dir.path().join("long.txt"), format!("needle{}\n", "x".repeat(600))).unwrap();
+    std::fs::write(dir.join("long.txt"), format!("needle{}\n", "x".repeat(600))).unwrap();
     let result = search(&dir, "needle", |_| {}).await;
     assert!(!result.is_error);
     let text = result
@@ -37,7 +39,7 @@ async fn line_truncation_notice_tracks_only_shown_matches() {
     for _ in 10..30 {
         content.push_str(&format!("needle{}\n", "y".repeat(600)));
     }
-    std::fs::write(dir.path().join("lines.txt"), content).unwrap();
+    std::fs::write(dir.join("lines.txt"), content).unwrap();
     let result = search(&dir, "needle", |args| args.limit = Some(10)).await;
     assert!(!result.is_error);
     assert!(!result.content.contains("Some lines truncated"));
@@ -90,7 +92,7 @@ async fn limit_clamps_to_at_least_one() {
 async fn every_match_is_reachable_by_offset_with_exact_totals() {
     let dir = fixture();
     let many: String = (0..6000).map(|i| format!("needle line {i}\n")).collect();
-    std::fs::write(dir.path().join("many.txt"), many).unwrap();
+    std::fs::write(dir.join("many.txt"), many).unwrap();
     let result = search(&dir, "needle", |args| args.offset = Some(5998)).await;
     assert_eq!(
         result.content,
@@ -102,8 +104,8 @@ async fn every_match_is_reachable_by_offset_with_exact_totals() {
 async fn collection_ceiling_keeps_the_first_matches_in_path_order() {
     let dir = fixture();
     let rows = |prefix: &str, n: usize| -> String { (0..n).map(|i| format!("{prefix} needle {i}\n")).collect() };
-    std::fs::write(dir.path().join("b.txt"), rows("b", RG_COLLECTION_CEILING)).unwrap();
-    std::fs::write(dir.path().join("a.txt"), rows("a", 5)).unwrap();
+    std::fs::write(dir.join("b.txt"), rows("b", RG_COLLECTION_CEILING)).unwrap();
+    std::fs::write(dir.join("a.txt"), rows("a", 5)).unwrap();
     let result = search(&dir, "needle", |args| args.offset = Some(RG_COLLECTION_CEILING - 1)).await;
     let total = RG_COLLECTION_CEILING + 5;
     assert!(
@@ -158,7 +160,7 @@ async fn oversized_output_fills_the_byte_budget_and_names_the_next_offset() {
     let dir = fixture();
     let row = format!("needle{}\n", "x".repeat(400));
     let many: String = std::iter::repeat_n(row, 400).collect();
-    std::fs::write(dir.path().join("many.txt"), many).unwrap();
+    std::fs::write(dir.join("many.txt"), many).unwrap();
     let result = search(&dir, "needle", |_| {}).await;
     assert!(!result.is_error);
     let body = result.content.split("\n\n").nth(1).unwrap();
@@ -187,18 +189,14 @@ async fn empty_pattern_is_a_tool_error() {
 async fn invalid_regex_names_the_pattern() {
     let dir = fixture();
     let result = search(&dir, "(", |_| {}).await;
-    assert!(result.is_error);
-    assert!(result.content.contains("invalid pattern"));
-    assert!(result.content.contains("\"(\""));
+    assert_invalid_pattern(&result, "(");
 }
 
 #[tokio::test]
 async fn path_outside_workspace_is_searched_successfully() {
     let dir = fixture();
-    let outside = tempfile::tempdir().unwrap();
-    std::fs::write(outside.path().join("external.txt"), "external target line\n").unwrap();
-
-    let outside_path = outside.path().to_str().unwrap().to_string();
+    let outside = outside_workspace_file("external.txt", "external target line\n");
+    let outside_path = outside.to_str().unwrap().to_string();
     let result = search(&dir, "external target", |args| args.path = Some(outside_path)).await;
     assert!(!result.is_error);
     assert!(result.content.contains("external.txt\n1:external target line"));
@@ -237,10 +235,10 @@ fn schema_exposes_renamed_type_property_and_paging() {
     assert!(schema["properties"].get("file_type").is_none());
 }
 
-fn query(dir: &tempfile::TempDir) -> super::super::RgQuery {
+fn query(dir: &TestDir) -> super::super::RgQuery {
     super::super::RgQuery {
-        workspace_root: dir.path().to_path_buf(),
-        search_root: dir.path().to_path_buf(),
+        workspace_root: dir.to_path_buf(),
+        search_root: dir.to_path_buf(),
         search_path_display: None,
         matcher: grep_regex::RegexMatcher::new("pub").unwrap(),
         types: None,
@@ -269,6 +267,5 @@ async fn rg_timeout_returns_timeout_error() {
     let mut timed = query(&dir);
     timed.timeout = Some(std::time::Duration::from_millis(0));
     let result = timed.run(PageRequest::default());
-    assert!(result.is_error);
-    assert!(result.content.contains("Search timed out"));
+    assert_timeout_error(&result);
 }

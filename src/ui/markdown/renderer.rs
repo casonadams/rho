@@ -262,81 +262,58 @@ impl SpacingTracker {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use test_case::test_case;
 
     fn plain_lines(rendered: &str) -> Vec<String> {
         let plain = crate::ui::block::strip_ansi(rendered);
         plain.trim().lines().map(str::to_string).collect()
     }
 
-    #[test]
-    fn render_text_wraps_prose_but_not_code() {
-        let cases: [(&str, usize, &str, &[&str]); 5] = [
-            (
-                "prose",
-                20,
-                "The quick brown fox jumps over the lazy dog",
-                &["The quick brown fox", "jumps over the lazy", "dog"],
-            ),
-            (
-                "code block",
-                20,
-                "```rust\nlet a_very_long_variable_name = \"some long string value\";\n```",
-                &[
-                    "```rust",
-                    "let a_very_long_variable_name = \"some long string value\";",
-                    "```",
-                ],
-            ),
-            (
-                "width zero",
-                0,
-                "The quick brown fox jumps over the lazy dog",
-                &["The quick brown fox jumps over the lazy dog"],
-            ),
-            (
-                "styled inline",
-                12,
-                "alpha **beta gamma** delta",
-                &["alpha beta", "gamma delta"],
-            ),
-            (
-                "bullet list",
-                20,
-                "- alpha beta gamma delta epsilon",
-                &["\u{2022} alpha beta gamma", "delta epsilon"],
-            ),
-        ];
+    #[test_case(
+        20,
+        "The quick brown fox jumps over the lazy dog",
+        &["The quick brown fox", "jumps over the lazy", "dog"];
+        "prose"
+    )]
+    #[test_case(
+        20,
+        "```rust\nlet a_very_long_variable_name = \"some long string value\";\n```",
+        &["```rust", "let a_very_long_variable_name = \"some long string value\";", "```"];
+        "code block"
+    )]
+    #[test_case(
+        0,
+        "The quick brown fox jumps over the lazy dog",
+        &["The quick brown fox jumps over the lazy dog"];
+        "width zero"
+    )]
+    #[test_case(12, "alpha **beta gamma** delta", &["alpha beta", "gamma delta"]; "styled inline")]
+    #[test_case(
+        20,
+        "- alpha beta gamma delta epsilon",
+        &["\u{2022} alpha beta gamma", "delta epsilon"];
+        "bullet list"
+    )]
+    fn render_text_wraps_prose_but_not_code(width: usize, text: &str, expected: &[&str]) {
         let theme = Theme::default();
-        for (name, width, text, expected) in cases {
-            let mut md = MarkdownRenderer::new();
-            md.set_width(width);
-            assert_eq!(plain_lines(&md.render_text(text, &theme)), expected, "{name}");
-        }
+        let mut md = MarkdownRenderer::new();
+        md.set_width(width);
+        assert_eq!(plain_lines(&md.render_text(text, &theme)), expected);
     }
 
-    #[test]
-    fn streamed_tokens_wrap_like_whole_text() {
-        let cases: [(usize, &[&str], &[&str]); 2] = [
-            (
-                20,
-                &[
-                    "The ", "quick ", "brown ", "fox ", "jumps ", "over ", "the ", "lazy ", "dog.",
-                ],
-                &["The quick brown fox", "jumps over the lazy", "dog."],
-            ),
-            (
-                12,
-                &["alpha ", "**beta ", "gamma** ", "delta."],
-                &["alpha beta", "gamma delta."],
-            ),
-        ];
+    #[test_case(
+        20,
+        &["The ", "quick ", "brown ", "fox ", "jumps ", "over ", "the ", "lazy ", "dog."],
+        &["The quick brown fox", "jumps over the lazy", "dog."];
+        "plain words"
+    )]
+    #[test_case(12, &["alpha ", "**beta ", "gamma** ", "delta."], &["alpha beta", "gamma delta."]; "split bold")]
+    fn streamed_tokens_wrap_like_whole_text(width: usize, tokens: &[&str], expected: &[&str]) {
         let theme = Theme::default();
-        for (width, tokens, expected) in cases {
-            let mut md = MarkdownRenderer::new();
-            md.set_width(width);
-            let mut output: String = tokens.iter().map(|token| md.render_token(token, &theme)).collect();
-            output.push_str(&md.flush(&theme));
-            assert_eq!(plain_lines(&output), expected, "{tokens:?}");
-        }
+        let mut md = MarkdownRenderer::new();
+        md.set_width(width);
+        let mut output: String = tokens.iter().map(|token| md.render_token(token, &theme)).collect();
+        output.push_str(&md.flush(&theme));
+        assert_eq!(plain_lines(&output), expected);
     }
 }

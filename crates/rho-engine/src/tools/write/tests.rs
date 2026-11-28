@@ -1,4 +1,5 @@
 use super::*;
+use test_case::test_case;
 
 #[test]
 fn schema_lists_path_before_text_so_the_model_writes_the_path_first() {
@@ -7,12 +8,11 @@ fn schema_lists_path_before_text_so_the_model_writes_the_path_first() {
     assert_eq!(keys, ["path", "text"]);
 }
 
-#[test]
-fn arguments_accept_the_legacy_content_name() {
-    for key in ["text", "content"] {
-        let args: WriteArgs = serde_json::from_value(serde_json::json!({"path": "a.txt", key: "hi"})).unwrap();
-        assert_eq!(args.content, "hi", "{key}");
-    }
+#[test_case("text"; "text")]
+#[test_case("content"; "legacy content")]
+fn arguments_accept_the_legacy_content_name(key: &str) {
+    let args: WriteArgs = serde_json::from_value(serde_json::json!({"path": "a.txt", key: "hi"})).unwrap();
+    assert_eq!(args.content, "hi");
 }
 
 #[tokio::test]

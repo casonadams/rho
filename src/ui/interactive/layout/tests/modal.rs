@@ -4,16 +4,21 @@
 use super::base_input;
 use crate::ui::interactive::layout::{LayoutInput, layout};
 use crate::ui::interactive::{EditorState, FooterState, ModalOption, ModalState};
+use test_case::test_case;
 
 // ---------------------------------------------------------------------------
 // Bounds and truncation
 // ---------------------------------------------------------------------------
 
-fn sample_permission_modal(n: usize) -> ModalState {
-    let body = (1..=n)
-        .map(|i| format!("command argument line {i}"))
+fn numbered_body(prefix: &str, count: usize) -> String {
+    (1..=count)
+        .map(|i| format!("{prefix}{i}"))
         .collect::<Vec<_>>()
-        .join("\n");
+        .join("\n")
+}
+
+fn sample_permission_modal(n: usize) -> ModalState {
+    let body = numbered_body("command argument line ", n);
     ModalState::new(
         "Permission Required",
         &body,
@@ -66,7 +71,7 @@ fn modal_body_truncation_on_small_terminal() {
 
 #[test]
 fn modal_body_truncation_minimal_omitted_lines() {
-    let body = (1..=9).map(|i| format!("line {i}")).collect::<Vec<_>>().join("\n");
+    let body = numbered_body("line ", 9);
     let modal = ModalState::new(
         "Permission",
         &body,
@@ -120,41 +125,41 @@ fn assert_region_lines_fit_terminal_width(lines: &[String], width: usize) {
     }
 }
 
-#[test]
-fn modal_region_rows_fit_terminal_width_with_long_draft() {
+#[test_case(80; "wide")]
+#[test_case(60; "medium")]
+#[test_case(45; "narrow")]
+fn modal_region_rows_fit_terminal_width_with_long_draft(width: usize) {
     let draft = "a very long unsent prompt that was typed while reviewing the agent output".repeat(4);
-    for width in [80, 60, 45] {
-        let (modal, editor) = searchable_model_modal_with_draft(&draft);
-        let rendered = layout(LayoutInput {
-            modal: Some(&modal),
-            terminal_width: width,
-            ..base_input(&editor, &FooterState::default())
-        });
-        assert!(
-            rendered.lines.iter().any(|l| l.contains("Draft: ")),
-            "draft row should render"
-        );
-        assert_region_lines_fit_terminal_width(&rendered.lines, width);
-    }
+    let (modal, editor) = searchable_model_modal_with_draft(&draft);
+    let rendered = layout(LayoutInput {
+        modal: Some(&modal),
+        terminal_width: width,
+        ..base_input(&editor, &FooterState::default())
+    });
+    assert!(
+        rendered.lines.iter().any(|l| l.contains("Draft: ")),
+        "draft row should render"
+    );
+    assert_region_lines_fit_terminal_width(&rendered.lines, width);
 }
 
-#[test]
-fn modal_search_row_truncates_long_filter_query() {
+#[test_case(80; "wide")]
+#[test_case(60; "medium")]
+#[test_case(45; "narrow")]
+fn modal_search_row_truncates_long_filter_query(width: usize) {
     let query: String = "g".repeat(120);
     let prompt = crate::ui::theme::Theme::default().prompt;
-    for width in [80, 60, 45] {
-        let mut modal = ModalState::new("Select Model", "", vec![ModalOption::from("model-a")]).with_search(true);
-        modal.set_filter(&query);
-        let rendered = modal_test_layout(&modal, width, 24);
-        assert_region_lines_fit_terminal_width(&rendered.lines, width);
-        assert!(
-            rendered
-                .lines
-                .iter()
-                .any(|l| l.contains(&format!("{prompt}>{prompt:#} g"))),
-            "truncated search row should keep its query prefix at width {width}"
-        );
-    }
+    let mut modal = ModalState::new("Select Model", "", vec![ModalOption::from("model-a")]).with_search(true);
+    modal.set_filter(&query);
+    let rendered = modal_test_layout(&modal, width, 24);
+    assert_region_lines_fit_terminal_width(&rendered.lines, width);
+    assert!(
+        rendered
+            .lines
+            .iter()
+            .any(|l| l.contains(&format!("{prompt}>{prompt:#} g"))),
+        "truncated search row should keep its query prefix"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -169,10 +174,7 @@ fn assert_modal_cursor_valid(layout: &crate::ui::interactive::layout::Interactiv
 
 #[test]
 fn modal_cursor_with_body_truncation_in_input_and_search_modes() {
-    let body = (1..=30)
-        .map(|i| format!("long description line {i}"))
-        .collect::<Vec<_>>()
-        .join("\n");
+    let body = numbered_body("long description line ", 30);
     let mut modal = ModalState::new("Reason Required", &body, vec![ModalOption::from("Confirm")]);
     modal.mode = crate::ui::interactive::ModalMode::Input {
         prompt_label: "Reason".to_string(),
@@ -183,10 +185,7 @@ fn modal_cursor_with_body_truncation_in_input_and_search_modes() {
     assert_modal_cursor_valid(&layout, "test reason");
     assert!(layout.top_divider.contains("Reason"));
 
-    let body = (1..=30)
-        .map(|i| format!("model detail line {i}"))
-        .collect::<Vec<_>>()
-        .join("\n");
+    let body = numbered_body("model detail line ", 30);
     let modal = ModalState::new("Select Model", &body, vec![ModalOption::from("model-1")]).with_search(true);
 
     let layout = modal_test_layout(&modal, 80, 15);
@@ -194,8 +193,10 @@ fn modal_cursor_with_body_truncation_in_input_and_search_modes() {
     assert_modal_cursor_valid(&layout, ">");
 }
 
-#[test]
-fn modal_input_mode_prompt_row_carries_label_and_stays_in_width() {
+#[test_case(80; "wide")]
+#[test_case(60; "medium")]
+#[test_case(45; "narrow")]
+fn modal_input_mode_prompt_row_carries_label_and_stays_in_width(width: usize) {
     let mut modal = ModalState::new(
         "Permission Required",
         "Tool: bash\nInput: cargo test --workspace",
@@ -207,23 +208,21 @@ fn modal_input_mode_prompt_row_carries_label_and_stays_in_width() {
     };
     modal.input.set_text("tests are flaky because they flake a lot");
 
-    for width in [80, 60, 45] {
-        let rendered = modal_test_layout(&modal, width, 24);
-        assert_region_lines_fit_terminal_width(&rendered.lines, width);
-        let prompt_row = rendered
-            .lines
-            .iter()
-            .find(|l| l.contains("tests are flaky"))
-            .expect("input row");
-        assert!(
-            prompt_row.contains("reason"),
-            "input row must carry its label: {prompt_row:?}"
-        );
-        assert!(
-            prompt_row.contains('\u{203a}'),
-            "input row must carry the prompt marker: {prompt_row:?}"
-        );
-    }
+    let rendered = modal_test_layout(&modal, width, 24);
+    assert_region_lines_fit_terminal_width(&rendered.lines, width);
+    let prompt_row = rendered
+        .lines
+        .iter()
+        .find(|l| l.contains("tests are flaky"))
+        .expect("input row");
+    assert!(
+        prompt_row.contains("reason"),
+        "input row must carry its label: {prompt_row:?}"
+    );
+    assert!(
+        prompt_row.contains('\u{203a}'),
+        "input row must carry the prompt marker: {prompt_row:?}"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -232,7 +231,7 @@ fn modal_input_mode_prompt_row_carries_label_and_stays_in_width() {
 
 #[test]
 fn test_in_input_modal_desired_lines_uncapped_body() {
-    let body = (1..=20).map(|i| format!("cmd {i}")).collect::<Vec<_>>().join("\n");
+    let body = numbered_body("cmd ", 20);
     let mut modal = ModalState::new("Run", &body, vec![ModalOption::from("Allow")]);
     modal.option_layout = crate::ui::interactive::OptionLayout::Horizontal;
     let desired = crate::ui::interactive::layout::modal::in_input_modal_desired_lines(&modal, "", 80);
@@ -263,7 +262,7 @@ fn test_calculate_content_space_vertical_layout() {
 
 #[test]
 fn test_modal_expands_beyond_8_lines_and_pins_bottom_divider() {
-    let body = (1..=25).map(|i| format!("arg_line_{i}")).collect::<Vec<_>>().join("\n");
+    let body = numbered_body("arg_line_", 25);
     let mut modal = ModalState::new("Perm", &body, vec![ModalOption::from("Allow")]);
     modal.option_layout = crate::ui::interactive::OptionLayout::Horizontal;
     let rendered = modal_test_layout(&modal, 80, 40);
@@ -272,7 +271,7 @@ fn test_modal_expands_beyond_8_lines_and_pins_bottom_divider() {
     assert!(rendered.lines.len() <= 40);
 
     for height in [15, 25, 40] {
-        let body = (1..=20).map(|i| format!("arg_{i}")).collect::<Vec<_>>().join("\n");
+        let body = numbered_body("arg_", 20);
         let mut modal = ModalState::new("Perm", &body, vec![ModalOption::from("Allow")]);
         modal.option_layout = crate::ui::interactive::OptionLayout::Horizontal;
         let rendered = modal_test_layout(&modal, 80, height);
@@ -333,6 +332,7 @@ mod horizontal {
     use crate::ui::interactive::layout::modal::vertical::render_modal_options;
     use crate::ui::interactive::{ModalMode, ModalOption, ModalState, OptionLayout};
     use crate::ui::theme::Theme;
+    use test_case::test_case;
 
     fn sample_permission_modal() -> ModalState {
         let mut modal = ModalState::new(
@@ -349,20 +349,23 @@ mod horizontal {
         modal
     }
 
-    #[test]
-    fn test_horizontal_options_all_fit_rendering() {
-        let modal = sample_permission_modal();
+    fn single_row(modal: &ModalState, inner_width: usize) -> String {
         let theme = Theme::default();
         let lines = render_modal_options(
-            &modal,
+            modal,
             ModalOptionsLayout {
-                inner_width: 80,
+                inner_width,
                 max_visible: 1,
                 theme: &theme,
             },
         );
         assert_eq!(lines.len(), 1);
-        let line = &lines[0];
+        lines[0].clone()
+    }
+
+    #[test]
+    fn test_horizontal_options_all_fit_rendering() {
+        let line = single_row(&sample_permission_modal(), 80);
         assert!(line.contains("Allow") && line.contains("Edit") && line.contains("Always") && line.contains("Deny"));
         assert!(line.contains('▸'));
         assert!(!line.contains('‹') && !line.contains('›'));
@@ -372,34 +375,14 @@ mod horizontal {
     fn test_horizontal_options_selection_marker_moves() {
         let mut modal = sample_permission_modal();
         modal.selected = 1;
-        let theme = Theme::default();
-        let lines = render_modal_options(
-            &modal,
-            ModalOptionsLayout {
-                inner_width: 80,
-                max_visible: 1,
-                theme: &theme,
-            },
-        );
-        let line = &lines[0];
+        let line = single_row(&modal, 80);
         assert!(line.contains("▸") && line.contains("Edit"));
         assert!(!line.contains("▸ Allow"));
     }
 
     #[test]
     fn test_horizontal_options_overflow_right_indicator() {
-        let modal = sample_permission_modal();
-        let theme = Theme::default();
-        let lines = render_modal_options(
-            &modal,
-            ModalOptionsLayout {
-                inner_width: 16,
-                max_visible: 1,
-                theme: &theme,
-            },
-        );
-        assert_eq!(lines.len(), 1);
-        let line = &lines[0];
+        let line = single_row(&sample_permission_modal(), 16);
         assert!(line.contains("Allow"));
         assert!(line.contains('›'));
         assert!(!line.contains('‹'));
@@ -409,17 +392,7 @@ mod horizontal {
     fn test_horizontal_options_overflow_left_indicator() {
         let mut modal = sample_permission_modal();
         modal.selected = 3;
-        let theme = Theme::default();
-        let lines = render_modal_options(
-            &modal,
-            ModalOptionsLayout {
-                inner_width: 16,
-                max_visible: 1,
-                theme: &theme,
-            },
-        );
-        assert_eq!(lines.len(), 1);
-        let line = &lines[0];
+        let line = single_row(&modal, 16);
         assert!(line.contains("Deny"));
         assert!(line.contains('‹'));
         assert!(!line.contains('›'));
@@ -429,17 +402,7 @@ mod horizontal {
     fn test_horizontal_options_overflow_both_indicators() {
         let mut modal = sample_permission_modal();
         modal.selected = 2;
-        let theme = Theme::default();
-        let lines = render_modal_options(
-            &modal,
-            ModalOptionsLayout {
-                inner_width: 14,
-                max_visible: 1,
-                theme: &theme,
-            },
-        );
-        assert_eq!(lines.len(), 1);
-        let line = &lines[0];
+        let line = single_row(&modal, 14);
         assert!(line.contains("Always"));
         assert!(line.contains('‹') || line.contains('›'));
     }
@@ -463,26 +426,13 @@ mod horizontal {
         assert_eq!(modal_hint(&modal), "Enter submit • Shift+Enter newline • Esc back");
     }
 
-    #[test]
-    fn vertical_hints_advertise_digit_jump_only_where_digits_jump() {
-        let cases = [
-            (
-                "Permission Required",
-                false,
-                "↑/↓ select • 1-9 jump • Enter confirm • Esc deny",
-            ),
-            ("Permission Required", true, "↑/↓ select • Enter confirm • Esc deny"),
-            ("Choose", false, "↑/↓ select • 1-9 jump • Enter confirm • Esc cancel"),
-            (
-                "Choose",
-                true,
-                "↑/↓ select • Enter confirm • Esc cancel • or type custom",
-            ),
-        ];
-        for (title, custom, expected) in cases {
-            let modal = ModalState::new(title, "", vec![ModalOption::from("Allow")]).with_custom(custom);
-            assert_eq!(modal_hint(&modal), expected, "{title} custom={custom}");
-        }
+    #[test_case("Permission Required", false, "↑/↓ select • 1-9 jump • Enter confirm • Esc deny"; "permission")]
+    #[test_case("Permission Required", true, "↑/↓ select • Enter confirm • Esc deny"; "permission with custom")]
+    #[test_case("Choose", false, "↑/↓ select • 1-9 jump • Enter confirm • Esc cancel"; "choice")]
+    #[test_case("Choose", true, "↑/↓ select • Enter confirm • Esc cancel • or type custom"; "choice with custom")]
+    fn vertical_hints_advertise_digit_jump_only_where_digits_jump(title: &str, custom: bool, expected: &str) {
+        let modal = ModalState::new(title, "", vec![ModalOption::from("Allow")]).with_custom(custom);
+        assert_eq!(modal_hint(&modal), expected);
     }
 }
 
@@ -578,10 +528,7 @@ fn modal_without_draft_omits_docked_draft_line() {
 // ---------------------------------------------------------------------------
 
 fn sample_scrollable_modal(body_lines: usize, option_layout: crate::ui::interactive::OptionLayout) -> ModalState {
-    let body = (1..=body_lines)
-        .map(|i| format!("command_arg_line_{i}"))
-        .collect::<Vec<_>>()
-        .join("\n");
+    let body = numbered_body("command_arg_line_", body_lines);
     let mut modal = ModalState::new(
         "Permission Required",
         &body,
@@ -596,26 +543,22 @@ fn sample_scrollable_modal(body_lines: usize, option_layout: crate::ui::interact
     modal
 }
 
-#[test]
-fn test_horizontal_modal_body_scroll_positions() {
-    for (body_scroll, indicator, visible, hidden) in [
-        (0, "↑/↓ scroll (line 1/30)", "command_arg_line_1", None),
-        (
-            5,
-            "↑/↓ scroll (line 6/30)",
-            "command_arg_line_6",
-            Some("command_arg_line_1"),
-        ),
-        (500, "↑/↓ scroll (line ", "command_arg_line_30", None),
-    ] {
-        let mut modal = sample_scrollable_modal(30, crate::ui::interactive::OptionLayout::Horizontal);
-        modal.body_scroll = body_scroll;
-        let rendered = modal_test_layout(&modal, 80, 15);
-        assert!(rendered.lines.iter().any(|l| l.contains(indicator)));
-        assert!(rendered.lines.iter().any(|l| l.trim() == visible));
-        if let Some(hidden) = hidden {
-            assert!(!rendered.lines.iter().any(|l| l.trim() == hidden));
-        }
+#[test_case(0, "↑/↓ scroll (line 1/30)", "command_arg_line_1", None; "top")]
+#[test_case(5, "↑/↓ scroll (line 6/30)", "command_arg_line_6", Some("command_arg_line_1"); "scrolled")]
+#[test_case(500, "↑/↓ scroll (line ", "command_arg_line_30", None; "past the end")]
+fn test_horizontal_modal_body_scroll_positions(
+    body_scroll: usize,
+    indicator: &str,
+    visible: &str,
+    hidden: Option<&str>,
+) {
+    let mut modal = sample_scrollable_modal(30, crate::ui::interactive::OptionLayout::Horizontal);
+    modal.body_scroll = body_scroll;
+    let rendered = modal_test_layout(&modal, 80, 15);
+    assert!(rendered.lines.iter().any(|l| l.contains(indicator)));
+    assert!(rendered.lines.iter().any(|l| l.trim() == visible));
+    if let Some(hidden) = hidden {
+        assert!(!rendered.lines.iter().any(|l| l.trim() == hidden));
     }
 }
 
@@ -747,7 +690,7 @@ fn in_input_modal_notices_use_the_theme_styles() {
         prompt,
         ..crate::ui::theme::Theme::default()
     };
-    let body = (1..=12).map(|i| format!("line {i}")).collect::<Vec<_>>().join("\n");
+    let body = numbered_body("line ", 12);
     let options = vec![ModalOption::new("ok", None::<String>)];
 
     let long = ModalState::new("Long", body.as_str(), options.clone());

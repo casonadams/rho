@@ -438,6 +438,7 @@ mod tests {
     use crate::decision::types::{DecisionAnswer, DecisionResponse, DecisionUsage, test_util::MockDecisionModel};
     use crate::provider::adapter::MockAdapter;
     use std::sync::Arc;
+    use test_case::test_case;
 
     fn p123_response(p1: f64, p2: f64, p3: &str) -> DecisionResponse {
         DecisionResponse {
@@ -469,6 +470,15 @@ mod tests {
         }
     }
 
+    fn native_evaluator(p1: f64, p2: f64, p3: &str) -> GuardEvaluator {
+        GuardEvaluator::from_decision(Arc::new(MockDecisionModel::native(p123_response(p1, p2, p3))))
+            .with_config(GuardConfig::default())
+    }
+
+    fn text_evaluator(text: &str) -> GuardEvaluator {
+        GuardEvaluator::new(Arc::new(MockAdapter::text(text))).with_config(GuardConfig::default())
+    }
+
     #[tokio::test]
     async fn evaluate_critical_danger_intercepts_without_calling_model() {
         let mock = Arc::new(MockAdapter::default());
@@ -492,63 +502,54 @@ mod tests {
         assert_eq!(eval.source, DecisionSource::Allowlist);
     }
 
+    #[test_case(
+        "mkdir -p src/foo",
+        r#"{"safe": true, "reason": "Local directory creation"}"#,
+        true,
+        "Local directory creation";
+        "safe verdict"
+    )]
+    #[test_case(
+        "git push origin main",
+        r#"{"safe": false, "reason": "Git push modifies remote state"}"#,
+        false,
+        "Git push modifies remote state";
+        "unsafe verdict"
+    )]
     #[tokio::test]
-    async fn evaluate_safe_verdict() {
-        let mock = Arc::new(MockAdapter::text(
-            r#"{"safe": true, "reason": "Local directory creation"}"#,
-        ));
-        let evaluator = GuardEvaluator::new(mock).with_config(GuardConfig::default());
-        let verdict = evaluator.evaluate("mkdir -p src/foo").await;
-        assert!(verdict.safe);
-        assert_eq!(verdict.reason, "Local directory creation");
+    async fn evaluate_model_text_verdicts_carry_safety_and_reason(
+        command: &str,
+        model_text: &str,
+        safe: bool,
+        reason: &str,
+    ) {
+        let verdict = text_evaluator(model_text).evaluate(command).await;
+        assert_eq!(verdict.safe, safe);
+        assert_eq!(verdict.reason, reason);
+    }
+
+    #[test_case(0.01, 0.02, "safe_local", "cargo test --workspace", true; "low risk local")]
+    #[test_case(0.40, 0.01, "safe_local", "kubectl delete pod api -n prod", false; "p1 risk")]
+    #[test_case(0.01, 0.25, "safe_preview", "curl https://api.example.com", false; "preview non preview host")]
+    #[test_case(0.01, 0.25, "safe_preview", "curl https://pr-499.dev.previ.dev/health", true; "preview host")]
+    #[tokio::test]
+    async fn evaluate_native_decision_three_tier_p1_p2_p3_and_preview_thresholds(
+        p1: f64,
+        p2: f64,
+        p3: &str,
+        command: &str,
+        safe: bool,
+    ) {
+        let verdict = native_evaluator(p1, p2, p3).evaluate(command).await;
+        assert_eq!(verdict.safe, safe, "{verdict:?}");
     }
 
     #[tokio::test]
-    async fn evaluate_unsafe_verdict() {
-        let mock = Arc::new(MockAdapter::text(
-            r#"{"safe": false, "reason": "Git push modifies remote state"}"#,
-        ));
-        let evaluator = GuardEvaluator::new(mock).with_config(GuardConfig::default());
-        let verdict = evaluator.evaluate("git push origin main").await;
-        assert!(!verdict.safe);
-        assert_eq!(verdict.reason, "Git push modifies remote state");
-    }
-
-    #[tokio::test]
-    async fn evaluate_native_decision_three_tier_p1_p2_p3_and_preview_thresholds() {
-        let safe_eval = GuardEvaluator::from_decision(Arc::new(MockDecisionModel::native(p123_response(
-            0.01,
-            0.02,
-            "safe_local",
-        ))))
-        .with_config(GuardConfig::default());
-        assert!(safe_eval.evaluate("cargo test --workspace").await.safe);
-
-        let p1_eval = GuardEvaluator::from_decision(Arc::new(MockDecisionModel::native(p123_response(
-            0.40,
-            0.01,
-            "safe_local",
-        ))))
-        .with_config(GuardConfig::default());
-        let v1 = p1_eval.evaluate("kubectl delete pod api -n prod").await;
-        assert!(!v1.safe);
-        assert!(v1.reason.contains("Priority 1"), "{v1:?}");
-
-        let p2_prod = GuardEvaluator::from_decision(Arc::new(MockDecisionModel::native(p123_response(
-            0.01,
-            0.25,
-            "safe_preview",
-        ))))
-        .with_config(GuardConfig::default());
-        assert!(!p2_prod.evaluate("curl https://api.example.com").await.safe);
-
-        let p2_prev = GuardEvaluator::from_decision(Arc::new(MockDecisionModel::native(p123_response(
-            0.01,
-            0.25,
-            "safe_preview",
-        ))))
-        .with_config(GuardConfig::default());
-        assert!(p2_prev.evaluate("curl https://pr-499.dev.previ.dev/health").await.safe);
+    async fn native_decision_p1_risk_is_reported_as_priority_one() {
+        let verdict = native_evaluator(0.40, 0.01, "safe_local")
+            .evaluate("kubectl delete pod api -n prod")
+            .await;
+        assert!(verdict.reason.contains("Priority 1"), "{verdict:?}");
     }
 
     #[tokio::test]

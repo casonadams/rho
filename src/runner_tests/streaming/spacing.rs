@@ -11,8 +11,7 @@ fn collect_output_events(events: &mut tokio::sync::mpsc::UnboundedReceiver<UiEve
     .concat()
 }
 
-#[test]
-fn thinking_trailing_newlines_collapse_to_single_blank_line_before_text() {
+fn sink_output(drive: impl FnOnce(&TerminalApprovalSink)) -> String {
     let (ui, mut events) = InteractiveUi::channel();
     let renderer = TerminalRenderer::with_ui(ui);
     let (session, _dir) = terminal_session();
@@ -23,67 +22,50 @@ fn thinking_trailing_newlines_collapse_to_single_blank_line_before_text() {
         },
         session,
     );
+    drive(&sink);
+    collect_output_events(&mut events)
+}
 
-    sink.emit_reasoning("Analyzing the code.\n\n\n");
-    sink.emit_text("Here is the summary.");
-
-    let output = collect_output_events(&mut events);
-
+fn assert_no_excess_newlines(output: &str) {
     assert!(
         !output.contains("\n\n\n"),
         "Output contained excess newlines: {output:?}"
     );
+}
+
+#[test]
+fn thinking_trailing_newlines_collapse_to_single_blank_line_before_text() {
+    let output = sink_output(|sink| {
+        sink.emit_reasoning("Analyzing the code.\n\n\n");
+        sink.emit_text("Here is the summary.");
+    });
+
+    assert_no_excess_newlines(&output);
     assert!(output.contains("\n\n Here is the summary."));
 }
 
 #[test]
 fn token_by_token_reasoning_with_trailing_newlines_collapses_cleanly() {
-    let (ui, mut events) = InteractiveUi::channel();
-    let renderer = TerminalRenderer::with_ui(ui);
-    let (session, _dir) = terminal_session();
-    let sink = TerminalApprovalSink::new(
-        &presenter(&renderer),
-        TerminalSinkConfig {
-            run_tracker: crate::engine::metrics::RunTracker::default(),
-        },
-        session,
-    );
+    let output = sink_output(|sink| {
+        sink.emit_reasoning("Analyzing");
+        sink.emit_reasoning(" step 1.");
+        sink.emit_reasoning("\n\n\n");
+        sink.emit_text("Summary.");
+    });
 
-    sink.emit_reasoning("Analyzing");
-    sink.emit_reasoning(" step 1.");
-    sink.emit_reasoning("\n\n\n");
-    sink.emit_text("Summary.");
-
-    let output = collect_output_events(&mut events);
-    assert!(
-        !output.contains("\n\n\n"),
-        "Output contained excess newlines: {output:?}"
-    );
+    assert_no_excess_newlines(&output);
     assert!(output.contains("\n\n Summary."));
 }
 
 #[test]
 fn internal_reasoning_paragraphs_preserve_single_blank_line() {
-    let (ui, mut events) = InteractiveUi::channel();
-    let renderer = TerminalRenderer::with_ui(ui);
-    let (session, _dir) = terminal_session();
-    let sink = TerminalApprovalSink::new(
-        &presenter(&renderer),
-        TerminalSinkConfig {
-            run_tracker: crate::engine::metrics::RunTracker::default(),
-        },
-        session,
-    );
+    let output = sink_output(|sink| {
+        sink.emit_reasoning("Paragraph 1.\n\n\n\n");
+        sink.emit_reasoning("Paragraph 2.\n\n\n");
+        sink.emit_text("Answer.");
+    });
 
-    sink.emit_reasoning("Paragraph 1.\n\n\n\n");
-    sink.emit_reasoning("Paragraph 2.\n\n\n");
-    sink.emit_text("Answer.");
-
-    let output = collect_output_events(&mut events);
-    assert!(
-        !output.contains("\n\n\n"),
-        "Output contained excess newlines: {output:?}"
-    );
+    assert_no_excess_newlines(&output);
     let clean = crate::ui::block::strip_ansi(&output);
     assert!(clean.contains("Paragraph 1."));
     assert!(clean.contains("Paragraph 2."));
@@ -92,50 +74,27 @@ fn internal_reasoning_paragraphs_preserve_single_blank_line() {
 
 #[test]
 fn thinking_followed_by_tool_closes_line_cleanly() {
-    let (ui, mut events) = InteractiveUi::channel();
-    let renderer = TerminalRenderer::with_ui(ui);
-    let (session, _dir) = terminal_session();
-    let sink = TerminalApprovalSink::new(
-        &presenter(&renderer),
-        TerminalSinkConfig {
-            run_tracker: crate::engine::metrics::RunTracker::default(),
-        },
-        session,
-    );
+    let output = sink_output(|sink| {
+        sink.emit_reasoning("Let me read the file.\n\n\n");
+        sink.tool_start("read", &serde_json::json!({ "path": "src/lib.rs" }));
+    });
 
-    sink.emit_reasoning("Let me read the file.\n\n\n");
-    sink.tool_start("read", &serde_json::json!({ "path": "src/lib.rs" }));
-
-    let output = collect_output_events(&mut events);
-    assert!(
-        !output.contains("\n\n\n"),
-        "Output contained excess newlines: {output:?}"
-    );
+    assert_no_excess_newlines(&output);
     assert!(output.ends_with('\n'), "Output should end with newline: {output:?}");
 }
 
 #[test]
 fn thinking_followed_by_skipped_tool_flushes_reasoning_and_closes_line() {
-    let (ui, mut events) = InteractiveUi::channel();
-    let renderer = TerminalRenderer::with_ui(ui);
-    let (session, _dir) = terminal_session();
-    let sink = TerminalApprovalSink::new(
-        &presenter(&renderer),
-        TerminalSinkConfig {
-            run_tracker: crate::engine::metrics::RunTracker::default(),
-        },
-        session,
-    );
-
-    sink.emit_reasoning("Let me read the file.\n\n\n");
-    sink.tool_finished(crate::engine::runner::ToolFinishDetails {
-        name: "bash",
-        arguments: &serde_json::json!({ "command": "rm -rf *" }),
-        output: "destructive command",
-        is_error: true,
+    let output = sink_output(|sink| {
+        sink.emit_reasoning("Let me read the file.\n\n\n");
+        sink.tool_finished(crate::engine::runner::ToolFinishDetails {
+            name: "bash",
+            arguments: &serde_json::json!({ "command": "rm -rf *" }),
+            output: "destructive command",
+            is_error: true,
+        });
     });
 
-    let output = collect_output_events(&mut events);
     assert!(output.ends_with('\n'), "Output should end with newline: {output:?}");
 }
 

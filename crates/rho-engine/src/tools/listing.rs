@@ -249,6 +249,7 @@ pub(crate) fn directory_order(a: &str, b: &str) -> Ordering {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use test_case::test_case;
 
     struct Item(&'static str, &'static str);
 
@@ -360,19 +361,14 @@ mod tests {
         ));
     }
 
-    #[test]
-    fn count_noun_pluralizes_each_unit_correctly() {
-        let cases = [
-            (1, "empty directory", "1 empty directory"),
-            (2, "empty directory", "2 empty directories"),
-            (2, "entry", "2 entries"),
-            (0, "match", "0 matches"),
-            (3, "file", "3 files"),
-            (2, "code action", "2 code actions"),
-        ];
-        for (count, unit, expected) in cases {
-            assert_eq!(count_noun(count, unit), expected);
-        }
+    #[test_case(1, "empty directory", "1 empty directory"; "singular")]
+    #[test_case(2, "empty directory", "2 empty directories"; "y to ies multi word")]
+    #[test_case(2, "entry", "2 entries"; "y to ies")]
+    #[test_case(0, "match", "0 matches"; "ch to ches")]
+    #[test_case(3, "file", "3 files"; "plain s")]
+    #[test_case(2, "code action", "2 code actions"; "multi word s")]
+    fn count_noun_pluralizes_each_unit_correctly(count: usize, unit: &str, expected: &str) {
+        assert_eq!(count_noun(count, unit), expected);
     }
 
     #[test]

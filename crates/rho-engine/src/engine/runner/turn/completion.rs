@@ -203,6 +203,8 @@ mod tests {
     use crate::engine::eval::mock::{MockEngineConfig, mock_engine};
     use crate::engine::metrics::types::{CompletionCall, StructuralUsage};
     use crate::provider::adapter::MockAdapter;
+    #[cfg(unix)]
+    use test_case::test_case;
 
     #[derive(Default)]
     struct TelemetryCapturingPresenter {
@@ -257,56 +259,56 @@ mod tests {
     }
 
     #[cfg(unix)]
+    #[test_case("completed", false, None; "completed")]
+    #[test_case("content_filtered", true, None; "content filtered flag")]
+    #[test_case("content_filtered", false, Some(FinishReason::ContentFilter); "content filter finish reason")]
     #[tokio::test]
-    async fn turn_end_hook_receives_the_snake_case_terminal_status() {
-        let cases = [
-            ("completed", false, None),
-            ("content_filtered", true, None),
-            ("content_filtered", false, Some(FinishReason::ContentFilter)),
-        ];
-        for (expected, content_filtered, finish_reason) in cases {
-            let dir = rho_test_support::TestDir::new();
-            let hook = dir.join("turn_end");
-            crate::test_support::write_file(&hook, "#!/bin/sh\ncat > \"$(dirname \"$0\")/payload.json\"\n");
-            std::fs::set_permissions(&hook, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
-            let engine = mock_engine(
-                Arc::new(MockAdapter::default()),
-                MockEngineConfig::new(&dir, rho_harness_core::config::Config::default()),
-            );
-            let lifecycle = Arc::new(
-                crate::hook::LifecycleHook::new(
-                    dir.to_path_buf(),
-                    "s1",
-                    Arc::new(crate::engine::eval::presenter::NoopPresenter),
-                )
-                .with_hook_dirs(vec![dir.to_path_buf()]),
-            );
-            *engine.active_turn_hook.lock().unwrap() = Some(lifecycle.clone());
-            engine
-                .run_tracker
-                .start("model", crate::engine::metrics::PromptCacheKey::default());
-            let usage = usage_with(10, 5, None, None);
-            let call = CompletionCall::new(0, usage).with_finish_reason(finish_reason);
-            let _ = engine
-                .finish_turn(
-                    TurnArtifacts {
-                        response: PromptResponse::new("ok", usage).with_completion_calls(vec![call]),
-                        tool_calls_count: 0,
-                        completed_tools: Vec::new(),
-                        generation_elapsed_ms: 10,
-                        turn_started_at: std::time::Instant::now(),
-                        ttft_ms: None,
-                        cache_miss_tokens: None,
-                        content_filtered,
-                    },
-                    &lifecycle,
-                )
-                .await
-                .unwrap();
-            let payload: serde_json::Value =
-                serde_json::from_str(&std::fs::read_to_string(dir.join("payload.json")).unwrap()).unwrap();
-            assert_eq!(payload["status"], expected);
-        }
+    async fn turn_end_hook_receives_the_snake_case_terminal_status(
+        expected: &str,
+        content_filtered: bool,
+        finish_reason: Option<FinishReason>,
+    ) {
+        let dir = rho_test_support::TestDir::new();
+        let hook = dir.join("turn_end");
+        crate::test_support::write_file(&hook, "#!/bin/sh\ncat > \"$(dirname \"$0\")/payload.json\"\n");
+        std::fs::set_permissions(&hook, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
+        let engine = mock_engine(
+            Arc::new(MockAdapter::default()),
+            MockEngineConfig::new(&dir, rho_harness_core::config::Config::default()),
+        );
+        let lifecycle = Arc::new(
+            crate::hook::LifecycleHook::new(
+                dir.to_path_buf(),
+                "s1",
+                Arc::new(crate::engine::eval::presenter::NoopPresenter),
+            )
+            .with_hook_dirs(vec![dir.to_path_buf()]),
+        );
+        *engine.active_turn_hook.lock().unwrap() = Some(lifecycle.clone());
+        engine
+            .run_tracker
+            .start("model", crate::engine::metrics::PromptCacheKey::default());
+        let usage = usage_with(10, 5, None, None);
+        let call = CompletionCall::new(0, usage).with_finish_reason(finish_reason);
+        let _ = engine
+            .finish_turn(
+                TurnArtifacts {
+                    response: PromptResponse::new("ok", usage).with_completion_calls(vec![call]),
+                    tool_calls_count: 0,
+                    completed_tools: Vec::new(),
+                    generation_elapsed_ms: 10,
+                    turn_started_at: std::time::Instant::now(),
+                    ttft_ms: None,
+                    cache_miss_tokens: None,
+                    content_filtered,
+                },
+                &lifecycle,
+            )
+            .await
+            .unwrap();
+        let payload: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(dir.join("payload.json")).unwrap()).unwrap();
+        assert_eq!(payload["status"], expected);
     }
 
     #[cfg(unix)]
@@ -341,47 +343,52 @@ mod tests {
     }
 
     #[cfg(unix)]
-    #[tokio::test]
-    async fn a_turn_that_ends_without_success_reports_its_status_to_turn_end_once() {
-        use crate::engine::runner::turn::types::{CancellationSignal, TurnRequest};
-        use crate::provider::adapter::ModelStreamEvent;
-        use rho_harness_core::model::{ToolCall, ToolFunction};
-        let missing_tool = ModelStreamEvent::ToolCall(ToolCall::new(
+    fn missing_tool_call() -> crate::provider::adapter::ModelStreamEvent {
+        crate::provider::adapter::ModelStreamEvent::ToolCall(rho_harness_core::model::ToolCall::new(
             "call-1",
-            ToolFunction::new("missing", serde_json::json!({})),
-        ));
-        let cases = [
-            (
-                "failed",
-                Err(AppError::Provider("model exploded".into())),
-                false,
-                5,
-                Some("Provider error: model exploded"),
-            ),
-            ("cancelled", Ok(ModelStreamEvent::Text("hi".into())), true, 5, None),
-            ("budget_exhausted", Ok(missing_tool), false, 1, None),
-        ];
-        for (expected, event, cancelled, max_turns, error) in cases {
-            let dir = rho_test_support::TestDir::new();
-            let model = MockAdapter::default();
-            model.add_turn(vec![event]);
-            let engine = engine_with_turn_end_log(&dir, Arc::new(model), max_turns);
-            let signal = CancellationSignal::default();
-            if cancelled {
-                signal.cancel();
-            }
-            let request = TurnRequest::new("go").with_cancellation(&signal);
+            rho_harness_core::model::ToolFunction::new("missing", serde_json::json!({})),
+        ))
+    }
 
-            let result = engine
-                .run_turn(request, Arc::new(crate::engine::eval::presenter::NoopPresenter))
-                .await;
-
-            assert!(result.is_err(), "{expected}: {result:?}");
-            let payloads = turn_end_payloads(&dir);
-            assert_eq!(payloads.len(), 1, "{expected}: {payloads:?}");
-            assert_eq!(payloads[0]["status"], expected);
-            assert_eq!(payloads[0]["error"].as_str(), error, "{expected}");
+    #[cfg(unix)]
+    #[test_case(
+        "failed",
+        Err(AppError::Provider("model exploded".into())),
+        false,
+        5,
+        Some("Provider error: model exploded");
+        "failed"
+    )]
+    #[test_case("cancelled", Ok(crate::provider::adapter::ModelStreamEvent::Text("hi".into())), true, 5, None; "cancelled")]
+    #[test_case("budget_exhausted", Ok(missing_tool_call()), false, 1, None; "budget exhausted")]
+    #[tokio::test]
+    async fn a_turn_that_ends_without_success_reports_its_status_to_turn_end_once(
+        expected: &str,
+        event: std::result::Result<crate::provider::adapter::ModelStreamEvent, AppError>,
+        cancelled: bool,
+        max_turns: usize,
+        error: Option<&str>,
+    ) {
+        use crate::engine::runner::turn::types::{CancellationSignal, TurnRequest};
+        let dir = rho_test_support::TestDir::new();
+        let model = MockAdapter::default();
+        model.add_turn(vec![event]);
+        let engine = engine_with_turn_end_log(&dir, Arc::new(model), max_turns);
+        let signal = CancellationSignal::default();
+        if cancelled {
+            signal.cancel();
         }
+        let request = TurnRequest::new("go").with_cancellation(&signal);
+
+        let result = engine
+            .run_turn(request, Arc::new(crate::engine::eval::presenter::NoopPresenter))
+            .await;
+
+        assert!(result.is_err(), "{result:?}");
+        let payloads = turn_end_payloads(&dir);
+        assert_eq!(payloads.len(), 1, "{payloads:?}");
+        assert_eq!(payloads[0]["status"], expected);
+        assert_eq!(payloads[0]["error"].as_str(), error);
     }
 
     #[cfg(unix)]

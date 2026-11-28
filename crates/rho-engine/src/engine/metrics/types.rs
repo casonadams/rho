@@ -325,21 +325,17 @@ pub(crate) fn nonzero(value: u64) -> Option<u64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use test_case::test_case;
 
-    #[test]
-    fn model_call_finish_status_serializes_each_finish_reason_in_snake_case() {
-        let cases = [
-            (FinishReason::Stop, "stop"),
-            (FinishReason::ToolCalls, "tool_calls"),
-            (FinishReason::Length, "length"),
-            (FinishReason::ContentFilter, "content_filter"),
-            (FinishReason::Other, "other"),
-        ];
-        for (reason, expected) in cases {
-            let call = CompletionCall::new(0, StructuralUsage::default()).with_finish_reason(Some(reason));
-            let json = serde_json::to_value(ModelCallMetrics::from(&call)).unwrap();
-            assert_eq!(json["finish_status"], expected, "{reason:?}");
-        }
+    #[test_case(FinishReason::Stop, "stop"; "stop")]
+    #[test_case(FinishReason::ToolCalls, "tool_calls"; "tool calls")]
+    #[test_case(FinishReason::Length, "length"; "length")]
+    #[test_case(FinishReason::ContentFilter, "content_filter"; "content filter")]
+    #[test_case(FinishReason::Other, "other"; "other")]
+    fn model_call_finish_status_serializes_each_finish_reason_in_snake_case(reason: FinishReason, expected: &str) {
+        let call = CompletionCall::new(0, StructuralUsage::default()).with_finish_reason(Some(reason));
+        let json = serde_json::to_value(ModelCallMetrics::from(&call)).unwrap();
+        assert_eq!(json["finish_status"], expected);
     }
 
     #[test]
@@ -349,23 +345,18 @@ mod tests {
         assert!(json.get("finish_status").is_none());
     }
 
-    #[test]
-    fn persisted_finish_status_strings_deserialize_to_their_finish_reason() {
-        let cases = [
-            ("stop", FinishReason::Stop),
-            ("tool_calls", FinishReason::ToolCalls),
-            ("length", FinishReason::Length),
-            ("content_filter", FinishReason::ContentFilter),
-            ("other", FinishReason::Other),
-        ];
-        for (persisted, expected) in cases {
-            let json = serde_json::json!({
-                "call_index": 0,
-                "usage_available": false,
-                "finish_status": persisted,
-            });
-            let metrics: ModelCallMetrics = serde_json::from_value(json).unwrap();
-            assert_eq!(metrics.finish_status, Some(expected), "{persisted}");
-        }
+    #[test_case("stop", FinishReason::Stop; "stop")]
+    #[test_case("tool_calls", FinishReason::ToolCalls; "tool calls")]
+    #[test_case("length", FinishReason::Length; "length")]
+    #[test_case("content_filter", FinishReason::ContentFilter; "content filter")]
+    #[test_case("other", FinishReason::Other; "other")]
+    fn persisted_finish_status_strings_deserialize_to_their_finish_reason(persisted: &str, expected: FinishReason) {
+        let json = serde_json::json!({
+            "call_index": 0,
+            "usage_available": false,
+            "finish_status": persisted,
+        });
+        let metrics: ModelCallMetrics = serde_json::from_value(json).unwrap();
+        assert_eq!(metrics.finish_status, Some(expected));
     }
 }

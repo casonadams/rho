@@ -290,16 +290,11 @@ mod tests {
         assert_eq!(route.to_string(), format!("{provider}/{model_id}"));
     }
 
-    #[test]
-    fn a_provider_that_does_not_list_the_model_still_defers_to_name_inference() {
-        let cases = [
-            (listing("ollama-cloud", &["glm-5.3-flash"]), "deepseek/deepseek-chat"),
-            (ModelCatalog::default(), "deepseek/deepseek-chat"),
-        ];
-        for (catalog, expected) in cases {
-            let route = resolve_model_route("deepseek-chat", None, "ollama-cloud", &catalog);
-            assert_eq!(route.to_string(), expected);
-        }
+    #[test_case(listing("ollama-cloud", &["glm-5.3-flash"]), "deepseek/deepseek-chat"; "other model listed")]
+    #[test_case(ModelCatalog::default(), "deepseek/deepseek-chat"; "empty catalog")]
+    fn a_provider_that_does_not_list_the_model_still_defers_to_name_inference(catalog: ModelCatalog, expected: &str) {
+        let route = resolve_model_route("deepseek-chat", None, "ollama-cloud", &catalog);
+        assert_eq!(route.to_string(), expected);
     }
 
     #[test_case("deepseek/deepseek-v4.1-flash", None, "deepseek/deepseek-v4.1-flash"; "explicit prefix")]

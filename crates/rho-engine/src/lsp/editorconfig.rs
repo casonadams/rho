@@ -90,6 +90,7 @@ pub fn indent_for(workspace: &Path, file: &Path) -> Indent {
 mod tests {
     use super::*;
     use rho_test_support::TestDir;
+    use test_case::test_case;
 
     #[test]
     fn nearer_files_and_later_sections_override_and_unmatched_sections_are_ignored() {
@@ -130,18 +131,11 @@ mod tests {
         indent_for(dir.as_ref(), &dir.as_ref().join(file))
     }
 
-    #[test]
-    fn indent_size_wins_over_tab_width_in_either_order() {
-        for config in [
-            "[*]\ntab_width = 8\nindent_size = 2\n",
-            "[*]\nindent_size = 2\ntab_width = 8\n",
-        ] {
-            assert_eq!(indent_of(&[(".editorconfig", config)], "a.rs").tab_size, 2, "{config}");
-        }
-        assert_eq!(
-            indent_of(&[(".editorconfig", "[*]\ntab_width = 8\n")], "a.rs").tab_size,
-            8
-        );
+    #[test_case("[*]\ntab_width = 8\nindent_size = 2\n", 2; "tab width first")]
+    #[test_case("[*]\nindent_size = 2\ntab_width = 8\n", 2; "indent size first")]
+    #[test_case("[*]\ntab_width = 8\n", 8; "tab width alone")]
+    fn indent_size_wins_over_tab_width_in_either_order(config: &str, expected: u32) {
+        assert_eq!(indent_of(&[(".editorconfig", config)], "a.rs").tab_size, expected);
     }
 
     #[test]

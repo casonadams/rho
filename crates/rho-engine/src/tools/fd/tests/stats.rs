@@ -1,10 +1,19 @@
 use super::{find, fixture};
 use crate::tools::fd::FdSort;
 use crate::tools::fd::stats::count_file_stats;
-use tempfile::TempDir;
+use rho_test_support::TestDir;
+use test_case::test_case;
 
 fn table(content: &str) -> Vec<&str> {
     content.lines().skip(2).collect()
+}
+
+fn write_numbered_lines(path: &std::path::Path, count: usize) {
+    let content = (0..count)
+        .map(|i| format!("// line {i}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    std::fs::write(path, content).unwrap();
 }
 
 #[tokio::test]
@@ -22,9 +31,7 @@ async fn stats_flag_renders_table_with_lines_and_bytes() {
 #[tokio::test]
 async fn min_lines_filters_out_smaller_files_and_directories() {
     let dir = fixture();
-    let big_path = dir.path().join("src/big.rs");
-    let big_content = (0..200).map(|i| format!("// line {i}")).collect::<Vec<_>>().join("\n");
-    std::fs::write(big_path, big_content).unwrap();
+    write_numbered_lines(&dir.join("src/big.rs"), 200);
 
     let result = find(&dir, ".*\\.rs$", |args| args.min_lines = Some(150)).await;
     assert!(!result.is_error);
@@ -38,9 +45,7 @@ async fn min_lines_filters_out_smaller_files_and_directories() {
 #[tokio::test]
 async fn max_lines_filters_out_larger_files() {
     let dir = fixture();
-    let big_path = dir.path().join("src/big.rs");
-    let big_content = (0..200).map(|i| format!("// line {i}")).collect::<Vec<_>>().join("\n");
-    std::fs::write(big_path, big_content).unwrap();
+    write_numbered_lines(&dir.join("src/big.rs"), 200);
 
     let result = find(&dir, ".*\\.rs$", |args| args.max_lines = Some(10)).await;
     assert!(!result.is_error);
@@ -52,13 +57,8 @@ async fn max_lines_filters_out_larger_files() {
 #[tokio::test]
 async fn sort_by_lines_orders_descending() {
     let dir = fixture();
-    let medium_path = dir.path().join("src/medium.rs");
-    let medium_content = (0..50).map(|i| format!("// line {i}")).collect::<Vec<_>>().join("\n");
-    std::fs::write(medium_path, medium_content).unwrap();
-
-    let big_path = dir.path().join("src/big.rs");
-    let big_content = (0..100).map(|i| format!("// line {i}")).collect::<Vec<_>>().join("\n");
-    std::fs::write(big_path, big_content).unwrap();
+    write_numbered_lines(&dir.join("src/medium.rs"), 50);
+    write_numbered_lines(&dir.join("src/big.rs"), 100);
 
     let result = find(&dir, ".*\\.rs$", |args| args.sort = Some(FdSort::Lines)).await;
     assert!(!result.is_error);
@@ -71,7 +71,7 @@ async fn sort_by_lines_orders_descending() {
 #[tokio::test]
 async fn sort_by_size_orders_descending() {
     let dir = fixture();
-    let huge_comment = dir.path().join("src/huge.rs");
+    let huge_comment = dir.join("src/huge.rs");
     // Single line but large byte size
     std::fs::write(huge_comment, "// ".to_string() + &"x".repeat(5000) + "\n").unwrap();
 
@@ -84,8 +84,8 @@ async fn sort_by_size_orders_descending() {
 #[tokio::test]
 async fn sort_by_size_with_stats_reports_line_and_byte_counts() {
     let dir = fixture();
-    std::fs::write(dir.path().join("src/many_lines.rs"), "a\n".repeat(50)).unwrap();
-    std::fs::write(dir.path().join("src/one_line.rs"), "x".repeat(400)).unwrap();
+    std::fs::write(dir.join("src/many_lines.rs"), "a\n".repeat(50)).unwrap();
+    std::fs::write(dir.join("src/one_line.rs"), "x".repeat(400)).unwrap();
 
     let result = find(&dir, ".*\\.rs$", |args| {
         args.sort = Some(FdSort::Size);
@@ -100,19 +100,14 @@ async fn sort_by_size_with_stats_reports_line_and_byte_counts() {
     assert!(rows[2].trim_start().starts_with("50 "));
 }
 
-#[test]
-fn test_count_file_stats_semantics() {
-    let temp = TempDir::new().unwrap();
-    let cases = [
-        ("empty.txt", "", 0, 0),
-        ("one_no_nl.txt", "hello", 1, 5),
-        ("one_with_nl.txt", "hello\n", 1, 6),
-        ("two_no_nl.txt", "hello\nworld", 2, 11),
-    ];
-    for (name, content, lines, bytes) in cases {
-        let path = temp.path().join(name);
-        std::fs::write(&path, content).unwrap();
-        let stats = count_file_stats(&path).unwrap();
-        assert_eq!((stats.lines, stats.bytes), (lines, bytes));
-    }
+#[test_case("", 0, 0; "empty")]
+#[test_case("hello", 1, 5; "one line without newline")]
+#[test_case("hello\n", 1, 6; "one line with newline")]
+#[test_case("hello\nworld", 2, 11; "two lines without newline")]
+fn test_count_file_stats_semantics(content: &str, lines: usize, bytes: u64) {
+    let temp = TestDir::new();
+    let path = temp.join("file.txt");
+    std::fs::write(&path, content).unwrap();
+    let stats = count_file_stats(&path).unwrap();
+    assert_eq!((stats.lines, stats.bytes), (lines, bytes));
 }

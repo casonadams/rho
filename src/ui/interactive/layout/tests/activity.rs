@@ -1,6 +1,7 @@
 use super::base_input;
 use crate::ui::interactive::layout::{InteractiveLayout, LayoutInput, layout};
 use crate::ui::interactive::{Activity, EditorState, FooterState, ModalOption, ModalState};
+use test_case::test_case;
 
 fn busy_footer(activity: Activity) -> FooterState {
     FooterState {
@@ -49,18 +50,14 @@ fn busy_activity_renders_working_line_above_the_editor() {
     assert_eq!(layout.height(), 6);
 }
 
-#[test]
-fn thinking_and_compacting_activities_render_their_labels() {
-    for (activity, label, absent) in [
-        (Activity::Thinking, "working", None),
-        (Activity::Compacting, "compacting", Some("working")),
-    ] {
-        let layout = test_layout(&busy_footer(activity), None, true);
+#[test_case(Activity::Thinking, "working", None; "thinking")]
+#[test_case(Activity::Compacting, "compacting", Some("working"); "compacting")]
+fn thinking_and_compacting_activities_render_their_labels(activity: Activity, label: &str, absent: Option<&str>) {
+    let layout = test_layout(&busy_footer(activity), None, true);
 
-        assert!(layout.working_line.contains('\u{280b}'));
-        assert!(layout.working_line.contains(label));
-        assert!(absent.is_none_or(|word| !layout.working_line.contains(word)));
-    }
+    assert!(layout.working_line.contains('\u{280b}'));
+    assert!(layout.working_line.contains(label));
+    assert!(absent.is_none_or(|word| !layout.working_line.contains(word)));
 }
 
 #[test]

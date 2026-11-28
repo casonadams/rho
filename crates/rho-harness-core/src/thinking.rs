@@ -123,6 +123,7 @@ impl ThinkingLevel {
 #[cfg(test)]
 mod tests {
     use super::ThinkingLevel;
+    use test_case::test_case;
 
     #[test]
     fn every_level_round_trips_through_its_name_and_setting() {
@@ -144,21 +145,16 @@ mod tests {
         assert_eq!(ThinkingLevel::High.concrete_or_default(), ThinkingLevel::High);
     }
 
-    #[test]
-    fn responses_effort_sends_each_documented_value_and_nothing_for_off() {
-        let cases = [
-            (ThinkingLevel::Off, None),
-            (ThinkingLevel::Minimal, Some("minimal")),
-            (ThinkingLevel::Low, Some("low")),
-            (ThinkingLevel::Medium, Some("medium")),
-            (ThinkingLevel::High, Some("high")),
-            (ThinkingLevel::XHigh, Some("xhigh")),
-            (ThinkingLevel::Max, Some("max")),
-            (ThinkingLevel::Auto, Some("medium")),
-        ];
-        for (level, effort) in cases {
-            assert_eq!(level.responses_effort(), effort, "{level:?}");
-        }
+    #[test_case(ThinkingLevel::Off, None; "off")]
+    #[test_case(ThinkingLevel::Minimal, Some("minimal"); "minimal")]
+    #[test_case(ThinkingLevel::Low, Some("low"); "low")]
+    #[test_case(ThinkingLevel::Medium, Some("medium"); "medium")]
+    #[test_case(ThinkingLevel::High, Some("high"); "high")]
+    #[test_case(ThinkingLevel::XHigh, Some("xhigh"); "xhigh")]
+    #[test_case(ThinkingLevel::Max, Some("max"); "max")]
+    #[test_case(ThinkingLevel::Auto, Some("medium"); "auto")]
+    fn responses_effort_sends_each_documented_value_and_nothing_for_off(level: ThinkingLevel, effort: Option<&str>) {
+        assert_eq!(level.responses_effort(), effort);
     }
 
     #[test]

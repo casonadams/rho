@@ -184,21 +184,17 @@ pub fn strip_markdown_decorations(s: &str) -> String {
 mod tests {
     use super::{render_markdown_table_at_width, wrap_cell};
     use crate::ui::theme::Theme;
+    use test_case::test_case;
     use unicode_width::UnicodeWidthStr;
 
-    #[test]
-    fn wrap_cell_breaks_words_at_the_column_width() {
-        let cases = [
-            ("", 5, vec![""]),
-            ("ab", 0, vec!["a", "b"]),
-            ("ab cd", 10, vec!["ab cd"]),
-            ("abc defgh", 5, vec!["abc", "defgh"]),
-            ("abc defghij", 5, vec!["abc", "defgh", "ij"]),
-            ("abcdefghijkl", 5, vec!["abcde", "fghij", "kl"]),
-        ];
-        for (cell, width, expected) in cases {
-            assert_eq!(wrap_cell(cell, width), expected, "cell {cell:?} at width {width}");
-        }
+    #[test_case("", 5, &[""]; "empty cell")]
+    #[test_case("ab", 0, &["a", "b"]; "zero width")]
+    #[test_case("ab cd", 10, &["ab cd"]; "fits")]
+    #[test_case("abc defgh", 5, &["abc", "defgh"]; "wraps at space")]
+    #[test_case("abc defghij", 5, &["abc", "defgh", "ij"]; "wraps then splits")]
+    #[test_case("abcdefghijkl", 5, &["abcde", "fghij", "kl"]; "splits long word")]
+    fn wrap_cell_breaks_words_at_the_column_width(cell: &str, width: usize, expected: &[&str]) {
+        assert_eq!(wrap_cell(cell, width), expected);
     }
 
     struct Layout {

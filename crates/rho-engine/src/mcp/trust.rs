@@ -93,9 +93,9 @@ mod tests {
 
     #[test]
     fn approved_server_definition_is_trusted_only_for_matching_hash() {
-        let temp_dir = tempfile::tempdir().unwrap();
-        let config_dir = temp_dir.path().join("config");
-        let workspace = temp_dir.path().join("my_project");
+        let temp_dir = crate::test_support::TestDir::new();
+        let config_dir = temp_dir.join("config");
+        let workspace = temp_dir.join("my_project");
         std::fs::create_dir_all(&workspace).unwrap();
         std::fs::create_dir_all(&config_dir).unwrap();
 
@@ -111,9 +111,9 @@ mod tests {
 
     #[test]
     fn approving_keeps_other_approvals_and_replaces_the_previous_hash() {
-        let temp_dir = tempfile::tempdir().unwrap();
-        let config_dir = temp_dir.path().join("config");
-        let workspace = temp_dir.path().join("my_project");
+        let temp_dir = crate::test_support::TestDir::new();
+        let config_dir = temp_dir.join("config");
+        let workspace = temp_dir.join("my_project");
         std::fs::create_dir_all(&workspace).unwrap();
 
         approve_server_definition(&workspace, "a", "a_v1", &config_dir).unwrap();
@@ -127,11 +127,11 @@ mod tests {
 
     #[test]
     fn approving_refuses_to_overwrite_an_unreadable_approvals_file() {
-        let temp_dir = tempfile::tempdir().unwrap();
-        let path = approved_servers_path(temp_dir.path());
+        let temp_dir = crate::test_support::TestDir::new();
+        let path = approved_servers_path(&temp_dir);
         std::fs::write(&path, "not json").unwrap();
 
-        let err = approve_server_definition(temp_dir.path(), "a", "h", temp_dir.path()).unwrap_err();
+        let err = approve_server_definition(&temp_dir, "a", "h", &temp_dir).unwrap_err();
 
         assert!(err.to_string().contains("Failed to parse"), "{err}");
         assert_eq!(std::fs::read_to_string(&path).unwrap(), "not json");

@@ -8,6 +8,7 @@ use base64::engine::general_purpose::STANDARD;
 use image::codecs::png::{CompressionType, FilterType, PngEncoder};
 use image::{ExtendedColorType, ImageEncoder, ImageFormat, Rgba};
 use std::io::Cursor;
+use test_case::test_case;
 
 const PNG_SIGNATURE: [u8; 8] = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
 
@@ -79,20 +80,13 @@ fn apng_fixture() -> Vec<u8> {
     b
 }
 
-#[test]
-fn sniff_detects_supported_formats() {
-    let mut webp = b"RIFF\x24\x00\x00\x00WEBP".to_vec();
-    webp.extend_from_slice(b"VP8 \x10\x00\x00\x00");
-    let cases = [
-        (solid_png(2, 2), SniffedMime::Png),
-        (vec![0xFF, 0xD8, 0xFF, 0xE0, 0, 16, 74, 70], SniffedMime::Jpeg),
-        (gif_fixture(), SniffedMime::Gif),
-        (webp, SniffedMime::WebP),
-        (bmp_with(1, 24), SniffedMime::Bmp),
-    ];
-    for (bytes, expected) in cases {
-        assert_eq!(detect_supported_image_mime(&bytes), Some(expected));
-    }
+#[test_case(solid_png(2, 2), SniffedMime::Png; "png")]
+#[test_case(vec![0xFF, 0xD8, 0xFF, 0xE0, 0, 16, 74, 70], SniffedMime::Jpeg; "jpeg")]
+#[test_case(gif_fixture(), SniffedMime::Gif; "gif")]
+#[test_case([b"RIFF\x24\x00\x00\x00WEBP".as_slice(), b"VP8 \x10\x00\x00\x00"].concat(), SniffedMime::WebP; "webp")]
+#[test_case(bmp_with(1, 24), SniffedMime::Bmp; "bmp")]
+fn sniff_detects_supported_formats(bytes: Vec<u8>, expected: SniffedMime) {
+    assert_eq!(detect_supported_image_mime(&bytes), Some(expected));
 }
 
 #[test]
@@ -210,26 +204,19 @@ fn bmp_is_converted_to_png_with_conversion_hint() {
     assert_ne!(processed.data, STANDARD.encode(&bytes));
 }
 
-#[test]
-fn ladder_scaling_fit_dimensions() {
-    let limits = ResizeLimits::INLINE;
-    let cases = [
-        ((5120, 2880), (2000, 1125)),
-        ((2100, 100), (2000, 95)),
-        ((20000, 1), (2000, 1)),
-        ((1, 20000), (1, 2000)),
-    ];
-    for ((w, h), expected) in cases {
-        assert_eq!(limits.fit_dimensions(w, h), expected);
-    }
+#[test_case(5120, 2880, (2000, 1125); "wide screenshot")]
+#[test_case(2100, 100, (2000, 95); "slightly wide")]
+#[test_case(20000, 1, (2000, 1); "extreme width")]
+#[test_case(1, 20000, (1, 2000); "extreme height")]
+fn ladder_scaling_fit_dimensions(w: u32, h: u32, expected: (u32, u32)) {
+    assert_eq!(ResizeLimits::INLINE.fit_dimensions(w, h), expected);
 }
 
-#[test]
-fn ladder_scaling_shrink_math() {
-    let cases = [(2000, 1500), (2, 1), (1, 1)];
-    for (input, expected) in cases {
-        assert_eq!(shrink(input), expected);
-    }
+#[test_case(2000, 1500; "large")]
+#[test_case(2, 1; "two")]
+#[test_case(1, 1; "one stays")]
+fn ladder_scaling_shrink_math(input: u32, expected: u32) {
+    assert_eq!(shrink(input), expected);
 }
 
 #[test]

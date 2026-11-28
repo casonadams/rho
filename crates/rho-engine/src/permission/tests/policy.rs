@@ -6,6 +6,7 @@ use crate::test_support::temp_dir;
 use rho_test_support::EnvVarGuard;
 use serde_json::json;
 use std::path::Path;
+use test_case::test_case;
 
 fn ws() -> Option<&'static Path> {
     Some(Path::new("/ws"))
@@ -29,48 +30,47 @@ fn bash_policy(global: &str, project: Option<&str>) -> Policy {
     build_policy(Some(global), project)
 }
 
-#[test]
-fn bash_rule_precedence() {
-    let allow_git_cargo = "[allow]\nbash = [\"git *\", \"cargo *\"]\n";
-    let allow_git = "[allow]\nbash = [\"git *\"]\n[deny]\nbash = [\"git push *\"]\n";
-    let allow_cat = "[allow]\nbash = [\"cat *\"]\n[ask]\nbash = [\"cat secret*\"]\n";
-    let ask_cat = "[ask]\nbash = [\"cat *\"]\n[deny]\nbash = [\"cat secret*\"]\n";
-    let merged_global = "[permission.bash]\n\"cargo *\" = \"allow\"\n\"git *\" = \"allow\"\n";
-    let merged_project =
-        "[permission.bash]\n\"cargo publish\" = { action = \"deny\", reason = \"publishing forbidden from repo\" }\n";
-    let cases = [
-        (allow_git_cargo, None, "cargo test", Decision::Allow),
-        (allow_git_cargo, None, "git status && cargo test", Decision::Allow),
-        (allow_git_cargo, None, "cargo test && npm publish", Decision::Ask),
-        (allow_git, None, "git status", Decision::Allow),
-        (
-            allow_git,
-            None,
-            "git push origin main",
-            Decision::Deny("denied by permission rule 'bash|git push *'".to_string()),
-        ),
-        (allow_cat, None, "cat notes.txt", Decision::Allow),
-        (allow_cat, None, "cat secret.txt", Decision::Ask),
-        (
-            ask_cat,
-            None,
-            "cat secret.txt",
-            Decision::Deny("denied by permission rule 'bash|cat secret*'".to_string()),
-        ),
-        (ask_cat, None, "cat notes.txt", Decision::Ask),
-        (merged_global, Some(merged_project), "cargo test", Decision::Allow),
-        (merged_global, Some(merged_project), "git status", Decision::Allow),
-        (
-            merged_global,
-            Some(merged_project),
-            "cargo publish",
-            Decision::Deny("publishing forbidden from repo".to_string()),
-        ),
-    ];
-    for (global, project, cmd, expected) in cases {
-        let policy = bash_policy(global, project);
-        assert_eq!(decide_with(&policy, "bash", json!({"command": cmd})), expected, "{cmd}");
-    }
+const ALLOW_GIT_CARGO: &str = "[allow]\nbash = [\"git *\", \"cargo *\"]\n";
+const ALLOW_GIT: &str = "[allow]\nbash = [\"git *\"]\n[deny]\nbash = [\"git push *\"]\n";
+const ALLOW_CAT: &str = "[allow]\nbash = [\"cat *\"]\n[ask]\nbash = [\"cat secret*\"]\n";
+const ASK_CAT: &str = "[ask]\nbash = [\"cat *\"]\n[deny]\nbash = [\"cat secret*\"]\n";
+const MERGED_GLOBAL: &str = "[permission.bash]\n\"cargo *\" = \"allow\"\n\"git *\" = \"allow\"\n";
+const MERGED_PROJECT: &str =
+    "[permission.bash]\n\"cargo publish\" = { action = \"deny\", reason = \"publishing forbidden from repo\" }\n";
+
+#[test_case(ALLOW_GIT_CARGO, None, "cargo test", Decision::Allow; "allow listed cargo")]
+#[test_case(ALLOW_GIT_CARGO, None, "git status && cargo test", Decision::Allow; "allow chained listed")]
+#[test_case(ALLOW_GIT_CARGO, None, "cargo test && npm publish", Decision::Ask; "ask chained unlisted")]
+#[test_case(ALLOW_GIT, None, "git status", Decision::Allow; "allow git status")]
+#[test_case(
+    ALLOW_GIT,
+    None,
+    "git push origin main",
+    Decision::Deny("denied by permission rule 'bash|git push *'".to_string());
+    "deny beats allow"
+)]
+#[test_case(ALLOW_CAT, None, "cat notes.txt", Decision::Allow; "allow cat notes")]
+#[test_case(ALLOW_CAT, None, "cat secret.txt", Decision::Ask; "ask beats allow")]
+#[test_case(
+    ASK_CAT,
+    None,
+    "cat secret.txt",
+    Decision::Deny("denied by permission rule 'bash|cat secret*'".to_string());
+    "deny beats ask"
+)]
+#[test_case(ASK_CAT, None, "cat notes.txt", Decision::Ask; "ask cat notes")]
+#[test_case(MERGED_GLOBAL, Some(MERGED_PROJECT), "cargo test", Decision::Allow; "merged global cargo")]
+#[test_case(MERGED_GLOBAL, Some(MERGED_PROJECT), "git status", Decision::Allow; "merged global git")]
+#[test_case(
+    MERGED_GLOBAL,
+    Some(MERGED_PROJECT),
+    "cargo publish",
+    Decision::Deny("publishing forbidden from repo".to_string());
+    "merged project deny"
+)]
+fn bash_rule_precedence(global: &str, project: Option<&str>, cmd: &str, expected: Decision) {
+    let policy = bash_policy(global, project);
+    assert_eq!(decide_with(&policy, "bash", json!({"command": cmd})), expected);
 }
 
 #[test]
@@ -100,23 +100,17 @@ fn permission_surface_tables_and_custom_deny_reason() {
     assert_eq!(decide("bash", json!({"command": "cargo test --lib"})), Decision::Allow);
 }
 
-#[test]
-fn inline_table_rules_honor_their_action() {
-    let cases = [
-        ("allow", Decision::Allow),
-        ("ask", Decision::Ask),
-        ("deny", Decision::Deny("because".to_string())),
-    ];
-    for (action, expected) in cases {
-        let toml = format!("[permission.bash]\n\"rm *\" = {{ action = \"{action}\", reason = \"because\" }}\n");
-        let policy = build_policy(Some(parse_scope_from_str(&toml).unwrap()), None);
+#[test_case("allow", Decision::Allow; "allow")]
+#[test_case("ask", Decision::Ask; "ask")]
+#[test_case("deny", Decision::Deny("because".to_string()); "deny")]
+fn inline_table_rules_honor_their_action(action: &str, expected: Decision) {
+    let toml = format!("[permission.bash]\n\"rm *\" = {{ action = \"{action}\", reason = \"because\" }}\n");
+    let policy = build_policy(Some(parse_scope_from_str(&toml).unwrap()), None);
 
-        assert_eq!(
-            decide_with(&policy, "bash", json!({"command": "rm notes.txt"})),
-            expected,
-            "action {action}"
-        );
-    }
+    assert_eq!(
+        decide_with(&policy, "bash", json!({"command": "rm notes.txt"})),
+        expected
+    );
 }
 
 #[test]
@@ -155,29 +149,24 @@ fn load_test_policy_with_env(global_dir: &std::path::Path, project_dir: &std::pa
     load_policy(Some(project_dir))
 }
 
-#[test]
-fn load_policy_discovers_project_and_global_hierarchies() {
+#[test_case("global_cmd run", Decision::Allow; "global rule")]
+#[test_case("project_cmd run", Decision::Allow; "project rule")]
+#[test_case("unknown_cmd run", Decision::Ask; "unknown command")]
+fn load_policy_discovers_project_and_global_hierarchies(cmd: &str, expected: Decision) {
     let (global_dir, project_dir) = setup_hierarchical_dirs();
     assert!(project_config_path(Some(&project_dir)).is_some());
     let policy = load_test_policy_with_env(&global_dir, &project_dir).policy;
 
-    let cases = [
-        ("global_cmd run", Decision::Allow),
-        ("project_cmd run", Decision::Allow),
-        ("unknown_cmd run", Decision::Ask),
-    ];
-    for (cmd, expected) in cases {
-        let dec = decide_tool_call(
-            &policy,
-            EvalRequest {
-                tool: "bash",
-                args: &json!({"command": cmd}),
-                mcp_servers: &[],
-                working_dir: Some(&project_dir),
-            },
-        );
-        assert_eq!(dec, expected);
-    }
+    let dec = decide_tool_call(
+        &policy,
+        EvalRequest {
+            tool: "bash",
+            args: &json!({"command": cmd}),
+            mcp_servers: &[],
+            working_dir: Some(&project_dir),
+        },
+    );
+    assert_eq!(dec, expected);
 }
 
 #[test]
@@ -223,13 +212,13 @@ fn missing_policy_files_are_not_warnings() {
 
 #[test]
 fn load_policy_discovers_dot_config_rho_fallback() {
-    let project_dir = tempfile::tempdir().unwrap();
-    let perm_file = project_dir.path().join(".config/rho/permission.toml");
+    let project_dir = crate::test_support::TestDir::new();
+    let perm_file = project_dir.join(".config/rho/permission.toml");
     crate::test_support::write_file(&perm_file, "[permission.bash]\n\"fallback_cmd *\" = \"allow\"\n");
 
-    assert_eq!(project_config_path(Some(project_dir.path())), Some(perm_file));
+    assert_eq!(project_config_path(Some(&project_dir)), Some(perm_file));
 
-    let policy = load_policy(Some(project_dir.path())).policy;
+    let policy = load_policy(Some(&project_dir)).policy;
     assert_eq!(
         decide_with(&policy, "bash", json!({"command": "fallback_cmd run"})),
         Decision::Allow

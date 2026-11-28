@@ -380,6 +380,7 @@ pub fn warmup_syntax_highlighter() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use test_case::test_case;
 
     #[test]
     fn ansi_code_block_renders_escaped_sgr_and_resets() {
@@ -397,15 +398,15 @@ mod tests {
         assert_eq!(rendered, r"\x1b[2Jclear");
     }
 
-    #[test]
-    fn typescript_extensions_are_highlighted_like_javascript() {
+    #[test_case("ts"; "ts")]
+    #[test_case("tsx"; "tsx")]
+    #[test_case("TS"; "uppercase ts")]
+    fn typescript_extensions_are_highlighted_like_javascript(ext: &str) {
         let theme = Theme::default();
         let line = "const x = 1; // note";
         let js = highlight_code_line(line, Some("js"), &theme);
         assert!(js.contains("\x1b["));
-        for ext in ["ts", "tsx", "TS"] {
-            assert_eq!(highlight_code_line(line, Some(ext), &theme), js, "{ext}");
-        }
+        assert_eq!(highlight_code_line(line, Some(ext), &theme), js);
     }
 
     #[test]

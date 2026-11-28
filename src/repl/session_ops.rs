@@ -124,6 +124,7 @@ pub(crate) async fn enter_worktree(engine: &mut AgentEngine, branch: Option<&str
 mod tests {
     use super::*;
     use std::path::PathBuf;
+    use test_case::test_case;
 
     #[test]
     fn rewind_failure_is_reported_as_text() {
@@ -131,30 +132,24 @@ mod tests {
         assert_eq!(message, "Rewind failed: Session error: boom");
     }
 
-    #[test]
-    fn resumed_message_reports_each_workspace_outcome() {
-        let resumed = |workspace| Resumed {
+    #[test_case(WorkspaceRestore::Unchanged, "Resumed session s1"; "unchanged")]
+    #[test_case(WorkspaceRestore::Restored, "Resumed session s1"; "restored")]
+    #[test_case(
+        WorkspaceRestore::Missing(PathBuf::from("/w")),
+        "Resumed session s1 (previous workspace /w no longer exists)";
+        "missing"
+    )]
+    #[test_case(
+        WorkspaceRestore::Failed { path: PathBuf::from("/w"), error: "denied".to_string() },
+        "Resumed session s1 (could not restore workspace /w: denied)";
+        "failed"
+    )]
+    fn resumed_message_reports_each_workspace_outcome(workspace: WorkspaceRestore, expected: &str) {
+        let resumed = Resumed {
             session_id: "s1".to_string(),
             workspace,
             tree: SessionTree::default(),
         };
-        let cases = [
-            (WorkspaceRestore::Unchanged, "Resumed session s1"),
-            (WorkspaceRestore::Restored, "Resumed session s1"),
-            (
-                WorkspaceRestore::Missing(PathBuf::from("/w")),
-                "Resumed session s1 (previous workspace /w no longer exists)",
-            ),
-            (
-                WorkspaceRestore::Failed {
-                    path: PathBuf::from("/w"),
-                    error: "denied".to_string(),
-                },
-                "Resumed session s1 (could not restore workspace /w: denied)",
-            ),
-        ];
-        for (workspace, expected) in cases {
-            assert_eq!(resumed_message(&resumed(workspace)), expected);
-        }
+        assert_eq!(resumed_message(&resumed), expected);
     }
 }

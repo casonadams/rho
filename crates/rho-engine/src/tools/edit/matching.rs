@@ -135,6 +135,7 @@ fn not_found(field: &str, content: &str, text: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use test_case::test_case;
 
     fn edit(old: &str, start: Option<&str>, end: Option<&str>, all: bool) -> EditReplacement {
         EditReplacement {
@@ -160,26 +161,18 @@ mod tests {
         assert_eq!(&content[region[0].clone()], "fn x() {\n  body\n}");
     }
 
-    #[test]
-    fn rejects_ambiguous_missing_and_mixed_forms() {
+    #[test_case(edit("foo", None, None, false), "found 2 times"; "ambiguous old text")]
+    #[test_case(edit("bar", None, None, false), "oldText not found"; "missing old text")]
+    #[test_case(edit("", None, None, false), "must not be empty"; "empty old text")]
+    #[test_case(edit("", Some("foo"), Some("}"), false), "startText found 2 times"; "ambiguous start")]
+    #[test_case(edit("", Some("{"), Some("zzz"), false), "endText (after startText) not found"; "missing end")]
+    #[test_case(edit("foo", Some("{"), Some("}"), false), "cannot be combined"; "old text with region")]
+    #[test_case(edit("", Some("{"), Some("}"), true), "cannot be combined"; "replace all with region")]
+    #[test_case(edit("", Some("{"), None, false), "must be given together"; "start without end")]
+    fn rejects_ambiguous_missing_and_mixed_forms(case: EditReplacement, expected: &str) {
         let content = "foo foo {}";
-        let cases = [
-            (edit("foo", None, None, false), "found 2 times"),
-            (edit("bar", None, None, false), "oldText not found"),
-            (edit("", None, None, false), "must not be empty"),
-            (edit("", Some("foo"), Some("}"), false), "startText found 2 times"),
-            (
-                edit("", Some("{"), Some("zzz"), false),
-                "endText (after startText) not found",
-            ),
-            (edit("foo", Some("{"), Some("}"), false), "cannot be combined"),
-            (edit("", Some("{"), Some("}"), true), "cannot be combined"),
-            (edit("", Some("{"), None, false), "must be given together"),
-        ];
-        for (case, expected) in cases {
-            let err = locate_edit(content, &case, "\n").unwrap_err();
-            assert!(err.contains(expected), "{case:?}: {err}");
-        }
+        let err = locate_edit(content, &case, "\n").unwrap_err();
+        assert!(err.contains(expected), "{err}");
     }
 
     #[test]

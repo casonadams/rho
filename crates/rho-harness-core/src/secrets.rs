@@ -273,6 +273,7 @@ fn redact_jwts(input: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use test_case::test_case;
 
     #[test]
     fn redact_credentials_text_masks_common_credential_shapes() {
@@ -306,14 +307,10 @@ mod tests {
         );
     }
 
-    #[test]
-    fn short_sk_tokens_and_secret_key_assignments_are_redacted() {
-        for (input, expected) in [
-            ("key sk-abcdefghijklmnop end", "key [REDACTED] end"),
-            ("key sk-abcdefghijklmnopqrs end", "key [REDACTED] end"),
-            ("secret_key=hunter2hunter2", "secret_key=[REDACTED]"),
-        ] {
-            assert_eq!(redact_credentials_text(input), expected, "{input:?}");
-        }
+    #[test_case("key sk-abcdefghijklmnop end", "key [REDACTED] end"; "short sk token")]
+    #[test_case("key sk-abcdefghijklmnopqrs end", "key [REDACTED] end"; "longer sk token")]
+    #[test_case("secret_key=hunter2hunter2", "secret_key=[REDACTED]"; "secret key assignment")]
+    fn short_sk_tokens_and_secret_key_assignments_are_redacted(input: &str, expected: &str) {
+        assert_eq!(redact_credentials_text(input), expected);
     }
 }

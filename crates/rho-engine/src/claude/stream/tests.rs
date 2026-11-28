@@ -4,6 +4,7 @@ use crate::provider::adapter::FinishReason;
 use crate::provider::adapter::ModelStreamEvent;
 use rho_harness_core::error::AppError;
 use rho_harness_core::model::{ToolCall, ToolFunction};
+use test_case::test_case;
 
 fn sample_stream_data() -> &'static str {
     "event: message_start\ndata: {\"type\": \"message_start\", \"message\": {\"id\": \"msg_1\", \"usage\": {\"input_tokens\": 10}}}\n\nevent: content_block_start\ndata: {\"type\": \"content_block_start\", \"index\": 0, \"content_block\": {\"type\": \"text\"}}\n\nevent: content_block_delta\ndata: {\"type\": \"content_block_delta\", \"index\": 0, \"delta\": {\"type\": \"text_delta\", \"text\": \"Hello, \"}}\n\nevent: content_block_delta\ndata: {\"type\": \"content_block_delta\", \"index\": 0, \"delta\": {\"type\": \"text_delta\", \"text\": \"world!\"}}\n\nevent: content_block_stop\ndata: {\"type\": \"content_block_stop\", \"index\": 0}\n\nevent: message_delta\ndata: {\"type\": \"message_delta\", \"delta\": {\"stop_reason\": \"end_turn\"}, \"usage\": {\"output_tokens\": 5}}\n\nevent: message_stop\ndata: {\"type\": \"message_stop\"}\n\n"
@@ -242,24 +243,15 @@ fn decode_cases() -> Vec<(&'static str, Vec<&'static str>, Vec<ParsedEvent>)> {
     ]
 }
 
-#[test]
-fn message_delta_stop_reason_maps_to_finish_reason() {
-    let cases = [
-        ("end_turn", FinishReason::Stop),
-        ("stop_sequence", FinishReason::Stop),
-        ("max_tokens", FinishReason::Length),
-        ("tool_use", FinishReason::ToolCalls),
-        ("unknown_reason", FinishReason::Other),
-    ];
-    for (stop_reason, expected) in cases {
-        let delta = format!(r#"{{"type":"message_delta","delta":{{"stop_reason":"{stop_reason}"}}}}"#);
-        let events = parse_payloads(&[&delta, r#"{"type":"message_stop"}"#]);
-        assert_eq!(
-            events.last(),
-            Some(&Ok(ModelStreamEvent::Finish(expected))),
-            "stop_reason: {stop_reason}"
-        );
-    }
+#[test_case("end_turn", FinishReason::Stop; "end turn")]
+#[test_case("stop_sequence", FinishReason::Stop; "stop sequence")]
+#[test_case("max_tokens", FinishReason::Length; "max tokens")]
+#[test_case("tool_use", FinishReason::ToolCalls; "tool use")]
+#[test_case("unknown_reason", FinishReason::Other; "unknown reason")]
+fn message_delta_stop_reason_maps_to_finish_reason(stop_reason: &str, expected: FinishReason) {
+    let delta = format!(r#"{{"type":"message_delta","delta":{{"stop_reason":"{stop_reason}"}}}}"#);
+    let events = parse_payloads(&[&delta, r#"{"type":"message_stop"}"#]);
+    assert_eq!(events.last(), Some(&Ok(ModelStreamEvent::Finish(expected))));
 }
 
 async fn collect_body(payloads: &[&str]) -> Vec<Result<ModelStreamEvent, AppError>> {

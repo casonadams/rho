@@ -95,6 +95,7 @@ mod tests {
     use rho_harness_core::config::Config;
     use rho_harness_core::error::AppError;
     use std::sync::Arc;
+    use test_case::test_case;
 
     fn choice_response(choice: &str) -> DecisionResponse {
         DecisionResponse {
@@ -135,17 +136,14 @@ mod tests {
         }
     }
 
+    #[test_case("low", ThinkingLevel::Low; "low")]
+    #[test_case("medium", ThinkingLevel::Medium; "medium")]
+    #[test_case("high", ThinkingLevel::High; "high")]
     #[tokio::test]
-    async fn classifies_low_medium_high_choices() {
-        for (choice, expected) in [
-            ("low", ThinkingLevel::Low),
-            ("medium", ThinkingLevel::Medium),
-            ("high", ThinkingLevel::High),
-        ] {
-            let model = MockDecisionModel::native(choice_response(choice));
-            let level = classify_thinking_effort(&model, "implement feature", AUTO_THINKING_TIMEOUT).await;
-            assert_eq!(level, expected);
-        }
+    async fn classifies_low_medium_high_choices(choice: &str, expected: ThinkingLevel) {
+        let model = MockDecisionModel::native(choice_response(choice));
+        let level = classify_thinking_effort(&model, "implement feature", AUTO_THINKING_TIMEOUT).await;
+        assert_eq!(level, expected);
     }
 
     #[tokio::test(start_paused = true)]

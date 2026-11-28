@@ -200,17 +200,22 @@ fn format_hint(suggestions: &[String]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use test_case::test_case;
 
-    fn workspace(files: &[&str]) -> tempfile::TempDir {
-        let dir = tempfile::tempdir().unwrap();
+    fn workspace(files: &[&str]) -> crate::test_support::TestDir {
+        let dir = crate::test_support::TestDir::new();
         for file in files {
-            crate::test_support::write_file(&dir.path().join(file), "");
+            crate::test_support::write_file(&dir.join(file), "");
         }
         dir
     }
 
-    #[test]
-    fn suggests_moved_renamed_and_module_paths() {
+    #[test_case("src/repl/input_reader.rs", PathKind::Any, &["src/repl/input_reader", "src/repl/input_reader/mod.rs"]; "module dir and file")]
+    #[test_case("src/repl/input_reader.rs", PathKind::File, &["src/repl/input_reader/mod.rs"]; "module file only")]
+    #[test_case("crates/engine/src/client.rs", PathKind::File, &["crates/engine/src/mcp/client.rs"]; "moved file")]
+    #[test_case("crates/engine/src/mcp/runtim.rs", PathKind::File, &["crates/engine/src/mcp/runtime.rs"]; "typo")]
+    #[test_case("./docs/configuraton.md", PathKind::File, &["docs/configuration.md"]; "dot prefix typo")]
+    fn suggests_moved_renamed_and_module_paths(raw: &str, kind: PathKind, expected: &[&str]) {
         let dir = workspace(&[
             "src/repl/input_reader/mod.rs",
             "src/repl/input_reader/worker.rs",
@@ -218,55 +223,26 @@ mod tests {
             "crates/engine/src/mcp/runtime.rs",
             "docs/configuration.md",
         ]);
-        let root = dir.path();
-        let cases = [
-            (
-                "src/repl/input_reader.rs",
-                PathKind::Any,
-                vec!["src/repl/input_reader", "src/repl/input_reader/mod.rs"],
-            ),
-            (
-                "src/repl/input_reader.rs",
-                PathKind::File,
-                vec!["src/repl/input_reader/mod.rs"],
-            ),
-            (
-                "crates/engine/src/client.rs",
-                PathKind::File,
-                vec!["crates/engine/src/mcp/client.rs"],
-            ),
-            (
-                "crates/engine/src/mcp/runtim.rs",
-                PathKind::File,
-                vec!["crates/engine/src/mcp/runtime.rs"],
-            ),
-            ("./docs/configuraton.md", PathKind::File, vec!["docs/configuration.md"]),
-        ];
-        for (raw, kind, expected) in cases {
-            assert_eq!(suggest_paths(root, raw, kind), expected, "{raw}");
-        }
+        assert_eq!(suggest_paths(&dir, raw, kind), expected);
     }
 
     #[tokio::test]
     async fn unrelated_or_outside_paths_get_no_suggestions() {
         let dir = workspace(&["src/main.rs"]);
-        assert!(suggest_paths(dir.path(), "totally/unrelated_thing.py", PathKind::Any).is_empty());
-        assert!(suggest_paths(dir.path(), "/etc/hosts", PathKind::Any).is_empty());
-        assert_eq!(
-            missing_path_hint(dir.path(), "nothing_close.rs", PathKind::File).await,
-            ""
-        );
+        assert!(suggest_paths(&dir, "totally/unrelated_thing.py", PathKind::Any).is_empty());
+        assert!(suggest_paths(&dir, "/etc/hosts", PathKind::Any).is_empty());
+        assert_eq!(missing_path_hint(&dir, "nothing_close.rs", PathKind::File).await, "");
     }
 
     #[test]
     fn paths_escaping_the_workspace_get_no_suggestions() {
         let dir = workspace(&["src/main.rs", "main.rs"]);
-        let escaping = dir.path().join("../src/main.rs");
+        let escaping = dir.join("../src/main.rs");
         for raw in ["../src/main.rs", "src/../../main.rs", escaping.to_str().unwrap()] {
-            assert!(suggest_paths(dir.path(), raw, PathKind::Any).is_empty(), "{raw}");
+            assert!(suggest_paths(&dir, raw, PathKind::Any).is_empty(), "{raw}");
         }
         assert_eq!(
-            suggest_paths(dir.path(), "lib/../src/man.rs", PathKind::File)[0],
+            suggest_paths(&dir, "lib/../src/man.rs", PathKind::File)[0],
             "src/main.rs"
         );
     }
@@ -276,28 +252,28 @@ mod tests {
         let dir = workspace(&["a.rs", "src/b.rs"]);
         assert_eq!(display_name(".envrc", false), ".envrc");
         assert_eq!(display_name("dir/.config.toml", false), ".config");
-        assert!(suggest_paths(dir.path(), ".envrx", PathKind::Any).is_empty());
+        assert!(suggest_paths(&dir, ".envrx", PathKind::Any).is_empty());
     }
 
     #[test]
     fn overlong_names_get_no_suggestions() {
         let dir = workspace(&["src/main.rs"]);
         let raw = "m".repeat(100_000);
-        assert!(suggest_paths(dir.path(), &raw, PathKind::Any).is_empty());
+        assert!(suggest_paths(&dir, &raw, PathKind::Any).is_empty());
     }
 
     #[test]
     fn absolute_paths_match_through_symlinked_roots() {
         let dir = workspace(&["src/lib.rs"]);
-        let canonical = dir.path().canonicalize().unwrap();
-        let raw = dir.path().join("src/lb.rs");
+        let canonical = dir.canonicalize().unwrap();
+        let raw = dir.join("src/lb.rs");
         assert_eq!(
             suggest_paths(&canonical, raw.to_str().unwrap(), PathKind::File),
             ["src/lib.rs"]
         );
         let canonical_raw = canonical.join("src/lb.rs");
         assert_eq!(
-            suggest_paths(dir.path(), canonical_raw.to_str().unwrap(), PathKind::File),
+            suggest_paths(&dir, canonical_raw.to_str().unwrap(), PathKind::File),
             ["src/lib.rs"]
         );
     }
@@ -305,9 +281,9 @@ mod tests {
     #[tokio::test]
     async fn absolute_paths_inside_the_workspace_are_matched_and_hints_are_formatted() {
         let dir = workspace(&["src/lib.rs"]);
-        let raw = dir.path().join("src/lb.rs");
+        let raw = dir.join("src/lb.rs");
         assert_eq!(
-            missing_path_hint(dir.path(), raw.to_str().unwrap(), PathKind::File).await,
+            missing_path_hint(&dir, raw.to_str().unwrap(), PathKind::File).await,
             "\nDid you mean: src/lib.rs?"
         );
     }
@@ -315,24 +291,19 @@ mod tests {
     #[test]
     fn ignored_files_are_not_suggested() {
         let dir = workspace(&["target/debug/app.rs", "src/app.rs"]);
-        std::fs::write(dir.path().join(".gitignore"), "target/\n").unwrap();
-        std::fs::create_dir(dir.path().join(".git")).unwrap();
-        assert_eq!(suggest_paths(dir.path(), "ap.rs", PathKind::File), ["src/app.rs"]);
+        std::fs::write(dir.join(".gitignore"), "target/\n").unwrap();
+        std::fs::create_dir(dir.join(".git")).unwrap();
+        assert_eq!(suggest_paths(&dir, "ap.rs", PathKind::File), ["src/app.rs"]);
     }
 
-    #[test]
-    fn edit_distance_counts_single_character_changes_and_swaps() {
-        let cases = [
-            ("", "", 0),
-            ("abc", "abc", 0),
-            ("abc", "abd", 1),
-            ("abc", "ab", 1),
-            ("iu", "ui", 1),
-            ("recieve", "receive", 1),
-            ("kitten", "sitting", 3),
-        ];
-        for (a, b, expected) in cases {
-            assert_eq!(edit_distance(a, b), expected, "{a} -> {b}");
-        }
+    #[test_case("", "", 0; "both empty")]
+    #[test_case("abc", "abc", 0; "identical")]
+    #[test_case("abc", "abd", 1; "substitution")]
+    #[test_case("abc", "ab", 1; "deletion")]
+    #[test_case("iu", "ui", 1; "swap")]
+    #[test_case("recieve", "receive", 1; "swap in word")]
+    #[test_case("kitten", "sitting", 3; "several edits")]
+    fn edit_distance_counts_single_character_changes_and_swaps(a: &str, b: &str, expected: usize) {
+        assert_eq!(edit_distance(a, b), expected);
     }
 }

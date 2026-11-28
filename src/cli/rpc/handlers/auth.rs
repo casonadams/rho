@@ -167,69 +167,54 @@ pub(crate) async fn handle_node_session_auth_cmd<W: tokio::io::AsyncWrite + Unpi
 mod tests {
     use super::*;
     use rho_harness_core::error::AppError;
-    use tempfile::tempdir;
+    use rho_test_support::TestDir;
+    use test_case::test_case;
 
+    #[test_case(Ok(StoredCredential::api_key("test-token")), false, None; "saved")]
+    #[test_case(Err(AppError::Auth("login cancelled".to_string())), false, Some("login cancelled"); "login error")]
+    #[test_case(Ok(StoredCredential::api_key("test-token")), true, Some("Failed to read auth file"); "save error")]
     #[tokio::test]
-    async fn test_handle_oauth_login_result_outcomes() {
-        type Case = (
-            &'static str,
-            fn() -> Result<StoredCredential>,
-            bool,
-            Option<&'static str>,
-        );
-        let cases: [Case; 3] = [
-            ("saved", || Ok(StoredCredential::api_key("test-token")), false, None),
-            (
-                "login_error",
-                || Err(AppError::Auth("login cancelled".to_string())),
-                false,
-                Some("login cancelled"),
-            ),
-            (
-                "save_error",
-                || Ok(StoredCredential::api_key("test-token")),
-                true,
-                Some("Failed to read auth file"),
-            ),
-        ];
-        for (name, result, blocked_path, expected_error) in cases {
-            let temp = tempdir().unwrap();
-            let path = temp.path().join("auth.json");
-            let store = AuthStore::load(&path).unwrap();
-            if blocked_path {
-                std::fs::create_dir(&path).unwrap();
-            }
-            let auth_store = Arc::new(RwLock::new(store));
-            let events = RpcEventQueue::default();
+    async fn test_handle_oauth_login_result_outcomes(
+        result: Result<StoredCredential>,
+        blocked_path: bool,
+        expected_error: Option<&str>,
+    ) {
+        let temp = TestDir::new();
+        let path = temp.join("auth.json");
+        let store = AuthStore::load(&path).unwrap();
+        if blocked_path {
+            std::fs::create_dir(&path).unwrap();
+        }
+        let auth_store = Arc::new(RwLock::new(store));
+        let events = RpcEventQueue::default();
 
-            let saved = handle_oauth_login_result(
-                rho_harness_core::provider::ProviderId::ChatGpt,
-                result(),
-                &auth_store,
-                &events,
-            )
-            .await;
-            assert_eq!(saved, expected_error.is_none(), "{name}");
+        let saved = handle_oauth_login_result(
+            rho_harness_core::provider::ProviderId::ChatGpt,
+            result,
+            &auth_store,
+            &events,
+        )
+        .await;
+        assert_eq!(saved, expected_error.is_none());
 
-            let batch = events.next_batch().await;
-            let Some(
-                [
-                    RpcEvent::AuthComplete {
-                        provider,
-                        success,
-                        error,
-                    },
-                ],
-            ) = batch.as_deref()
-            else {
-                panic!("{name}: expected AuthComplete, got {batch:?}");
-            };
-            assert_eq!(provider, "chatgpt", "{name}");
-            assert_eq!(*success, expected_error.is_none(), "{name}");
-            match expected_error {
-                Some(needle) => assert!(error.as_deref().unwrap().contains(needle), "{name}"),
-                None => assert!(error.is_none(), "{name}"),
-            }
+        let batch = events.next_batch().await;
+        let Some(
+            [
+                RpcEvent::AuthComplete {
+                    provider,
+                    success,
+                    error,
+                },
+            ],
+        ) = batch.as_deref()
+        else {
+            panic!("expected AuthComplete, got {batch:?}");
+        };
+        assert_eq!(provider, "chatgpt");
+        assert_eq!(*success, expected_error.is_none());
+        match expected_error {
+            Some(needle) => assert!(error.as_deref().unwrap().contains(needle)),
+            None => assert!(error.is_none()),
         }
     }
 }

@@ -12,6 +12,7 @@ use rho_harness_core::presentation::{ToolStreamPort, ToolStreamSink};
 use serde_json::json;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use test_case::test_case;
 
 #[derive(Debug)]
 pub(super) struct TestModel {
@@ -67,52 +68,46 @@ impl ModelAdapter for TestModel {
     }
 }
 
+#[test_case(json!({ "prompt": "search codebase" }), "No model handle configured"; "no model")]
+#[test_case(json!({ "prompt": 12345 }), "Invalid arguments for subagent"; "non string prompt")]
 #[tokio::test]
-async fn test_subagent_tool_rejects_bad_requests() {
+async fn test_subagent_tool_rejects_bad_requests(args: serde_json::Value, expected: &str) {
     let tool = SubagentTool::new(None, Vec::new());
-    let cases = [
-        (json!({ "prompt": "search codebase" }), "No model handle configured"),
-        (json!({ "prompt": 12345 }), "Invalid arguments for subagent"),
-    ];
-    for (args, expected) in cases {
-        let result = tool.execute(args).await.unwrap();
-        assert!(result.is_error);
-        assert!(result.content.contains(expected), "{expected}");
-    }
+    let result = tool.execute(args).await.unwrap();
+    assert!(result.is_error);
+    assert!(result.content.contains(expected), "{expected}");
 }
 
+#[test_case(
+    "Scout completed: identified 4 services",
+    json!({
+        "role": "scout",
+        "prompt": "Find all service definitions",
+        "context_slice": "Check crates/rho-engine"
+    });
+    "scout"
+)]
+#[test_case(
+    "Scout report: zero defects found",
+    json!({
+        "role": "critic",
+        "prompt": "verify invariant AC-001",
+        "context_slice": "spec details"
+    });
+    "critic"
+)]
 #[tokio::test]
-async fn test_subagent_tool_success() {
-    let cases = [
-        (
-            "Scout completed: identified 4 services",
-            json!({
-                "role": "scout",
-                "prompt": "Find all service definitions",
-                "context_slice": "Check crates/rho-engine"
-            }),
-        ),
-        (
-            "Scout report: zero defects found",
-            json!({
-                "role": "critic",
-                "prompt": "verify invariant AC-001",
-                "context_slice": "spec details"
-            }),
-        ),
-    ];
-    for (answer, args) in cases {
-        let model = Arc::new(TestModel::answering(answer));
-        let tool: Arc<dyn EngineTool> = Arc::new(SubagentTool::new(Some(model), Vec::new()));
-        let result = tool.execute(args).await.unwrap();
-        assert!(!result.is_error);
-        assert!(result.content.starts_with(answer));
-        assert!(
-            result
-                .content
-                .contains("[subagent: 1 turns, 0 tool calls, 0 tokens, test-provider/test-subagent-model]")
-        );
-    }
+async fn test_subagent_tool_success(answer: &str, args: serde_json::Value) {
+    let model = Arc::new(TestModel::answering(answer));
+    let tool: Arc<dyn EngineTool> = Arc::new(SubagentTool::new(Some(model), Vec::new()));
+    let result = tool.execute(args).await.unwrap();
+    assert!(!result.is_error);
+    assert!(result.content.starts_with(answer));
+    assert!(
+        result
+            .content
+            .contains("[subagent: 1 turns, 0 tool calls, 0 tokens, test-provider/test-subagent-model]")
+    );
 }
 
 #[tokio::test]
@@ -217,8 +212,17 @@ fn test_role_tool_filtering() {
     );
 }
 
-#[test]
-fn custom_agent_tools_follow_allow_and_deny_lists_and_default_to_read_only() {
+#[test_case(None, None, &["lsp", "read", "rg"]; "default read only")]
+#[test_case(Some(&["READ", "subagent"]), None, &["read"]; "allow list ignores case and subagent")]
+#[test_case(None, Some(&["rg"]), &["lsp", "read"]; "deny list trims default")]
+#[test_case(Some(&["read", "bash"]), Some(&["bash"]), &["read"]; "deny overrides allow")]
+#[test_case(Some(&["edit", "lsp", "bash", "subagent"]), None, &["bash", "edit", "lsp"]; "write tools allowed")]
+#[test_case(Some(&["read", "memory", "worktree"]), None, &["read"]; "memory and worktree excluded")]
+fn custom_agent_tools_follow_allow_and_deny_lists_and_default_to_read_only(
+    tools: Option<&[&str]>,
+    disallowed_tools: Option<&[&str]>,
+    expected: &[&str],
+) {
     use rho_harness_core::agents::AgentMetadata;
     fn dummy_tool(name: &'static str) -> Arc<dyn EngineTool> {
         Arc::new(crate::tools::GenericTool::new(name, "desc", json!({}), |_| async {
@@ -235,34 +239,20 @@ fn custom_agent_tools_follow_allow_and_deny_lists_and_default_to_read_only() {
         dummy_tool("memory"),
         dummy_tool("worktree"),
     ];
-    let list = |names: &[&str]| Some(names.iter().map(|n| n.to_string()).collect::<Vec<_>>());
-    let cases = [
-        (None, None, vec!["lsp", "read", "rg"]),
-        (list(&["READ", "subagent"]), None, vec!["read"]),
-        (None, list(&["rg"]), vec!["lsp", "read"]),
-        (list(&["read", "bash"]), list(&["bash"]), vec!["read"]),
-        (
-            list(&["edit", "lsp", "bash", "subagent"]),
-            None,
-            vec!["bash", "edit", "lsp"],
-        ),
-        (list(&["read", "memory", "worktree"]), None, vec!["read"]),
-    ];
-    for (tools, disallowed_tools, expected) in cases {
-        let agent = AgentMetadata {
-            name: "a".into(),
-            description: String::new(),
-            location: String::new(),
-            tools: tools.clone(),
-            disallowed_tools: disallowed_tools.clone(),
-            system_prompt: String::new(),
-        };
-        let names: Vec<String> = filter_tools_for_agent(&all_tools, &agent)
-            .iter()
-            .map(|t| t.name().to_string())
-            .collect();
-        assert_eq!(names, expected, "tools: {tools:?}, disallowed: {disallowed_tools:?}");
-    }
+    let list = |names: Option<&[&str]>| names.map(|names| names.iter().map(|n| n.to_string()).collect::<Vec<_>>());
+    let agent = AgentMetadata {
+        name: "a".into(),
+        description: String::new(),
+        location: String::new(),
+        tools: list(tools),
+        disallowed_tools: list(disallowed_tools),
+        system_prompt: String::new(),
+    };
+    let names: Vec<String> = filter_tools_for_agent(&all_tools, &agent)
+        .iter()
+        .map(|t| t.name().to_string())
+        .collect();
+    assert_eq!(names, expected);
 }
 
 #[tokio::test]
@@ -407,9 +397,9 @@ fn tool_outputs(request: &ModelCompletionRequest) -> Vec<String> {
 
 fn deny_rm_context() -> TurnToolContext {
     let scope = parse_scope_from_str("[permission.bash]\n\"rm *\" = \"deny\"\n\"echo *\" = \"allow\"\n").unwrap();
-    let dir = tempfile::tempdir().unwrap();
+    let dir = crate::test_support::TestDir::new();
     let hook = PermissionHook::with_policy(
-        Some(dir.path().to_path_buf()),
+        Some(dir.to_path_buf()),
         Arc::new(MockHookPresenter::new(false, None)),
         build_policy(None, Some(scope)),
     );
@@ -577,9 +567,9 @@ async fn a_subagents_permission_prompt_marks_it_waiting_for_approval_until_answe
         .watching(monitor.clone()),
     );
     let scope = parse_scope_from_str("[permission.bash]\n\"make *\" = \"ask\"\n").unwrap();
-    let dir = tempfile::tempdir().unwrap();
+    let dir = crate::test_support::TestDir::new();
     let hook = PermissionHook::with_policy(
-        Some(dir.path().to_path_buf()),
+        Some(dir.to_path_buf()),
         presenter.clone(),
         build_policy(None, Some(scope)),
     );
@@ -756,8 +746,10 @@ async fn subagent_reports_turn_progress() {
     assert_eq!(tool_outputs(&adapter.requests()[1]), vec!["a", "b"]);
 }
 
+#[test_case("role"; "role")]
+#[test_case("agent"; "agent")]
 #[tokio::test]
-async fn unknown_agent_or_role_names_are_rejected_with_valid_options() {
+async fn unknown_agent_or_role_names_are_rejected_with_valid_options(field: &str) {
     use rho_harness_core::agents::AgentMetadata;
 
     let agent = AgentMetadata {
@@ -770,12 +762,10 @@ async fn unknown_agent_or_role_names_are_rejected_with_valid_options() {
     };
     let tool = SubagentTool::new(Some(Arc::new(MockAdapter::text("x"))), Vec::new()).with_agents(vec![agent]);
 
-    for field in ["role", "agent"] {
-        let result = tool.execute(json!({ field: "scuot", "prompt": "go" })).await.unwrap();
-        assert!(result.is_error, "{field}");
-        assert!(result.content.contains("unknown subagent 'scuot'"), "{field}");
-        assert!(result.content.contains("code-reviewer"), "{field}");
-    }
+    let result = tool.execute(json!({ field: "scuot", "prompt": "go" })).await.unwrap();
+    assert!(result.is_error);
+    assert!(result.content.contains("unknown subagent 'scuot'"));
+    assert!(result.content.contains("code-reviewer"));
 }
 
 fn agent(name: &str, tools: Option<&[&str]>) -> rho_harness_core::agents::AgentMetadata {
@@ -857,23 +847,21 @@ async fn a_persona_adds_its_instructions_to_the_role_and_keeps_the_role_tools() 
     assert_eq!(tools, ["read", "complete_task"]);
 }
 
+#[test_case(Vec::new(), "none are defined (add .agents/personas/<name>.md)"; "no personas")]
+#[test_case(vec![persona("skeptic", "doubt")], "valid: skeptic"; "one persona")]
 #[tokio::test]
-async fn unknown_personas_are_rejected_with_valid_options() {
-    let bare = SubagentTool::new(Some(Arc::new(MockAdapter::text("x"))), Vec::new());
-    let with_one = bare.clone().with_personas(vec![persona("skeptic", "doubt")]);
-    let cases = [
-        (&bare, "none are defined (add .agents/personas/<name>.md)"),
-        (&with_one, "valid: skeptic"),
-    ];
-    for (tool, expected) in cases {
-        let result = tool
-            .execute(json!({ "persona": "cynic", "prompt": "go" }))
-            .await
-            .unwrap();
-        assert!(result.is_error);
-        assert!(result.content.contains("unknown persona 'cynic'"), "{}", result.content);
-        assert!(result.content.contains(expected), "{}", result.content);
-    }
+async fn unknown_personas_are_rejected_with_valid_options(
+    personas: Vec<rho_harness_core::agents::PersonaMetadata>,
+    expected: &str,
+) {
+    let tool = SubagentTool::new(Some(Arc::new(MockAdapter::text("x"))), Vec::new()).with_personas(personas);
+    let result = tool
+        .execute(json!({ "persona": "cynic", "prompt": "go" }))
+        .await
+        .unwrap();
+    assert!(result.is_error);
+    assert!(result.content.contains("unknown persona 'cynic'"), "{}", result.content);
+    assert!(result.content.contains(expected), "{}", result.content);
 }
 
 #[tokio::test]
@@ -914,128 +902,88 @@ fn pins_that_match_no_role_agent_or_persona_are_reported_as_unused() {
     assert_eq!(tool.unused_pins(), ["typo-scuot"]);
 }
 
+#[test_case(json!({ "role": "critic", "persona": "skeptic", "prompt": "go" }), "from slow"; "persona pin wins")]
+#[test_case(json!({ "role": "critic", "persona": "skeptic", "prompt": "go", "model": "smol" }), "from smol"; "explicit model wins")]
+#[test_case(json!({ "role": "critic", "persona": "terse", "prompt": "go" }), "from session"; "unpinned persona uses role pin")]
 #[tokio::test]
-async fn a_persona_pin_outranks_the_role_pin_but_not_an_explicit_model() {
+async fn a_persona_pin_outranks_the_role_pin_but_not_an_explicit_model(args: serde_json::Value, expected: &str) {
     let pins: BTreeMap<String, ModelRole> = [
         ("skeptic".to_string(), ModelRole::Slow),
         ("critic".to_string(), ModelRole::Default),
     ]
     .into();
-    let cases = [
-        (
-            json!({ "role": "critic", "persona": "skeptic", "prompt": "go" }),
-            "from slow",
-        ),
-        (
-            json!({ "role": "critic", "persona": "skeptic", "prompt": "go", "model": "smol" }),
-            "from smol",
-        ),
-        (
-            json!({ "role": "critic", "persona": "terse", "prompt": "go" }),
-            "from session",
-        ),
-    ];
-    for (args, expected) in cases {
-        let tool = role_tool(acme_resolver(), Some("acme/smol"), Some("acme/slow"))
-            .with_pinned_models(pins.clone())
-            .with_personas(vec![persona("skeptic", "doubt"), persona("terse", "short")]);
-        let result = tool.execute(args.clone()).await.unwrap();
-        assert!(result.content.starts_with(expected), "{args}: {}", result.content);
-    }
+    let tool = role_tool(acme_resolver(), Some("acme/smol"), Some("acme/slow"))
+        .with_pinned_models(pins)
+        .with_personas(vec![persona("skeptic", "doubt"), persona("terse", "short")]);
+    let result = tool.execute(args).await.unwrap();
+    assert!(result.content.starts_with(expected), "{}", result.content);
 }
 
+#[test_case(json!({ "agent": "Reviewer", "prompt": "go" }), "from slow"; "agent pin")]
+#[test_case(json!({ "agent": "reviewer", "prompt": "go", "model": "smol" }), "from smol"; "explicit model")]
+#[test_case(json!({ "role": "critic", "prompt": "go" }), "from session"; "role pinned to default")]
+#[test_case(json!({ "role": "scout", "prompt": "go" }), "from smol"; "unpinned scout")]
 #[tokio::test]
-async fn configured_pins_pick_the_model_role_unless_the_caller_passes_one() {
+async fn configured_pins_pick_the_model_role_unless_the_caller_passes_one(args: serde_json::Value, expected: &str) {
     let pins: BTreeMap<String, ModelRole> = [
         ("reviewer".to_string(), ModelRole::Slow),
         ("critic".to_string(), ModelRole::Default),
     ]
     .into();
-    let cases = [
-        (json!({ "agent": "Reviewer", "prompt": "go" }), "from slow"),
-        (
-            json!({ "agent": "reviewer", "prompt": "go", "model": "smol" }),
-            "from smol",
-        ),
-        (json!({ "role": "critic", "prompt": "go" }), "from session"),
-        (json!({ "role": "scout", "prompt": "go" }), "from smol"),
-    ];
-    for (args, expected) in cases {
-        let tool = role_tool(acme_resolver(), Some("acme/smol"), Some("acme/slow")).with_pinned_models(pins.clone());
-        let result = tool.execute(args.clone()).await.unwrap();
-        assert!(result.content.starts_with(expected), "{args}: {}", result.content);
-    }
+    let tool = role_tool(acme_resolver(), Some("acme/smol"), Some("acme/slow")).with_pinned_models(pins);
+    let result = tool.execute(args).await.unwrap();
+    assert!(result.content.starts_with(expected), "{}", result.content);
 }
 
+#[test_case(json!({ "agent": "reviewer", "prompt": "go" }), Some("acme/smol"), "from smol"; "agent defaults to smol")]
+#[test_case(json!({ "role": "scout", "prompt": "go" }), None, "from session"; "no smol falls back to session")]
+#[test_case(json!({ "agent": "reviewer", "prompt": "go", "model": "slow" }), Some("acme/smol"), "from slow"; "explicit slow")]
+#[test_case(json!({ "agent": "reviewer", "prompt": "go", "model": "default" }), Some("acme/smol"), "from session"; "explicit default")]
+#[test_case(json!({ "agent": "reviewer", "prompt": "go", "model": "smol" }), Some(" acme/smol "), "from smol"; "padded smol model")]
 #[tokio::test]
-async fn subagent_models_are_chosen_by_role() {
-    let cases = [
-        (
-            json!({ "agent": "reviewer", "prompt": "go" }),
-            Some("acme/smol"),
-            "from smol",
-        ),
-        (json!({ "role": "scout", "prompt": "go" }), None, "from session"),
-        (
-            json!({ "agent": "reviewer", "prompt": "go", "model": "slow" }),
-            Some("acme/smol"),
-            "from slow",
-        ),
-        (
-            json!({ "agent": "reviewer", "prompt": "go", "model": "default" }),
-            Some("acme/smol"),
-            "from session",
-        ),
-        (
-            json!({ "agent": "reviewer", "prompt": "go", "model": "smol" }),
-            Some(" acme/smol "),
-            "from smol",
-        ),
-    ];
-    for (args, smol, expected) in cases {
-        let tool = role_tool(acme_resolver(), smol, Some("acme/slow"));
-        let result = tool.execute(args.clone()).await.unwrap();
-        assert!(result.content.starts_with(expected), "{args}: {}", result.content);
-    }
+async fn subagent_models_are_chosen_by_role(args: serde_json::Value, smol: Option<&str>, expected: &str) {
+    let tool = role_tool(acme_resolver(), smol, Some("acme/slow"));
+    let result = tool.execute(args).await.unwrap();
+    assert!(result.content.starts_with(expected), "{}", result.content);
 }
 
+fn failing_resolver() -> SubagentModelResolver {
+    Arc::new(|_| Err("no credentials".into()))
+}
+
+#[test_case(role_tool(acme_resolver(), None, None), "slow", "model role 'slow' is not configured"; "unconfigured role")]
+#[test_case(role_tool(acme_resolver(), None, None), "claude/opus", "model must be one of default, smol, slow"; "model id instead of role")]
+#[test_case(role_tool(acme_resolver(), None, None), "guard", "model must be one of default, smol, slow"; "unknown role")]
+#[test_case(
+    role_tool(failing_resolver(), Some("acme/m1"), None),
+    "smol",
+    "failed to resolve model 'acme/m1' for subagent: no credentials";
+    "unresolvable model"
+)]
 #[tokio::test]
-async fn unknown_or_unconfigured_roles_and_unresolvable_models_are_errors() {
-    let failing: SubagentModelResolver = Arc::new(|_| Err("no credentials".into()));
-    let cases = [
-        (
-            role_tool(acme_resolver(), None, None),
-            "slow",
-            "model role 'slow' is not configured",
-        ),
-        (
-            role_tool(acme_resolver(), None, None),
-            "claude/opus",
-            "model must be one of default, smol, slow",
-        ),
-        (
-            role_tool(acme_resolver(), None, None),
-            "guard",
-            "model must be one of default, smol, slow",
-        ),
-        (
-            role_tool(failing, Some("acme/m1"), None),
-            "smol",
-            "failed to resolve model 'acme/m1' for subagent: no credentials",
-        ),
-    ];
-    for (tool, model, expected) in cases {
-        let result = tool
-            .execute(json!({ "agent": "reviewer", "prompt": "go", "model": model }))
-            .await
-            .unwrap();
-        assert!(result.is_error, "{model}");
-        assert!(result.content.contains(expected), "{model}: {}", result.content);
-    }
+async fn unknown_or_unconfigured_roles_and_unresolvable_models_are_errors(
+    tool: SubagentTool,
+    model: &str,
+    expected: &str,
+) {
+    let result = tool
+        .execute(json!({ "agent": "reviewer", "prompt": "go", "model": model }))
+        .await
+        .unwrap();
+    assert!(result.is_error);
+    assert!(result.content.contains(expected), "{}", result.content);
 }
 
-#[test]
-fn subagent_concurrency_safety_follows_the_tool_set() {
+#[test_case(json!({ "prompt": "p" }), true; "default role")]
+#[test_case(json!({ "role": "critic", "prompt": "p" }), true; "read only role")]
+#[test_case(json!({ "role": "general", "prompt": "p" }), false; "general role")]
+#[test_case(json!({ "agent": "reader", "prompt": "p" }), true; "read only agent")]
+#[test_case(json!({ "agent": "writer", "prompt": "p" }), false; "writing agent")]
+#[test_case(json!({ "agent": "unlisted", "prompt": "p" }), true; "agent without tool list")]
+#[test_case(json!({ "agent": "toolless", "prompt": "p" }), false; "agent with empty tool list")]
+#[test_case(json!({ "agent": "missing", "prompt": "p" }), false; "unknown agent")]
+#[test_case(json!({ "prompt": 7 }), false; "invalid args")]
+fn subagent_concurrency_safety_follows_the_tool_set(args: serde_json::Value, expected: bool) {
     let tools = vec![
         named_tool("read"),
         named_tool("rg"),
@@ -1048,29 +996,16 @@ fn subagent_concurrency_safety_follows_the_tool_set() {
         agent("unlisted", None),
         agent("toolless", Some(&[])),
     ]);
-    let cases = [
-        (json!({ "prompt": "p" }), true),
-        (json!({ "role": "critic", "prompt": "p" }), true),
-        (json!({ "role": "general", "prompt": "p" }), false),
-        (json!({ "agent": "reader", "prompt": "p" }), true),
-        (json!({ "agent": "writer", "prompt": "p" }), false),
-        (json!({ "agent": "unlisted", "prompt": "p" }), true),
-        (json!({ "agent": "toolless", "prompt": "p" }), false),
-        (json!({ "agent": "missing", "prompt": "p" }), false),
-        (json!({ "prompt": 7 }), false),
-    ];
-    for (args, expected) in cases {
-        assert_eq!(tool.concurrency_safe(&args), expected, "{args}");
-    }
+    assert_eq!(tool.concurrency_safe(&args), expected);
 }
 
 #[test]
 fn subagents_with_their_own_worktrees_all_run_in_parallel() {
-    let tool = SubagentTool::new(None, vec![named_tool("read"), named_tool("write")]).with_worktrees(
-        crate::worktree::WorktreeStore::new(std::env::temp_dir().join("rho-unused")),
-    );
-    let sessions = tempfile::tempdir().unwrap();
-    let session = rho_harness_core::session::SessionManager::new(sessions.path(), None).unwrap();
+    let scratch = crate::test_support::TestDir::new();
+    let tool = SubagentTool::new(None, vec![named_tool("read"), named_tool("write")])
+        .with_worktrees(crate::worktree::WorktreeStore::new(scratch.join("rho-unused")));
+    let sessions = crate::test_support::TestDir::new();
+    let session = rho_harness_core::session::SessionManager::new(&sessions, None).unwrap();
     let in_project = |git_status: Option<&str>, session: Option<rho_harness_core::session::SessionManager>| {
         let mut project = crate::engine::context::ProjectContext::for_tests(std::path::Path::new("."));
         project.git_status = git_status.map(str::to_string);
@@ -1125,29 +1060,25 @@ fn parent_history_context() -> TurnToolContext {
     }
 }
 
+#[test_case(json!({ "prompt": "go", "inherit_context": true }), true; "inherit enabled")]
+#[test_case(json!({ "prompt": "go" }), false; "inherit omitted")]
+#[test_case(json!({ "prompt": "go", "inherit_context": false }), false; "inherit disabled")]
 #[tokio::test]
-async fn inherit_context_shares_a_text_only_parent_transcript() {
-    let cases = [
-        (json!({ "prompt": "go", "inherit_context": true }), true),
-        (json!({ "prompt": "go" }), false),
-        (json!({ "prompt": "go", "inherit_context": false }), false),
-    ];
-    for (args, shared) in cases {
-        let adapter = MockAdapter::text("done");
-        let tool = SubagentTool::new(Some(Arc::new(adapter.clone())), Vec::new());
-        let bound = tool.bind_turn(&parent_history_context()).unwrap();
+async fn inherit_context_shares_a_text_only_parent_transcript(args: serde_json::Value, shared: bool) {
+    let adapter = MockAdapter::text("done");
+    let tool = SubagentTool::new(Some(Arc::new(adapter.clone())), Vec::new());
+    let bound = tool.bind_turn(&parent_history_context()).unwrap();
 
-        bound.execute(args.clone()).await.unwrap();
+    bound.execute(args).await.unwrap();
 
-        let prompt = adapter.requests()[0].asked();
-        assert_eq!(prompt.contains("Parent conversation"), shared, "{args}");
-        if shared {
-            assert!(prompt.contains("User: fix the parser"));
-            assert!(prompt.contains("Assistant: looking at it"));
-            assert!(prompt.contains("User: also check the lexer"));
-            assert!(!prompt.contains("hidden"));
-            assert!(prompt.ends_with("Task:\ngo"));
-        }
+    let prompt = adapter.requests()[0].asked();
+    assert_eq!(prompt.contains("Parent conversation"), shared);
+    if shared {
+        assert!(prompt.contains("User: fix the parser"));
+        assert!(prompt.contains("Assistant: looking at it"));
+        assert!(prompt.contains("User: also check the lexer"));
+        assert!(!prompt.contains("hidden"));
+        assert!(prompt.ends_with("Task:\ngo"));
     }
 }
 

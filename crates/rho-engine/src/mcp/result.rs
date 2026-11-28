@@ -227,7 +227,7 @@ mod tests {
 
     #[test]
     fn oversized_output_is_truncated_and_spilled_to_an_artifact() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = crate::test_support::TestDir::new();
         let body = "line\n".repeat(100);
         let result = McpToolResult {
             content: vec![text(&body)],
@@ -237,12 +237,12 @@ mod tests {
             &result,
             OutputLimits {
                 max_bytes: 64,
-                artifact_dir: Some(dir.path()),
+                artifact_dir: Some(&dir),
             },
         );
         assert!(out.content.len() < body.len());
         assert!(out.content.contains("Full content"), "{}", out.content);
-        let spilled = std::fs::read_dir(dir.path()).unwrap().next().unwrap().unwrap().path();
+        let spilled = std::fs::read_dir(&dir).unwrap().next().unwrap().unwrap().path();
         assert_eq!(std::fs::read_to_string(spilled).unwrap(), body);
     }
 

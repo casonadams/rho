@@ -208,35 +208,31 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use test_case::test_case;
+
+    #[test_case("brave", EngineKind::Brave; "brave")]
+    #[test_case("duckduckgo", EngineKind::DuckDuckGoLite; "duckduckgo")]
+    #[test_case("ddg", EngineKind::DuckDuckGoLite; "ddg")]
+    #[test_case("ddg_lite", EngineKind::DuckDuckGoLite; "ddg lite")]
+    #[test_case("yahoo", EngineKind::Yahoo; "yahoo")]
+    #[test_case("exa", EngineKind::Exa; "exa")]
+    #[test_case("EXA", EngineKind::Exa; "exa uppercase")]
+    fn test_engine_kind_parsing(input: &str, expected: EngineKind) {
+        assert_eq!(resolve_engine_chain(input, &[]).unwrap(), vec![expected]);
+    }
 
     #[test]
-    fn test_engine_kind_parsing() {
-        for (input, expected) in [
-            ("brave", EngineKind::Brave),
-            ("duckduckgo", EngineKind::DuckDuckGoLite),
-            ("ddg", EngineKind::DuckDuckGoLite),
-            ("ddg_lite", EngineKind::DuckDuckGoLite),
-            ("yahoo", EngineKind::Yahoo),
-            ("exa", EngineKind::Exa),
-            ("EXA", EngineKind::Exa),
-        ] {
-            assert_eq!(resolve_engine_chain(input, &[]).unwrap(), vec![expected]);
-        }
+    fn test_engine_kind_parsing_rejects_unknown_engines() {
         assert!(resolve_engine_chain("unknown", &[]).is_err());
         assert!(resolve_engine_chain("brave", &["gemini".to_string()]).is_err());
     }
 
-    #[test]
-    fn test_engine_kind_name() {
-        let cases = [
-            (EngineKind::Brave, "Brave"),
-            (EngineKind::DuckDuckGoLite, "DuckDuckGo Lite"),
-            (EngineKind::Yahoo, "Yahoo"),
-            (EngineKind::Exa, "Exa"),
-        ];
-        for (engine, name) in cases {
-            assert_eq!(engine.name(), name);
-        }
+    #[test_case(EngineKind::Brave, "Brave"; "brave")]
+    #[test_case(EngineKind::DuckDuckGoLite, "DuckDuckGo Lite"; "duckduckgo lite")]
+    #[test_case(EngineKind::Yahoo, "Yahoo"; "yahoo")]
+    #[test_case(EngineKind::Exa, "Exa"; "exa")]
+    fn test_engine_kind_name(engine: EngineKind, name: &str) {
+        assert_eq!(engine.name(), name);
     }
 
     #[test]

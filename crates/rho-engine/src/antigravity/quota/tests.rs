@@ -2,19 +2,15 @@ use super::*;
 use crate::quota::format_duration;
 use crate::test_support::{assert_quota_cases, serve_raw_http};
 use chrono::{Duration, TimeZone};
+use test_case::test_case;
 
-#[test]
-fn format_duration_matches_all_breakpoints() {
-    let cases = [
-        (Duration::seconds(45), "45s"),
-        (Duration::minutes(15), "15m"),
-        (Duration::hours(3) + Duration::minutes(22), "3h22m"),
-        (Duration::days(1) + Duration::hours(5), "1d5h"),
-        (Duration::days(6) + Duration::hours(12), "6d12h"),
-    ];
-    for (d, expected) in cases {
-        assert_eq!(format_duration(d), expected);
-    }
+#[test_case(Duration::seconds(45), "45s"; "seconds")]
+#[test_case(Duration::minutes(15), "15m"; "minutes")]
+#[test_case(Duration::hours(3) + Duration::minutes(22), "3h22m"; "hours and minutes")]
+#[test_case(Duration::days(1) + Duration::hours(5), "1d5h"; "one day")]
+#[test_case(Duration::days(6) + Duration::hours(12), "6d12h"; "several days")]
+fn format_duration_matches_all_breakpoints(d: Duration, expected: &str) {
+    assert_eq!(format_duration(d), expected);
 }
 
 const MODELS_EXACT: &str =

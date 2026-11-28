@@ -5,6 +5,7 @@ use super::ansi::{
 use super::backend::TerminalBackend;
 use super::cache::{TranscriptRenderCache, target_slot};
 use crate::ui::interactive::{TranscriptItem, TranscriptRenderInput, render_transcript_item};
+use crate::ui::theme::{BlockStyle, CursorMode, Theme};
 use std::io;
 
 #[derive(Clone, Copy)]
@@ -28,11 +29,11 @@ impl<B: TerminalBackend> TerminalController<B> {
         self.full_redraw()
     }
 
-    pub fn theme(&self) -> &crate::ui::theme::Theme {
+    pub fn theme(&self) -> &Theme {
         &self.theme
     }
 
-    pub fn set_theme(&mut self, theme: crate::ui::theme::Theme) -> io::Result<()> {
+    pub fn set_theme(&mut self, theme: Theme) -> io::Result<()> {
         self.theme = theme;
         self.cache.clear();
         self.full_redraw()
@@ -72,47 +73,46 @@ impl<B: TerminalBackend> TerminalController<B> {
         self.set_hide_thinking(!self.state.hide_thinking())
     }
 
-    pub fn block_style(&self) -> crate::ui::theme::BlockStyle {
+    fn set_theme_field<T: Copy + PartialEq>(&mut self, field: fn(&mut Theme) -> &mut T, value: T) -> io::Result<T> {
+        let slot = field(&mut self.theme);
+        if *slot == value {
+            return Ok(value);
+        }
+        *slot = value;
+        self.cache.clear();
+        self.redraw_transcript_or_live()?;
+        Ok(value)
+    }
+
+    pub fn block_style(&self) -> BlockStyle {
         self.theme.block_style
     }
 
-    pub fn set_block_style(&mut self, style: crate::ui::theme::BlockStyle) -> io::Result<crate::ui::theme::BlockStyle> {
-        if self.theme.block_style == style {
-            return Ok(style);
-        }
-        self.theme.block_style = style;
-        self.cache.clear();
-        self.redraw_transcript_or_live()?;
-        Ok(style)
+    pub fn set_block_style(&mut self, style: BlockStyle) -> io::Result<BlockStyle> {
+        self.set_theme_field(|theme| &mut theme.block_style, style)
     }
 
-    pub fn toggle_block_style(&mut self) -> io::Result<crate::ui::theme::BlockStyle> {
+    pub fn toggle_block_style(&mut self) -> io::Result<BlockStyle> {
         let next = match self.theme.block_style {
-            crate::ui::theme::BlockStyle::Border => crate::ui::theme::BlockStyle::Solid,
-            crate::ui::theme::BlockStyle::Solid => crate::ui::theme::BlockStyle::Divider,
-            crate::ui::theme::BlockStyle::Divider => crate::ui::theme::BlockStyle::Border,
+            BlockStyle::Border => BlockStyle::Solid,
+            BlockStyle::Solid => BlockStyle::Divider,
+            BlockStyle::Divider => BlockStyle::Border,
         };
         self.set_block_style(next)
     }
 
-    pub fn cursor_mode(&self) -> crate::ui::theme::CursorMode {
+    pub fn cursor_mode(&self) -> CursorMode {
         self.theme.cursor_mode
     }
 
-    pub fn set_cursor_mode(&mut self, mode: crate::ui::theme::CursorMode) -> io::Result<crate::ui::theme::CursorMode> {
-        if self.theme.cursor_mode == mode {
-            return Ok(mode);
-        }
-        self.theme.cursor_mode = mode;
-        self.cache.clear();
-        self.redraw_transcript_or_live()?;
-        Ok(mode)
+    pub fn set_cursor_mode(&mut self, mode: CursorMode) -> io::Result<CursorMode> {
+        self.set_theme_field(|theme| &mut theme.cursor_mode, mode)
     }
 
-    pub fn toggle_cursor_mode(&mut self) -> io::Result<crate::ui::theme::CursorMode> {
+    pub fn toggle_cursor_mode(&mut self) -> io::Result<CursorMode> {
         let next = match self.theme.cursor_mode {
-            crate::ui::theme::CursorMode::Software => crate::ui::theme::CursorMode::Hardware,
-            crate::ui::theme::CursorMode::Hardware => crate::ui::theme::CursorMode::Software,
+            CursorMode::Software => CursorMode::Hardware,
+            CursorMode::Hardware => CursorMode::Software,
         };
         self.set_cursor_mode(next)
     }
@@ -122,18 +122,11 @@ impl<B: TerminalBackend> TerminalController<B> {
     }
 
     pub fn set_block_agent_output(&mut self, enabled: bool) -> io::Result<bool> {
-        if self.theme.block_agent_output == enabled {
-            return Ok(enabled);
-        }
-        self.theme.block_agent_output = enabled;
-        self.cache.clear();
-        self.redraw_transcript_or_live()?;
-        Ok(enabled)
+        self.set_theme_field(|theme| &mut theme.block_agent_output, enabled)
     }
 
     pub fn toggle_block_agent_output(&mut self) -> io::Result<bool> {
-        let next = !self.theme.block_agent_output;
-        self.set_block_agent_output(next)
+        self.set_block_agent_output(!self.theme.block_agent_output)
     }
 
     pub(super) fn redraw_transcript_or_live(&mut self) -> io::Result<()> {

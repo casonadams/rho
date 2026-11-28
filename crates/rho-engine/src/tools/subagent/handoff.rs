@@ -123,10 +123,11 @@ pub(crate) fn pending_note(record: &WorktreeRecord) -> String {
     }
     let files: Vec<String> = record.changes.iter().map(FileChange::label).collect();
     format!(
-        "\n\nThese changes are in worktree `{id}` ({path}, branch {branch}), not in your working tree: {files}. Review them with worktree {{\"action\": \"diff\", \"id\": \"{id}\"}}, then merge with {{\"action\": \"merge\", \"id\": \"{id}\"}} (conflicts are left as markers for you to fix) or drop them with {{\"action\": \"discard\", \"id\": \"{id}\"}}. You are responsible for this worktree: unmerged worktrees are deleted 24 hours after they were created.",
+        "\n\nThese changes are in worktree `{id}` ({path}, branch {branch}), not in your working tree: {files}. Review them with worktree {{\"action\": \"diff\", \"id\": \"{id}\"}}. {standard} Merge with {{\"action\": \"merge\", \"id\": \"{id}\"}} (conflicts are left as markers for you to fix) or drop them with {{\"action\": \"discard\", \"id\": \"{id}\"}}. You are responsible for this worktree: unmerged worktrees are deleted 24 hours after they were created.",
         id = record.id,
         path = record.path,
         branch = record.branch,
-        files = files.join(", ")
+        files = files.join(", "),
+        standard = crate::worktree::MERGE_STANDARD
     )
 }

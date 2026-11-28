@@ -1,24 +1,19 @@
 use super::provider::{AuthMethod, login_choices, resolve_provider_name, select_login_provider};
 use crate::config::Config;
+use rho_harness_core::provider::ProviderId;
+use test_case::test_case;
 
-#[test]
-fn built_in_names_canonicalize_and_custom_names_are_kept() {
-    let cases = [
-        (Some("Google"), "anthropic", "gemini"),
-        (Some("google-antigravity"), "anthropic", "antigravity"),
-        (None, "GROQ", "groq"),
-        (Some("acme"), "anthropic", "acme"),
-        (Some("Acme Cloud"), "anthropic", "acme cloud"),
-    ];
-    for (input, default, expected) in cases {
-        assert_eq!(resolve_provider_name(input, default), expected);
-    }
+#[test_case(Some("Google"), "anthropic", "gemini"; "google alias")]
+#[test_case(Some("google-antigravity"), "anthropic", "antigravity"; "antigravity alias")]
+#[test_case(None, "GROQ", "groq"; "default is lowercased")]
+#[test_case(Some("acme"), "anthropic", "acme"; "custom name")]
+#[test_case(Some("Acme Cloud"), "anthropic", "acme cloud"; "custom name with space")]
+fn built_in_names_canonicalize_and_custom_names_are_kept(input: Option<&str>, default: &str, expected: &str) {
+    assert_eq!(resolve_provider_name(input, default), expected);
 }
 
 #[test]
 fn login_choices_offer_every_builtin_login_then_custom_providers() {
-    use rho_harness_core::provider::ProviderId;
-
     let mut config = Config::default();
     config.providers.insert(
         "custom-llm".to_string(),
@@ -129,24 +124,17 @@ async fn login_provider_key_stdin_without_provider_fails() {
     );
 }
 
-#[test]
-fn default_oauth_provider_checks() {
-    use rho_harness_core::provider::ProviderId;
-
-    let cases = [
-        (ProviderId::ChatGpt, true),
-        (ProviderId::Antigravity, true),
-        (ProviderId::ClaudeCode, true),
-        (ProviderId::OpenAi, false),
-        (ProviderId::OpenRouter, false),
-        (ProviderId::Groq, false),
-        (ProviderId::Local, false),
-    ];
-    for (id, expected) in cases {
-        assert_eq!(super::is_default_oauth_provider(id), expected);
-        if id != ProviderId::OpenRouter {
-            assert_eq!(super::should_default_oauth(id).unwrap(), expected);
-        }
+#[test_case(ProviderId::ChatGpt, true; "chatgpt")]
+#[test_case(ProviderId::Antigravity, true; "antigravity")]
+#[test_case(ProviderId::ClaudeCode, true; "claude code")]
+#[test_case(ProviderId::OpenAi, false; "openai")]
+#[test_case(ProviderId::OpenRouter, false; "openrouter")]
+#[test_case(ProviderId::Groq, false; "groq")]
+#[test_case(ProviderId::Local, false; "local")]
+fn default_oauth_provider_checks(id: ProviderId, expected: bool) {
+    assert_eq!(super::is_default_oauth_provider(id), expected);
+    if id != ProviderId::OpenRouter {
+        assert_eq!(super::should_default_oauth(id).unwrap(), expected);
     }
 }
 
@@ -165,26 +153,21 @@ fn test_store_api_key_valid_and_empty() {
     );
 }
 
-#[test]
-fn test_prompt_logout_selection_maps_invalid_input_to_cancelled() {
+#[test_case("1\n", Ok("anthropic"); "first")]
+#[test_case("2\n", Ok("gemini"); "second")]
+#[test_case("0\n", Err(()); "zero")]
+#[test_case("3\n", Err(()); "out of range")]
+#[test_case("abc\n", Err(()); "not a number")]
+fn test_prompt_logout_selection_maps_invalid_input_to_cancelled(input: &str, expected: Result<&str, ()>) {
     use std::io::Cursor;
     let configured = vec!["anthropic".to_string(), "gemini".to_string()];
-    for (input, expected) in [
-        ("1\n", Ok("anthropic")),
-        ("2\n", Ok("gemini")),
-        ("0\n", Err(())),
-        ("3\n", Err(())),
-        ("abc\n", Err(())),
-    ] {
-        let mut reader = Cursor::new(input.as_bytes());
-        let mut writer = Vec::new();
-        let result = super::prompt_logout_selection(&mut reader, &mut writer, &configured);
-        match expected {
-            Ok(name) => assert_eq!(result.unwrap(), name, "{input:?}"),
-            Err(()) => assert!(
-                matches!(result, Err(crate::error::AppError::Cancelled(ref msg)) if msg == "Logout cancelled"),
-                "{input:?}"
-            ),
+    let mut reader = Cursor::new(input.as_bytes());
+    let mut writer = Vec::new();
+    let result = super::prompt_logout_selection(&mut reader, &mut writer, &configured);
+    match expected {
+        Ok(name) => assert_eq!(result.unwrap(), name),
+        Err(()) => {
+            assert!(matches!(result, Err(crate::error::AppError::Cancelled(ref msg)) if msg == "Logout cancelled"))
         }
     }
 }
@@ -226,8 +209,6 @@ fn test_logout_provider_named_and_empty_list() {
 
 #[tokio::test]
 async fn test_try_oauth_login_skips_when_api_key_or_unsupported() {
-    use rho_harness_core::provider::ProviderId;
-
     let config = Config::default();
     let temp_auth = rho_test_support::TestFile::new();
     let mut auth_store = crate::auth::AuthStore::load(temp_auth.path()).unwrap();
@@ -265,32 +246,27 @@ fn test_prompt_select_from() {
     assert!(output.contains("2. Option B"));
 }
 
-#[test]
-fn test_prompt_auth_choice_maps_selection_to_method() {
-    use super::provider::{AuthMethod, prompt_auth_choice};
+#[test_case(Some(0), Some(AuthMethod::ApiKey); "api key")]
+#[test_case(Some(1), Some(AuthMethod::OAuth); "oauth")]
+#[test_case(None, None; "cancelled")]
+fn test_prompt_auth_choice_maps_selection_to_method(selected: Option<usize>, expected: Option<AuthMethod>) {
+    use super::provider::prompt_auth_choice;
     use crate::error::AppError;
 
-    let cases = [
-        (Some(0), Some(AuthMethod::ApiKey)),
-        (Some(1), Some(AuthMethod::OAuth)),
-        (None, None),
-    ];
-    for (selected, expected) in cases {
-        let select = move |prompt: &str, items: &[String]| {
-            assert_eq!(prompt, "Pick:");
-            assert_eq!(items, ["first".to_string(), "second".to_string()]);
-            selected.ok_or_else(|| AppError::Cancelled("cancelled".to_string()))
-        };
-        let result = prompt_auth_choice(
-            select,
-            "Pick:",
-            ["first", "second"],
-            [AuthMethod::ApiKey, AuthMethod::OAuth],
-        );
-        match expected {
-            Some(method) => assert_eq!(result.unwrap(), method),
-            None => assert!(result.is_err()),
-        }
+    let select = move |prompt: &str, items: &[String]| {
+        assert_eq!(prompt, "Pick:");
+        assert_eq!(items, ["first".to_string(), "second".to_string()]);
+        selected.ok_or_else(|| AppError::Cancelled("cancelled".to_string()))
+    };
+    let result = prompt_auth_choice(
+        select,
+        "Pick:",
+        ["first", "second"],
+        [AuthMethod::ApiKey, AuthMethod::OAuth],
+    );
+    match expected {
+        Some(method) => assert_eq!(result.unwrap(), method),
+        None => assert!(result.is_err()),
     }
 }
 

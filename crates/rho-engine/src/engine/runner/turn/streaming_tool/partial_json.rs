@@ -232,62 +232,50 @@ fn is_high_surrogate(escape: &[u8]) -> bool {
 mod tests {
     use super::*;
     use serde_json::json;
+    use test_case::test_case;
 
-    #[test]
-    fn each_prefix_reads_as_the_arguments_streamed_so_far() {
-        let cases = [
-            ("", None),
-            ("  ", None),
-            ("{", Some(json!({}))),
-            (r#"{"pa"#, Some(json!({}))),
-            (r#"{"path""#, Some(json!({}))),
-            (r#"{"path": "#, Some(json!({}))),
-            (r#"{"path": "src/m"#, Some(json!({"path": "src/m"}))),
-            (
-                r#"{"path": "a.rs", "edits": ["#,
-                Some(json!({"path": "a.rs", "edits": []})),
-            ),
-            (
-                r#"{"path": "a.rs", "edits": [{"oldText": "fn a()\n    x"#,
-                Some(json!({"path": "a.rs", "edits": [{"oldText": "fn a()\n    x"}]})),
-            ),
-            (
-                r#"{"edits": [{"oldText": "a", "newText": "b"}, {"line": 4"#,
-                Some(json!({"edits": [{"oldText": "a", "newText": "b"}, {}]})),
-            ),
-            (
-                r#"{"edits": [{"line": 4, "ok": tru"#,
-                Some(json!({"edits": [{"line": 4}]})),
-            ),
-            (
-                r#"{"edits": [{"line": 4}], "dry": true}"#,
-                Some(json!({"edits": [{"line": 4}], "dry": true})),
-            ),
-        ];
-        for (prefix, expected) in cases {
-            assert_eq!(parse_prefix(prefix), expected, "prefix {prefix:?}");
-        }
+    #[test_case("", None; "empty")]
+    #[test_case("  ", None; "whitespace")]
+    #[test_case("{", Some(json!({})); "open brace")]
+    #[test_case(r#"{"pa"#, Some(json!({})); "partial key")]
+    #[test_case(r#"{"path""#, Some(json!({})); "key without colon")]
+    #[test_case(r#"{"path": "#, Some(json!({})); "key without value")]
+    #[test_case(r#"{"path": "src/m"#, Some(json!({"path": "src/m"})); "partial string value")]
+    #[test_case(r#"{"path": "a.rs", "edits": ["#, Some(json!({"path": "a.rs", "edits": []})); "open array")]
+    #[test_case(
+        r#"{"path": "a.rs", "edits": [{"oldText": "fn a()\n    x"#,
+        Some(json!({"path": "a.rs", "edits": [{"oldText": "fn a()\n    x"}]}));
+        "partial nested string"
+    )]
+    #[test_case(
+        r#"{"edits": [{"oldText": "a", "newText": "b"}, {"line": 4"#,
+        Some(json!({"edits": [{"oldText": "a", "newText": "b"}, {}]}));
+        "partial number"
+    )]
+    #[test_case(r#"{"edits": [{"line": 4, "ok": tru"#, Some(json!({"edits": [{"line": 4}]})); "partial literal")]
+    #[test_case(
+        r#"{"edits": [{"line": 4}], "dry": true}"#,
+        Some(json!({"edits": [{"line": 4}], "dry": true}));
+        "complete object"
+    )]
+    fn each_prefix_reads_as_the_arguments_streamed_so_far(prefix: &str, expected: Option<Value>) {
+        assert_eq!(parse_prefix(prefix), expected);
     }
 
-    #[test]
-    fn an_escape_cut_off_at_the_end_is_dropped_until_it_completes() {
-        let cases = [
-            (r#"{"t": "a\"#, "a"),
-            (r#"{"t": "a\\"#, "a\\"),
-            (r#"{"t": "a\\\"#, "a\\"),
-            (r#"{"t": "a\n"#, "a\n"),
-            (r#"{"t": "a\u00"#, "a"),
-            (r#"{"t": "a\u00e9"#, "a\u{e9}"),
-            (r#"{"t": "a\\u00"#, "a\\u00"),
-            (r#"{"t": "q\"x"#, "q\"x"),
-            (r#"{"t": "a\ud83d"#, "a"),
-            (r#"{"t": "a\ud83d\ude"#, "a"),
-            (r#"{"t": "a\ud83d\"#, "a"),
-            (r#"{"t": "a\ud83d\ude00"#, "a\u{1f600}"),
-        ];
-        for (prefix, text) in cases {
-            assert_eq!(parse_prefix(prefix), Some(json!({"t": text})), "prefix {prefix:?}");
-        }
+    #[test_case(r#"{"t": "a\"#, "a"; "lone backslash")]
+    #[test_case(r#"{"t": "a\\"#, "a\\"; "escaped backslash")]
+    #[test_case(r#"{"t": "a\\\"#, "a\\"; "escaped backslash then lone backslash")]
+    #[test_case(r#"{"t": "a\n"#, "a\n"; "newline")]
+    #[test_case(r#"{"t": "a\u00"#, "a"; "partial unicode escape")]
+    #[test_case(r#"{"t": "a\u00e9"#, "a\u{e9}"; "unicode escape")]
+    #[test_case(r#"{"t": "a\\u00"#, "a\\u00"; "escaped backslash before u")]
+    #[test_case(r#"{"t": "q\"x"#, "q\"x"; "escaped quote")]
+    #[test_case(r#"{"t": "a\ud83d"#, "a"; "high surrogate")]
+    #[test_case(r#"{"t": "a\ud83d\ude"#, "a"; "high surrogate with partial low")]
+    #[test_case(r#"{"t": "a\ud83d\"#, "a"; "high surrogate with lone backslash")]
+    #[test_case(r#"{"t": "a\ud83d\ude00"#, "a\u{1f600}"; "surrogate pair")]
+    fn an_escape_cut_off_at_the_end_is_dropped_until_it_completes(prefix: &str, text: &str) {
+        assert_eq!(parse_prefix(prefix), Some(json!({"t": text})));
     }
 
     #[test]

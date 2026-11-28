@@ -76,6 +76,7 @@ mod tests {
     use super::*;
     use rho_engine::tools::file_change::capture;
     use serde_json::json;
+    use test_case::test_case;
 
     fn tool(name: &str, arguments: Value, file_change: Option<FileChange>) -> ToolLine {
         let mut line = ToolLine::new(name, arguments);
@@ -98,31 +99,20 @@ mod tests {
         );
     }
 
-    #[test]
-    fn write_header_reports_lines_size_and_overwrite_state() {
+    #[test_case(None, "3 lines \u{b7} 14B"; "no capture")]
+    #[test_case(
+        Some(FileChange { overwrote_existing: false, edit_start_lines: vec![], replaced_regions: vec![] }),
+        "3 lines \u{b7} 14B \u{b7} new file";
+        "new file"
+    )]
+    #[test_case(
+        Some(FileChange { overwrote_existing: true, edit_start_lines: vec![], replaced_regions: vec![] }),
+        "3 lines \u{b7} 14B \u{b7} overwrote";
+        "overwrote"
+    )]
+    fn write_header_reports_lines_size_and_overwrite_state(change: Option<FileChange>, expected: &str) {
         let args = json!({"path": "a.txt", "content": "one\ntwo\nthree\n"});
-        let cases = [
-            (None, "3 lines \u{b7} 14B"),
-            (
-                Some(FileChange {
-                    overwrote_existing: false,
-                    edit_start_lines: vec![],
-                    replaced_regions: vec![],
-                }),
-                "3 lines \u{b7} 14B \u{b7} new file",
-            ),
-            (
-                Some(FileChange {
-                    overwrote_existing: true,
-                    edit_start_lines: vec![],
-                    replaced_regions: vec![],
-                }),
-                "3 lines \u{b7} 14B \u{b7} overwrote",
-            ),
-        ];
-        for (change, expected) in cases {
-            assert_eq!(header_details(&tool("write", args.clone(), change)).unwrap(), expected);
-        }
+        assert_eq!(header_details(&tool("write", args, change)).unwrap(), expected);
     }
 
     #[test]
@@ -135,15 +125,15 @@ mod tests {
 
     #[test]
     fn capture_records_overwrite_state_and_edit_lines_before_the_tool_runs() {
-        let dir = tempfile::tempdir().unwrap();
-        let file = dir.path().join("f.txt");
+        let dir = rho_test_support::TestDir::new();
+        let file = dir.join("f.txt");
         std::fs::write(&file, "alpha\nbeta\ngamma\n").unwrap();
         let path = file.to_str().unwrap();
 
         let (key, write) = capture("write", &json!({"path": path, "content": "x"})).unwrap();
         assert_eq!((key.as_str(), write.overwrote_existing), (path, true));
 
-        let missing = dir.path().join("none.txt");
+        let missing = dir.join("none.txt");
         let (_, fresh) = capture("write", &json!({"path": missing.to_str().unwrap()})).unwrap();
         assert!(!fresh.overwrote_existing);
 
@@ -160,8 +150,8 @@ mod tests {
 
     #[test]
     fn region_edits_capture_the_removed_block_for_the_card() {
-        let dir = tempfile::tempdir().unwrap();
-        let file = dir.path().join("f.rs");
+        let dir = rho_test_support::TestDir::new();
+        let file = dir.join("f.rs");
         std::fs::write(&file, "use a;\nfn old() {\n    a();\n}\nfn keep() {}\n").unwrap();
         let args = json!({"path": file.to_str().unwrap(), "edits": [
             {"oldText": "use a;", "newText": "use b;"},

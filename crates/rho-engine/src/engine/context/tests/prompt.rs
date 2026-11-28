@@ -1,6 +1,7 @@
 use super::super::*;
 use rho_harness_core::prompts::DEFAULT_SYSTEM_PROMPT;
 use rho_harness_core::skills::SkillMetadata;
+use test_case::test_case;
 
 fn assert_contains_all(target: &str, expected: &[&str]) {
     for fragment in expected {
@@ -128,72 +129,45 @@ fn sample_skills() -> Vec<SkillMetadata> {
     ]
 }
 
-#[tokio::test]
-async fn skills_instruction_uses_read_tool_when_available() {
+async fn empty_workspace() -> crate::test_support::TestDir {
     let temp = crate::test_support::TestDir::new();
-    let _ = tokio::fs::create_dir_all(&temp).await;
-    let mut ctx = ProjectContext::discover_with_dirs(
-        &temp,
-        ContextDirs {
-            active_tools: Some(&["read".to_string()]),
-            ..Default::default()
-        },
-    )
-    .await;
-    ctx.skills = sample_skills();
-
-    let prompt = ctx.build_system_prompt();
-    assert_contains_all(
-        &prompt,
-        &["<name>visible-skill</name>", "Use the read tool to load a skill's file"],
-    );
-    assert_contains_none(&prompt, &["<name>hidden-skill</name>"]);
+    tokio::fs::create_dir_all(&temp).await.unwrap();
+    temp
 }
 
-#[tokio::test]
-async fn skills_instruction_uses_bash_when_read_absent() {
-    let temp = crate::test_support::TestDir::new();
-    let _ = tokio::fs::create_dir_all(&temp).await;
+async fn prompt_with_skills(active_tool: &str) -> String {
+    let temp = empty_workspace().await;
     let mut ctx = ProjectContext::discover_with_dirs(
         &temp,
         ContextDirs {
-            active_tools: Some(&["bash".to_string()]),
+            active_tools: Some(&[active_tool.to_string()]),
             ..Default::default()
         },
     )
     .await;
     ctx.skills = sample_skills();
+    ctx.build_system_prompt()
+}
 
-    let prompt = ctx.build_system_prompt();
-    assert_contains_all(
-        &prompt,
-        &["<name>visible-skill</name>", "Use bash to load a skill's file"],
-    );
-    assert_contains_none(&prompt, &["<name>hidden-skill</name>"]);
+#[test_case("read", "Use the read tool to load a skill's file"; "read tool")]
+#[test_case("bash", "Use bash to load a skill's file"; "bash tool")]
+#[tokio::test]
+async fn skills_instruction_names_the_active_reader_tool(tool: &str, instruction: &str) {
+    let prompt = prompt_with_skills(tool).await;
+    assert!(prompt.contains("<name>visible-skill</name>"), "{prompt}");
+    assert!(prompt.contains(instruction), "{prompt}");
+    assert!(!prompt.contains("<name>hidden-skill</name>"), "{prompt}");
 }
 
 #[tokio::test]
 async fn skills_omitted_when_no_reader_tool_active() {
-    let temp = crate::test_support::TestDir::new();
-    let _ = tokio::fs::create_dir_all(&temp).await;
-    let mut ctx = ProjectContext::discover_with_dirs(
-        &temp,
-        ContextDirs {
-            active_tools: Some(&["write".to_string()]),
-            ..Default::default()
-        },
-    )
-    .await;
-    ctx.skills = sample_skills();
-
-    let prompt = ctx.build_system_prompt();
+    let prompt = prompt_with_skills("write").await;
     assert_contains_none(&prompt, &["<available_skills>", "visible-skill"]);
 }
 
 #[tokio::test]
 async fn system_prompt_omits_git_status_to_preserve_cache_prefix() {
-    let temp = crate::test_support::TestDir::new();
-    let _ = tokio::fs::create_dir_all(&temp).await;
+    let temp = empty_workspace().await;
     let mut ctx = ProjectContext::discover(&temp, None).await;
     ctx.git_status = Some("## main...origin/main [ahead 1] M src/lib.rs".to_string());
 
@@ -226,8 +200,7 @@ fn test_escape_xml() {
 async fn system_prompt_renders_available_agents() {
     use rho_harness_core::agents::AgentMetadata;
 
-    let temp = crate::test_support::TestDir::new();
-    let _ = tokio::fs::create_dir_all(&temp).await;
+    let temp = empty_workspace().await;
     let mut ctx = ProjectContext::discover_with_dirs(
         &temp,
         ContextDirs {
@@ -256,8 +229,8 @@ async fn saved_memory_is_read_once_at_discovery_into_the_prompt_and_agent_ground
     use rho_harness_core::args::MemoryScope;
     use rho_harness_core::memory::MemoryStore;
 
-    let temp = tempfile::tempdir().unwrap();
-    let (home, workspace) = (temp.path().join("home"), temp.path().join("workspace"));
+    let temp = crate::test_support::TestDir::new();
+    let (home, workspace) = (temp.join("home"), temp.join("workspace"));
     std::fs::create_dir_all(&workspace).unwrap();
     let store = MemoryStore::in_home(&home, &workspace);
     store
@@ -294,7 +267,7 @@ async fn saved_memory_is_read_once_at_discovery_into_the_prompt_and_agent_ground
     let empty_home = ProjectContext::discover_with_dirs(
         &workspace,
         ContextDirs {
-            home_dir: Some(&temp.path().join("other")),
+            home_dir: Some(&temp.join("other")),
             ..Default::default()
         },
     )

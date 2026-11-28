@@ -1,28 +1,48 @@
 use super::*;
 use crate::ui::theme::Theme;
 
-fn render_tool_item(item: &TranscriptItem, theme: &Theme, expanded: bool) -> String {
+fn render_item(item: &TranscriptItem, theme: &Theme, width: usize, tools_expanded: bool) -> String {
     render_transcript_item(TranscriptRenderInput {
         item,
         theme,
-        width: 80,
-        tools_expanded: expanded,
+        width,
+        tools_expanded,
         hide_thinking: false,
+    })
+}
+
+fn render_tool_item(item: &TranscriptItem, theme: &Theme, expanded: bool) -> String {
+    render_item(item, theme, 80, expanded)
+}
+
+fn tool_item(
+    name: &str,
+    arguments: serde_json::Value,
+    output: &str,
+    output_summary: &str,
+    duration_ms: Option<u64>,
+) -> TranscriptItem {
+    TranscriptItem::tool(ToolItem {
+        name: name.into(),
+        arguments,
+        is_error: false,
+        output: output.into(),
+        output_summary: output_summary.into(),
+        duration_ms,
+        file_change: None,
     })
 }
 
 #[test]
 fn render_transcript_standard_read_collapsed_and_expanded() {
     let theme = Theme::default();
-    let item = TranscriptItem::tool(ToolItem {
-        name: "read".into(),
-        arguments: serde_json::json!({"path": "src/main.rs"}),
-        is_error: false,
-        output: "fn main() { println!(\"hello\"); }".into(),
-        output_summary: "summary".into(),
-        duration_ms: None,
-        file_change: None,
-    });
+    let item = tool_item(
+        "read",
+        serde_json::json!({"path": "src/main.rs"}),
+        "fn main() { println!(\"hello\"); }",
+        "summary",
+        None,
+    );
 
     let collapsed = render_tool_item(&item, &theme, false);
     assert!(collapsed.contains("read") && collapsed.contains("src/main.rs") && !collapsed.contains("println"));
@@ -36,15 +56,13 @@ fn render_transcript_standard_read_collapsed_and_expanded() {
 #[test]
 fn render_transcript_web_search_tool_expanded_shows_output() {
     let theme = Theme::default();
-    let item = TranscriptItem::tool(ToolItem {
-        name: "web_search".into(),
-        arguments: serde_json::json!({"query": "rust async"}),
-        is_error: false,
-        output: "Found 10 results from crates.io\n1. tokio\n2. futures".into(),
-        output_summary: "summary".into(),
-        duration_ms: None,
-        file_change: None,
-    });
+    let item = tool_item(
+        "web_search",
+        serde_json::json!({"query": "rust async"}),
+        "Found 10 results from crates.io\n1. tokio\n2. futures",
+        "summary",
+        None,
+    );
 
     let collapsed = render_tool_item(&item, &theme, false);
     assert!(
@@ -59,13 +77,7 @@ fn render_transcript_web_search_tool_expanded_shows_output() {
 fn render_transcript_user_message() {
     let theme = Theme::default();
     let item = TranscriptItem::UserMessage("hello world".into());
-    let rendered = render_transcript_item(TranscriptRenderInput {
-        item: &item,
-        theme: &theme,
-        width: 60,
-        tools_expanded: false,
-        hide_thinking: false,
-    });
+    let rendered = render_item(&item, &theme, 60, false);
     assert!(rendered.contains("hello world"));
     assert!(rendered.contains('╭'));
     assert!(rendered.contains('╰'));
@@ -80,13 +92,7 @@ fn render_transcript_user_message_with_border_style() {
         ..Default::default()
     };
     let item = TranscriptItem::UserMessage("hello bordered user message".into());
-    let rendered = render_transcript_item(TranscriptRenderInput {
-        item: &item,
-        theme: &theme,
-        width: 60,
-        tools_expanded: false,
-        hide_thinking: false,
-    });
+    let rendered = render_item(&item, &theme, 60, false);
     assert!(rendered.contains('╭'));
     assert!(rendered.contains('╰'));
     assert!(rendered.contains('│'));
@@ -99,13 +105,7 @@ fn render_transcript_thinking_collapsed_and_expanded() {
     let theme = Theme::default();
     let item = TranscriptItem::Thinking("Let me analyze the code step by step...".into());
 
-    let expanded = render_transcript_item(TranscriptRenderInput {
-        item: &item,
-        theme: &theme,
-        width: 80,
-        tools_expanded: false,
-        hide_thinking: false,
-    });
+    let expanded = render_item(&item, &theme, 80, false);
     assert!(expanded.contains("analyze the code"));
 
     let collapsed = render_transcript_item(TranscriptRenderInput {
@@ -123,13 +123,7 @@ fn render_transcript_thinking_collapsed_and_expanded() {
 fn render_transcript_thinking_wraps_on_word_boundaries() {
     let theme = Theme::default();
     let item = TranscriptItem::Thinking("alpha beta gamma delta epsilon zeta eta".into());
-    let rendered = render_transcript_item(TranscriptRenderInput {
-        item: &item,
-        theme: &theme,
-        width: 20,
-        tools_expanded: false,
-        hide_thinking: false,
-    });
+    let rendered = render_item(&item, &theme, 20, false);
     let lines: Vec<&str> = rendered.trim().lines().collect();
     assert!(lines.len() >= 2);
     assert!(lines[0].contains("alpha beta gamma"));
@@ -140,13 +134,7 @@ fn render_transcript_thinking_wraps_on_word_boundaries() {
 fn render_transcript_assistant_text_emits_osc133_zones() {
     let theme = Theme::default();
     let item = TranscriptItem::AssistantText("Hello from assistant".into());
-    let rendered = render_transcript_item(TranscriptRenderInput {
-        item: &item,
-        theme: &theme,
-        width: 80,
-        tools_expanded: false,
-        hide_thinking: false,
-    });
+    let rendered = render_item(&item, &theme, 80, false);
     assert!(rendered.starts_with(OSC133_ZONE_START));
     assert!(rendered.ends_with(&format!("{OSC133_ZONE_END}{OSC133_ZONE_FINAL}")));
     assert!(rendered.contains("Hello from assistant"));
@@ -157,13 +145,7 @@ fn render_transcript_assistant_text_wraps_on_word_boundaries() {
     let theme = Theme::default();
     let text = "This is a long response from the assistant explaining the architecture in detail.";
     let item = TranscriptItem::AssistantText(text.into());
-    let rendered = render_transcript_item(TranscriptRenderInput {
-        item: &item,
-        theme: &theme,
-        width: 30,
-        tools_expanded: false,
-        hide_thinking: false,
-    });
+    let rendered = render_item(&item, &theme, 30, false);
     assert!(!rendered.contains("architec-\nture"));
     assert!(rendered.contains("explaining"));
     assert!(rendered.contains("architecture"));
@@ -173,23 +155,15 @@ fn render_transcript_assistant_text_wraps_on_word_boundaries() {
 #[test]
 fn render_transcript_skill_read_collapsed() {
     let theme = Theme::default();
-    let item = TranscriptItem::tool(ToolItem {
-        name: "read".into(),
-        arguments: serde_json::json!({"path": "/Users/cadams/.agents/skills/plan/SKILL.md"}),
-        is_error: false,
-        output: "# Plan Skill\n\nFull instructions here...".into(),
-        output_summary: "summary".into(),
-        duration_ms: None,
-        file_change: None,
-    });
+    let item = tool_item(
+        "read",
+        serde_json::json!({"path": "/Users/cadams/.agents/skills/plan/SKILL.md"}),
+        "# Plan Skill\n\nFull instructions here...",
+        "summary",
+        None,
+    );
 
-    let rendered = render_transcript_item(TranscriptRenderInput {
-        item: &item,
-        theme: &theme,
-        width: 80,
-        tools_expanded: false,
-        hide_thinking: false,
-    });
+    let rendered = render_item(&item, &theme, 80, false);
     assert!(rendered.contains("[skill]"));
     assert!(rendered.contains("plan"));
     assert!(!rendered.contains("Full instructions here"));
@@ -198,23 +172,15 @@ fn render_transcript_skill_read_collapsed() {
 #[test]
 fn render_transcript_skill_read_expanded() {
     let theme = Theme::default();
-    let item = TranscriptItem::tool(ToolItem {
-        name: "read".into(),
-        arguments: serde_json::json!({"path": "/Users/cadams/.agents/skills/plan/SKILL.md"}),
-        is_error: false,
-        output: "# Plan Skill\n\nFull instructions here...".into(),
-        output_summary: "summary".into(),
-        duration_ms: None,
-        file_change: None,
-    });
+    let item = tool_item(
+        "read",
+        serde_json::json!({"path": "/Users/cadams/.agents/skills/plan/SKILL.md"}),
+        "# Plan Skill\n\nFull instructions here...",
+        "summary",
+        None,
+    );
 
-    let rendered = render_transcript_item(TranscriptRenderInput {
-        item: &item,
-        theme: &theme,
-        width: 80,
-        tools_expanded: true,
-        hide_thinking: false,
-    });
+    let rendered = render_item(&item, &theme, 80, true);
     assert!(rendered.contains("[skill]"));
     assert!(rendered.contains("plan"));
     assert!(rendered.contains("Full instructions here..."));
@@ -249,26 +215,21 @@ fn assert_lines_within_width(rendered: &str, max_width: usize) {
     }
 }
 
+const TEN_LINE_OUTPUT: &str =
+    "line_one\nline_two\nline_three\nline_four\nline_five\nline_six\nline_seven\nline_eight\nline_nine\nline_ten";
+
 #[test]
 fn render_transcript_tool_collapsed_shows_preview() {
     let theme = Theme::default();
-    let item = TranscriptItem::tool(ToolItem {
-        name: "bash".into(),
-        arguments: serde_json::json!({"command": "cargo test"}),
-        is_error: false,
-        output: "line_one\nline_two\nline_three\nline_four\nline_five\nline_six\nline_seven\nline_eight\nline_nine\nline_ten".into(),
-        output_summary: "summary".into(),
-        duration_ms: Some(150),
-        file_change: None,
-    });
+    let item = tool_item(
+        "bash",
+        serde_json::json!({"command": "cargo test"}),
+        TEN_LINE_OUTPUT,
+        "summary",
+        Some(150),
+    );
 
-    let rendered = render_transcript_item(TranscriptRenderInput {
-        item: &item,
-        theme: &theme,
-        width: 80,
-        tools_expanded: false,
-        hide_thinking: false,
-    });
+    let rendered = render_tool_item(&item, &theme, false);
     assert!(!rendered.contains("line_one"));
     assert!(rendered.contains("line_ten"));
     assert!(rendered.contains("5 earlier lines"));
@@ -278,23 +239,15 @@ fn render_transcript_tool_collapsed_shows_preview() {
 #[test]
 fn render_transcript_tool_output_replaces_tabs_so_block_widths_hold() {
     let theme = Theme::default();
-    let item = TranscriptItem::tool(ToolItem {
-        name: "bash".into(),
-        arguments: serde_json::json!({"command": "cat /etc/hosts"}),
-        is_error: false,
-        output: "##\n127.0.0.1\tlocalhost\n255.255.255.255\tbroadcasthost\n::1\tlocalhost".into(),
-        output_summary: "completed".into(),
-        duration_ms: Some(8),
-        file_change: None,
-    });
+    let item = tool_item(
+        "bash",
+        serde_json::json!({"command": "cat /etc/hosts"}),
+        "##\n127.0.0.1\tlocalhost\n255.255.255.255\tbroadcasthost\n::1\tlocalhost",
+        "completed",
+        Some(8),
+    );
 
-    let rendered = render_transcript_item(TranscriptRenderInput {
-        item: &item,
-        theme: &theme,
-        width: 80,
-        tools_expanded: false,
-        hide_thinking: false,
-    });
+    let rendered = render_tool_item(&item, &theme, false);
 
     assert!(!rendered.contains('\t'));
     assert_lines_within_width(&rendered, 80);
@@ -304,23 +257,15 @@ fn render_transcript_tool_output_replaces_tabs_so_block_widths_hold() {
 #[test]
 fn render_transcript_tool_expanded_shows_full_output() {
     let theme = Theme::default();
-    let item = TranscriptItem::tool(ToolItem {
-        name: "bash".into(),
-        arguments: serde_json::json!({"command": "cargo test"}),
-        is_error: false,
-        output: "line_one\nline_two\nline_three\nline_four\nline_five\nline_six\nline_seven\nline_eight\nline_nine\nline_ten".into(),
-        output_summary: "summary".into(),
-        duration_ms: Some(150),
-        file_change: None,
-    });
+    let item = tool_item(
+        "bash",
+        serde_json::json!({"command": "cargo test"}),
+        TEN_LINE_OUTPUT,
+        "summary",
+        Some(150),
+    );
 
-    let rendered = render_transcript_item(TranscriptRenderInput {
-        item: &item,
-        theme: &theme,
-        width: 80,
-        tools_expanded: true,
-        hide_thinking: false,
-    });
+    let rendered = render_tool_item(&item, &theme, true);
     assert!(rendered.contains("line_one"));
     assert!(rendered.contains("line_ten"));
     assert!(!rendered.contains("earlier lines"));
@@ -330,23 +275,15 @@ fn render_transcript_tool_expanded_shows_full_output() {
 #[test]
 fn render_transcript_bash_with_timeout_styles_timeout_with_dimmed() {
     let theme = Theme::default();
-    let item = TranscriptItem::tool(ToolItem {
-        name: "bash".into(),
-        arguments: serde_json::json!({"command": "cargo clippy", "timeout": 300}),
-        is_error: false,
-        output: "finished".into(),
-        output_summary: "completed".into(),
-        duration_ms: Some(250),
-        file_change: None,
-    });
+    let item = tool_item(
+        "bash",
+        serde_json::json!({"command": "cargo clippy", "timeout": 300}),
+        "finished",
+        "completed",
+        Some(250),
+    );
 
-    let rendered = render_transcript_item(TranscriptRenderInput {
-        item: &item,
-        theme: &theme,
-        width: 80,
-        tools_expanded: false,
-        hide_thinking: false,
-    });
+    let rendered = render_tool_item(&item, &theme, false);
 
     let dim = theme.dimmed;
     assert!(rendered.contains(&format!("{dim}(timeout 300s){dim:#}")));
@@ -360,23 +297,15 @@ fn render_transcript_tool_with_border_style_uses_outline() {
         bash_success_border: anstyle::Style::new().fg_color(Some(anstyle::Color::Ansi(anstyle::AnsiColor::Green))),
         ..Default::default()
     };
-    let item = TranscriptItem::tool(ToolItem {
-        name: "bash".into(),
-        arguments: serde_json::json!({"command": "cargo test"}),
-        is_error: false,
-        output: "ok".into(),
-        output_summary: "ok".into(),
-        duration_ms: Some(100),
-        file_change: None,
-    });
+    let item = tool_item(
+        "bash",
+        serde_json::json!({"command": "cargo test"}),
+        "ok",
+        "ok",
+        Some(100),
+    );
 
-    let rendered = render_transcript_item(TranscriptRenderInput {
-        item: &item,
-        theme: &theme,
-        width: 40,
-        tools_expanded: false,
-        hide_thinking: false,
-    });
+    let rendered = render_item(&item, &theme, 40, false);
 
     assert!(rendered.contains('╭'));
     assert!(rendered.contains('╰'));
@@ -394,39 +323,23 @@ fn consecutive_bordered_tool_items_have_no_empty_lines_between_them() {
         block_style: BlockStyle::Border,
         ..Default::default()
     };
-    let item1 = TranscriptItem::tool(ToolItem {
-        name: "rg".into(),
-        arguments: serde_json::json!({"pattern": "foo"}),
-        is_error: false,
-        output: "match 1".into(),
-        output_summary: "1 match".into(),
-        duration_ms: Some(5),
-        file_change: None,
-    });
-    let item2 = TranscriptItem::tool(ToolItem {
-        name: "read".into(),
-        arguments: serde_json::json!({"path": "src/main.rs"}),
-        is_error: false,
-        output: "fn main() {}".into(),
-        output_summary: "1 line".into(),
-        duration_ms: Some(2),
-        file_change: None,
-    });
+    let item1 = tool_item(
+        "rg",
+        serde_json::json!({"pattern": "foo"}),
+        "match 1",
+        "1 match",
+        Some(5),
+    );
+    let item2 = tool_item(
+        "read",
+        serde_json::json!({"path": "src/main.rs"}),
+        "fn main() {}",
+        "1 line",
+        Some(2),
+    );
 
-    let rendered1 = render_transcript_item(TranscriptRenderInput {
-        item: &item1,
-        theme: &theme,
-        width: 40,
-        tools_expanded: false,
-        hide_thinking: false,
-    });
-    let rendered2 = render_transcript_item(TranscriptRenderInput {
-        item: &item2,
-        theme: &theme,
-        width: 40,
-        tools_expanded: false,
-        hide_thinking: false,
-    });
+    let rendered1 = render_item(&item1, &theme, 40, false);
+    let rendered2 = render_item(&item2, &theme, 40, false);
 
     let combined = format!("{rendered1}{rendered2}");
     assert!(
@@ -443,9 +356,9 @@ fn consecutive_bordered_tool_items_have_no_empty_lines_between_them() {
 #[test]
 fn render_transcript_mcp_tool_shows_server_and_call() {
     let theme = Theme::default();
-    let item = TranscriptItem::tool(ToolItem {
-        name: "mcp".into(),
-        arguments: serde_json::json!({
+    let item = tool_item(
+        "mcp",
+        serde_json::json!({
             "action": "call",
             "server": "playwright",
             "tool": "browser_navigate",
@@ -453,20 +366,12 @@ fn render_transcript_mcp_tool_shows_server_and_call() {
                 "url": "http://localhost:3000/hub/"
             }
         }),
-        is_error: false,
-        output: "Navigated to http://localhost:3000/hub/".into(),
-        output_summary: "Navigated".into(),
-        duration_ms: Some(250),
-        file_change: None,
-    });
+        "Navigated to http://localhost:3000/hub/",
+        "Navigated",
+        Some(250),
+    );
 
-    let rendered = render_transcript_item(TranscriptRenderInput {
-        item: &item,
-        theme: &theme,
-        width: 80,
-        tools_expanded: false,
-        hide_thinking: false,
-    });
+    let rendered = render_tool_item(&item, &theme, false);
 
     assert!(rendered.contains("mcp"));
     assert!(rendered.contains("playwright:browser_navigate"));
@@ -520,24 +425,13 @@ fn render_transcript_welcome() {
 fn render_transcript_welcome_without_agents() {
     let theme = Theme::default();
     let item = TranscriptItem::Welcome(WelcomeItem {
-        version: "0.1.0".into(),
-        model: "gpt-4".into(),
-        provider: "openai".into(),
-        resumed: false,
-        location: ".".into(),
         agents: Vec::new(),
         tools: vec!["read".into()],
         skills: Vec::new(),
-        mcp: Vec::new(),
+        ..sample_welcome_item()
     });
 
-    let rendered = render_transcript_item(TranscriptRenderInput {
-        item: &item,
-        theme: &theme,
-        width: 80,
-        tools_expanded: false,
-        hide_thinking: false,
-    });
+    let rendered = render_item(&item, &theme, 80, false);
     assert!(!rendered.contains("[agents]"));
     assert!(!rendered.contains("[skills]"));
     assert!(rendered.contains("[tools]"));
@@ -548,10 +442,6 @@ fn render_transcript_welcome_wraps_long_items_on_word_boundaries() {
     let theme = Theme::default();
     let item = TranscriptItem::Welcome(WelcomeItem {
         version: "0.6.2".into(),
-        model: "gpt-4".into(),
-        provider: "openai".into(),
-        resumed: false,
-        location: ".".into(),
         agents: vec!["~/.agents/AGENTS.md".into(), "AGENTS.md".into()],
         tools: vec!["read".into(), "write".into()],
         skills: vec![
@@ -567,6 +457,7 @@ fn render_transcript_welcome_wraps_long_items_on_word_boundaries() {
             "spec".into(),
         ],
         mcp: vec!["playwright".into()],
+        ..sample_welcome_item()
     });
 
     let rendered = render_tool_item(&item, &theme, false);
@@ -584,10 +475,6 @@ fn render_transcript_welcome_with_mcp_servers() {
     let theme = Theme::default();
     let item = TranscriptItem::Welcome(WelcomeItem {
         version: "0.7.1".into(),
-        model: "gpt-4".into(),
-        provider: "openai".into(),
-        resumed: false,
-        location: ".".into(),
         agents: Vec::new(),
         tools: vec![
             "read".into(),
@@ -598,6 +485,7 @@ fn render_transcript_welcome_with_mcp_servers() {
         ],
         skills: Vec::new(),
         mcp: vec!["playwright".into()],
+        ..sample_welcome_item()
     });
 
     let rendered = render_tool_item(&item, &theme, false);
@@ -615,14 +503,11 @@ fn render_transcript_welcome_lists_every_builtin_tool_and_no_custom_section() {
     let names = ["read", "undo", "lsp", "todo", "memory", "subagent", "worktree"];
     let item = TranscriptItem::Welcome(WelcomeItem {
         version: "0.7.1".into(),
-        model: "gpt-4".into(),
-        provider: "openai".into(),
-        resumed: false,
-        location: ".".into(),
         agents: Vec::new(),
         tools: names.iter().map(ToString::to_string).collect(),
         skills: Vec::new(),
         mcp: Vec::new(),
+        ..sample_welcome_item()
     });
 
     let rendered = render_tool_item(&item, &theme, false);

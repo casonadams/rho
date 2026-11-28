@@ -1,7 +1,39 @@
 use std::collections::VecDeque;
+use std::time::Duration;
 
 use super::*;
 use crate::ui::interactive::{Activity, InteractiveState, UiAction};
+
+fn interaction_prompt(title: &str, body: &str, allow_custom: bool) -> InteractionPrompt {
+    InteractionPrompt {
+        title: title.into(),
+        body: body.into(),
+        options: Vec::new(),
+        initial_selection: 0,
+        allow_custom,
+        initial_text: None,
+        option_layout: Default::default(),
+    }
+}
+
+fn spawn_request(
+    ui: InteractiveUi,
+    prompt: InteractionPrompt,
+) -> tokio::task::JoinHandle<Result<InteractionResponse, UiPortError>> {
+    tokio::spawn(async move { ui.request(prompt).await })
+}
+
+fn after(base: Instant, ms: u64) -> Instant {
+    base + Duration::from_millis(ms)
+}
+
+fn write_start(arguments: serde_json::Value) -> UiEvent {
+    UiEvent::ToolStart(ToolStartRequest {
+        name: "write".into(),
+        arguments,
+        file_change: None,
+    })
+}
 
 #[test]
 fn pending_batch_preserves_text_and_keeps_the_latest_activity() {
@@ -135,18 +167,7 @@ fn pending_batch_newline_and_size_barriers() {
 async fn pending_batch_interaction_barriers() {
     let mut size = PendingUiBatch::new(4);
     let (ui, mut events) = InteractiveUi::channel();
-    let request = tokio::spawn(async move {
-        ui.request(InteractionPrompt {
-            title: "Modal".into(),
-            body: String::new(),
-            options: Vec::new(),
-            initial_selection: 0,
-            allow_custom: false,
-            initial_text: None,
-            option_layout: Default::default(),
-        })
-        .await
-    });
+    let request = spawn_request(ui, interaction_prompt("Modal", "", false));
     let event = events.recv().await.unwrap();
     assert!(matches!(
         size.push(event),
@@ -180,18 +201,7 @@ async fn channel_preserves_output_and_activity_order() {
 #[tokio::test]
 async fn interaction_response_resolves_the_request() {
     let (ui, mut receiver) = InteractiveUi::channel();
-    let request = tokio::spawn(async move {
-        ui.request(InteractionPrompt {
-            title: "Approval".into(),
-            body: "Allow?".into(),
-            options: Vec::new(),
-            initial_selection: 0,
-            allow_custom: false,
-            initial_text: None,
-            option_layout: Default::default(),
-        })
-        .await
-    });
+    let request = spawn_request(ui, interaction_prompt("Approval", "Allow?", false));
     let Some(UiEvent::Interaction { responder, .. }) = receiver.recv().await else {
         panic!("expected interaction request");
     };
@@ -203,18 +213,7 @@ async fn interaction_response_resolves_the_request() {
 #[tokio::test]
 async fn dropping_responder_reports_a_closed_request() {
     let (ui, mut receiver) = InteractiveUi::channel();
-    let request = tokio::spawn(async move {
-        ui.request(InteractionPrompt {
-            title: "Question".into(),
-            body: String::new(),
-            options: Vec::new(),
-            initial_selection: 0,
-            allow_custom: true,
-            initial_text: None,
-            option_layout: Default::default(),
-        })
-        .await
-    });
+    let request = spawn_request(ui, interaction_prompt("Question", "", true));
     let Some(UiEvent::Interaction { responder, .. }) = receiver.recv().await else {
         panic!("expected interaction request");
     };
@@ -251,7 +250,7 @@ fn burst_after_a_pause(base: Instant) -> PendingUiBatch {
     chunk_at(&mut batch, "first\n", base);
     batch.drain_at(base);
     let burst: String = (1..=20).map(|i| format!("row {i}\n")).collect();
-    chunk_at(&mut batch, &burst, base + std::time::Duration::from_millis(400));
+    chunk_at(&mut batch, &burst, after(base, 400));
     batch
 }
 
@@ -261,7 +260,7 @@ fn a_burst_of_tool_output_is_released_a_few_lines_per_frame() {
     let mut batch = burst_after_a_pause(base);
     let mut per_frame = Vec::new();
     for frame in 1..=3u64 {
-        let drained = batch.drain_at(base + std::time::Duration::from_millis(400 + frame * 16));
+        let drained = batch.drain_at(after(base, 400 + frame * 16));
         per_frame.push(drained.tool_chunks.iter().map(|c| c.lines().count()).sum::<usize>());
     }
     assert!(per_frame.iter().all(|&n| n <= 2), "{per_frame:?}");
@@ -273,14 +272,7 @@ fn a_burst_of_tool_output_is_released_a_few_lines_per_frame() {
 }
 
 fn text_at(batch: &mut PendingUiBatch, text: &str, ms: u64, base: Instant) {
-    batch.push_at(
-        UiEvent::Output(OutputEvent::StreamText(text.into())),
-        base + std::time::Duration::from_millis(ms),
-    );
-}
-
-fn streamed(drained: &PendingUiDrain) -> String {
-    drained.text()
+    batch.push_at(UiEvent::Output(OutputEvent::StreamText(text.into())), after(base, ms));
 }
 
 #[test]
@@ -296,8 +288,8 @@ fn a_burst_of_streamed_text_is_released_a_few_words_per_frame_in_order() {
     let mut frames = 0;
     while !batch.is_empty() && frames < 80 {
         frames += 1;
-        let drained = batch.drain_at(base + std::time::Duration::from_millis(400 + frames * 16));
-        let piece = streamed(&drained);
+        let drained = batch.drain_at(after(base, 400 + frames * 16));
+        let piece = drained.text();
         assert!(piece.split_whitespace().count() <= 3, "{piece:?}");
         shown.push_str(&piece);
     }
@@ -314,11 +306,11 @@ fn a_notice_never_overtakes_streamed_text_that_came_before_it() {
     text_at(&mut batch, "two three four five ", 400, base);
     batch.push_at(
         UiEvent::Output(OutputEvent::Text("[notice]\n".into())),
-        base + std::time::Duration::from_millis(405),
+        after(base, 405),
     );
     text_at(&mut batch, "six ", 410, base);
 
-    let drained = batch.drain_at(base + std::time::Duration::from_millis(416));
+    let drained = batch.drain_at(after(base, 416));
     let text = drained.text();
     assert!(text.starts_with("two three four five [notice]\n"), "{text:?}");
     assert!(!text.contains("six") || text.ends_with("six "), "{text:?}");
@@ -331,16 +323,8 @@ fn a_tool_card_shows_the_streamed_text_before_it_in_the_same_drain() {
     text_at(&mut batch, "one ", 0, base);
     batch.drain_at(base);
     text_at(&mut batch, "two three four five six seven ", 400, base);
-    let request = ToolStartRequest {
-        name: "write".into(),
-        arguments: serde_json::json!({}),
-        file_change: None,
-    };
-    batch.push_at(
-        UiEvent::ToolStart(request),
-        base + std::time::Duration::from_millis(405),
-    );
-    let drained = batch.drain_at(base + std::time::Duration::from_millis(416));
+    batch.push_at(write_start(serde_json::json!({})), after(base, 405));
+    let drained = batch.drain_at(after(base, 416));
     assert_eq!(drained.text(), "two three four five six seven ");
     assert!(batch.is_empty());
 }
@@ -349,8 +333,8 @@ fn a_tool_card_shows_the_streamed_text_before_it_in_the_same_drain() {
 fn a_tool_end_shows_the_whole_backlog_in_the_same_drain() {
     let base = Instant::now();
     let mut batch = burst_after_a_pause(base);
-    batch.push_at(UiEvent::ToolEnd, base + std::time::Duration::from_millis(416));
-    let drained = batch.drain_at(base + std::time::Duration::from_millis(416));
+    batch.push_at(UiEvent::ToolEnd, after(base, 416));
+    let drained = batch.drain_at(after(base, 416));
     assert_eq!(drained.tool_chunks.concat().lines().count(), 20);
     assert!(drained.tool_end);
     assert!(batch.is_empty());
@@ -360,16 +344,8 @@ fn a_tool_end_shows_the_whole_backlog_in_the_same_drain() {
 fn a_new_tool_card_drops_output_still_waiting_for_the_old_one() {
     let base = Instant::now();
     let mut batch = burst_after_a_pause(base);
-    let request = ToolStartRequest {
-        name: "write".into(),
-        arguments: serde_json::json!({"path": "a.txt"}),
-        file_change: None,
-    };
-    batch.push_at(
-        UiEvent::ToolStart(request),
-        base + std::time::Duration::from_millis(416),
-    );
-    let drained = batch.drain_at(base + std::time::Duration::from_millis(416));
+    batch.push_at(write_start(serde_json::json!({"path": "a.txt"})), after(base, 416));
+    let drained = batch.drain_at(after(base, 416));
     assert!(drained.tool_chunks.is_empty());
     assert!(drained.tool_start.is_some());
 }
@@ -403,7 +379,7 @@ fn styled_thinking_text_is_identical_when_paced_and_never_cut_inside_an_escape()
             unpaced.push_str(text);
             ms += 150;
         }
-        batch.push_at(event, base + std::time::Duration::from_millis(ms));
+        batch.push_at(event, after(base, ms));
     }
     assert!(unpaced.contains("\x1b["), "the thinking text is styled: {unpaced:?}");
 
@@ -411,9 +387,7 @@ fn styled_thinking_text_is_identical_when_paced_and_never_cut_inside_an_escape()
     let mut frame = 0u64;
     while !batch.is_empty() && frame < 4000 {
         frame += 1;
-        let piece = batch
-            .drain_at(base + std::time::Duration::from_millis(ms + frame * 16))
-            .text();
+        let piece = batch.drain_at(after(base, ms + frame * 16)).text();
         assert!(!ends_inside_an_escape(&piece), "cut inside an escape: {piece:?}");
         paced.push_str(&piece);
     }

@@ -1,6 +1,7 @@
 use super::super::{Config, FileConfig, cli, merge};
 use super::sample_cli;
 use clap::Parser;
+use test_case::test_case;
 
 fn assert_default_limits(cfg: &Config) {
     let actual = (
@@ -160,37 +161,24 @@ fn test_cli_permission_flag_override() {
     assert!(!config.permission.enabled);
 }
 
-#[test]
-fn smol_and_slow_flags_select_their_configured_model() {
-    let cases = [
-        (
-            ["rho", "--smol"],
-            Some("claude/claude-haiku-5"),
-            ("claude", "claude-haiku-5"),
-        ),
-        (
-            ["rho", "--slow"],
-            Some("claude/claude-opus-5"),
-            ("claude", "claude-opus-5"),
-        ),
-        (["rho", "--smol"], Some("none"), ("openai", "gpt-6")),
-        (["rho", "--smol"], None, ("openai", "gpt-6")),
-    ];
-    for (args, configured, expected) in cases {
-        let mut config = Config::default();
-        let slot = if args[1] == "--smol" { "smol" } else { "slow" };
-        config.set_route(crate::provider::ModelRoute::new("openai", "gpt-6"));
-        if let Some(model) = configured {
-            config.model_roles.insert(slot.to_string(), model.to_string());
-        }
-        let cli = cli::Cli::try_parse_from(args).unwrap();
-        merge::apply_cli_overrides(&mut config, Some(&cli));
-        assert_eq!(
-            (config.provider.as_str(), config.model.as_str()),
-            expected,
-            "{args:?} {configured:?}"
-        );
+#[test_case(["rho", "--smol"], Some("claude/claude-haiku-5"), ("claude", "claude-haiku-5"); "smol configured")]
+#[test_case(["rho", "--slow"], Some("claude/claude-opus-5"), ("claude", "claude-opus-5"); "slow configured")]
+#[test_case(["rho", "--smol"], Some("none"), ("openai", "gpt-6"); "smol disabled")]
+#[test_case(["rho", "--smol"], None, ("openai", "gpt-6"); "smol unconfigured")]
+fn smol_and_slow_flags_select_their_configured_model(
+    args: [&str; 2],
+    configured: Option<&str>,
+    expected: (&str, &str),
+) {
+    let mut config = Config::default();
+    let slot = if args[1] == "--smol" { "smol" } else { "slow" };
+    config.set_route(crate::provider::ModelRoute::new("openai", "gpt-6"));
+    if let Some(model) = configured {
+        config.model_roles.insert(slot.to_string(), model.to_string());
     }
+    let cli = cli::Cli::try_parse_from(args).unwrap();
+    merge::apply_cli_overrides(&mut config, Some(&cli));
+    assert_eq!((config.provider.as_str(), config.model.as_str()), expected);
 }
 
 #[test]
@@ -339,74 +327,40 @@ fn test_canonical_model_spec() {
     assert_eq!(config.canonical_model_spec(), "");
 }
 
-#[test]
-fn test_cli_override_model_resolution() {
+#[test_case(&["rho", "--model", "anthropic/claude-3-7-sonnet"], "anthropic", "claude-3-7-sonnet", false; "prefixed model")]
+#[test_case(
+    &["rho", "--model", "openrouter/anthropic/claude-3.7-sonnet"], "openrouter", "anthropic/claude-3.7-sonnet", false;
+    "multi slash model"
+)]
+#[test_case(&["rho", "--model", "claude-3-7-sonnet"], "anthropic", "claude-3-7-sonnet", false; "inferred provider")]
+#[test_case(&["rho", "--model", "custom-model"], "local", "custom-model", false; "unknown model falls back to local")]
+#[test_case(
+    &["rho", "--model", "anthropic/claude-3-7-sonnet", "--provider", "anthropic"], "anthropic", "claude-3-7-sonnet", false;
+    "agreeing provider flag"
+)]
+#[test_case(
+    &["rho", "--model", "anthropic/claude-3-7-sonnet", "--provider", "openai"], "anthropic", "claude-3-7-sonnet", true;
+    "conflicting provider flag warns"
+)]
+#[test_case(&["rho", "--model", "gpt-4o", "--provider", "openai"], "openai", "gpt-4o", false; "bare model with provider")]
+#[test_case(&["rho", "--provider", "openai"], "openai", "", false; "provider only")]
+fn test_cli_override_model_resolution(args: &[&str], expected_p: &str, expected_m: &str, expect_warn: bool) {
     use crate::config::cli::Cli;
-    use clap::Parser;
 
-    let cases = [
-        (
-            vec!["rho", "--model", "anthropic/claude-3-7-sonnet"],
-            "anthropic",
-            "claude-3-7-sonnet",
-            false,
-        ),
-        (
-            vec!["rho", "--model", "openrouter/anthropic/claude-3.7-sonnet"],
-            "openrouter",
-            "anthropic/claude-3.7-sonnet",
-            false,
-        ),
-        (
-            vec!["rho", "--model", "claude-3-7-sonnet"],
-            "anthropic",
-            "claude-3-7-sonnet",
-            false,
-        ),
-        (vec!["rho", "--model", "custom-model"], "local", "custom-model", false),
-        (
-            vec![
-                "rho",
-                "--model",
-                "anthropic/claude-3-7-sonnet",
-                "--provider",
-                "anthropic",
-            ],
-            "anthropic",
-            "claude-3-7-sonnet",
-            false,
-        ),
-        (
-            vec!["rho", "--model", "anthropic/claude-3-7-sonnet", "--provider", "openai"],
-            "anthropic",
-            "claude-3-7-sonnet",
-            true,
-        ),
-        (
-            vec!["rho", "--model", "gpt-4o", "--provider", "openai"],
-            "openai",
-            "gpt-4o",
-            false,
-        ),
-        (vec!["rho", "--provider", "openai"], "openai", "", false),
-    ];
-
-    for (args, expected_p, expected_m, expect_warn) in cases {
-        let mut config = Config::default();
-        let cli = Cli::try_parse_from(args).unwrap();
-        merge::apply_cli_overrides(&mut config, Some(&cli));
-        assert_eq!(config.provider, expected_p);
-        assert_eq!(config.model, expected_m);
-        if expect_warn {
-            assert!(
-                config
-                    .config_warnings
-                    .iter()
-                    .any(|w| w.contains("Provider 'openai' overridden by provider in model spec 'anthropic'."))
-            );
-        } else {
-            assert!(config.config_warnings.is_empty());
-        }
+    let mut config = Config::default();
+    let cli = Cli::try_parse_from(args.iter().copied()).unwrap();
+    merge::apply_cli_overrides(&mut config, Some(&cli));
+    assert_eq!(config.provider, expected_p);
+    assert_eq!(config.model, expected_m);
+    if expect_warn {
+        assert!(
+            config
+                .config_warnings
+                .iter()
+                .any(|w| w.contains("Provider 'openai' overridden by provider in model spec 'anthropic'."))
+        );
+    } else {
+        assert!(config.config_warnings.is_empty());
     }
 }
 
@@ -479,57 +433,48 @@ enum MergeLayer {
     Project,
 }
 
-struct MergeCase {
-    name: &'static str,
-    layers: &'static [(MergeLayer, &'static str)],
-    default_model: Option<(&'static str, &'static str)>,
-    block_style: Option<&'static str>,
-    provider_keys: &'static [&'static str],
-}
-
-const MERGE_CASES: &[MergeCase] = &[
-    MergeCase {
-        name: "project_ui_override_keeps_global_default_model",
-        layers: &[
-            (MergeLayer::User, "[models]\ndefault = \"openai/gpt-4o\"\n"),
-            (MergeLayer::Project, "[ui]\nblock_style = \"plain\"\n"),
-        ],
-        default_model: Some(("openai", "gpt-4o")),
-        block_style: Some("plain"),
-        provider_keys: &[],
-    },
-    MergeCase {
-        name: "user_providers_merge_key_by_key",
-        layers: &[
-            (MergeLayer::User, "[providers.a]\nbase_url = \"https://a.example\"\n"),
-            (MergeLayer::User, "[providers.b]\nbase_url = \"https://b.example\"\n"),
-        ],
-        default_model: None,
-        block_style: None,
-        provider_keys: &["a", "b"],
-    },
-];
-
-#[test]
-fn layered_merges_compose_per_case() {
-    for case in MERGE_CASES {
-        let mut cfg = Config::default();
-        for (layer, text) in case.layers {
-            let file: FileConfig = toml::from_str(text).unwrap();
-            match layer {
-                MergeLayer::User => merge::merge_file(&mut cfg, file),
-                MergeLayer::Project => merge::merge_project_file(&mut cfg, &file),
-            }
+#[test_case(
+    &[
+        (MergeLayer::User, "[models]\ndefault = \"openai/gpt-4o\"\n"),
+        (MergeLayer::Project, "[ui]\nblock_style = \"plain\"\n"),
+    ],
+    Some(("openai", "gpt-4o")),
+    Some("plain"),
+    &[];
+    "project ui override keeps global default model"
+)]
+#[test_case(
+    &[
+        (MergeLayer::User, "[providers.a]\nbase_url = \"https://a.example\"\n"),
+        (MergeLayer::User, "[providers.b]\nbase_url = \"https://b.example\"\n"),
+    ],
+    None,
+    None,
+    &["a", "b"];
+    "user providers merge key by key"
+)]
+fn layered_merges_compose_per_case(
+    layers: &[(MergeLayer, &str)],
+    default_model: Option<(&str, &str)>,
+    block_style: Option<&str>,
+    provider_keys: &[&str],
+) {
+    let mut cfg = Config::default();
+    for (layer, text) in layers {
+        let file: FileConfig = toml::from_str(text).unwrap();
+        match layer {
+            MergeLayer::User => merge::merge_file(&mut cfg, file),
+            MergeLayer::Project => merge::merge_project_file(&mut cfg, &file),
         }
-        if let Some((provider, model)) = case.default_model {
-            assert_eq!(cfg.provider, provider, "{}", case.name);
-            assert_eq!(cfg.model, model, "{}", case.name);
-        }
-        assert_eq!(cfg.ui.block_style.as_deref(), case.block_style, "{}", case.name);
-        assert_eq!(cfg.providers.len(), case.provider_keys.len(), "{}", case.name);
-        for key in case.provider_keys {
-            assert!(cfg.providers.contains_key(*key), "{}", case.name);
-        }
+    }
+    if let Some((provider, model)) = default_model {
+        assert_eq!(cfg.provider, provider);
+        assert_eq!(cfg.model, model);
+    }
+    assert_eq!(cfg.ui.block_style.as_deref(), block_style);
+    assert_eq!(cfg.providers.len(), provider_keys.len());
+    for key in provider_keys {
+        assert!(cfg.providers.contains_key(*key));
     }
 }
 
@@ -651,56 +596,29 @@ command = "echo"
     assert!(cfg.mcp.servers.contains_key("echo"));
 }
 
-type EnvCase = (&'static [(&'static str, &'static str)], usize, Option<u32>);
+#[test_case(&[("AI_KEEP_RECENT_TOKENS", "321")], 321, Config::default().session_retention_days; "keep recent tokens")]
+#[test_case(&[("AI_SESSION_RETENTION_DAYS", "off")], Config::default().keep_recent_tokens, None; "retention off")]
+#[test_case(&[("RHO_SESSION_RETENTION_DAYS", "0")], Config::default().keep_recent_tokens, None; "retention zero")]
+#[test_case(&[("AI_SESSION_RETENTION_DAYS", "7")], Config::default().keep_recent_tokens, Some(7); "retention days")]
+fn token_and_retention_env_overrides_apply(env: &[(&str, &str)], keep_recent: usize, retention: Option<u32>) {
+    let mut cfg = Config::default();
+    let environment: std::collections::HashMap<&str, &str> = env.iter().copied().collect();
+    merge::apply_env_overrides_with(&mut cfg, |name| environment.get(name).map(|v| (*v).to_string())).unwrap();
+    assert_eq!(
+        (cfg.keep_recent_tokens, cfg.session_retention_days),
+        (keep_recent, retention)
+    );
+}
 
-#[test]
-fn token_and_retention_env_overrides_apply_or_reject() {
-    let defaults = Config::default();
-    let cases: &[EnvCase] = &[
-        (
-            &[("AI_KEEP_RECENT_TOKENS", "321")],
-            321,
-            defaults.session_retention_days,
-        ),
-        (
-            &[("AI_SESSION_RETENTION_DAYS", "off")],
-            defaults.keep_recent_tokens,
-            None,
-        ),
-        (
-            &[("RHO_SESSION_RETENTION_DAYS", "0")],
-            defaults.keep_recent_tokens,
-            None,
-        ),
-        (
-            &[("AI_SESSION_RETENTION_DAYS", "7")],
-            defaults.keep_recent_tokens,
-            Some(7),
-        ),
-    ];
-    for (env, keep_recent, retention) in cases {
-        let mut cfg = Config::default();
-        let environment: std::collections::HashMap<&str, &str> = env.iter().copied().collect();
-        merge::apply_env_overrides_with(&mut cfg, |name| environment.get(name).map(|v| (*v).to_string())).unwrap();
-        assert_eq!(
-            (cfg.keep_recent_tokens, cfg.session_retention_days),
-            (*keep_recent, *retention),
-            "{env:?}"
-        );
-    }
-
-    let invalid: &[&[(&str, &str)]] = &[
-        &[("AI_KEEP_RECENT_TOKENS", "0")],
-        &[("AI_SESSION_RETENTION_DAYS", "soon")],
-    ];
-    for env in invalid {
-        let mut cfg = Config::default();
-        let environment: std::collections::HashMap<&str, &str> = env.iter().copied().collect();
-        let error = merge::apply_env_overrides_with(&mut cfg, |name| environment.get(name).map(|v| (*v).to_string()))
-            .unwrap_err()
-            .to_string();
-        assert!(error.contains(env[0].0), "{error}");
-    }
+#[test_case(&[("AI_KEEP_RECENT_TOKENS", "0")]; "zero keep recent tokens")]
+#[test_case(&[("AI_SESSION_RETENTION_DAYS", "soon")]; "non numeric retention")]
+fn token_and_retention_env_overrides_reject(env: &[(&str, &str)]) {
+    let mut cfg = Config::default();
+    let environment: std::collections::HashMap<&str, &str> = env.iter().copied().collect();
+    let error = merge::apply_env_overrides_with(&mut cfg, |name| environment.get(name).map(|v| (*v).to_string()))
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains(env[0].0), "{error}");
 }
 
 #[test]

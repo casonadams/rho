@@ -57,6 +57,8 @@ mod hook_integration;
 mod live_antigravity;
 #[path = "live_claude.rs"]
 mod live_claude;
+#[path = "live_support.rs"]
+mod live_support;
 #[path = "mcp_direct_tools.rs"]
 mod mcp_direct_tools;
 #[path = "mcp_eager_loading.rs"]

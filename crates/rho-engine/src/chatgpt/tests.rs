@@ -1,6 +1,7 @@
 use super::*;
 use crate::test_support::assert_quota_cases;
 use chrono::TimeZone;
+use test_case::test_case;
 
 const PRIMARY_AND_SECONDARY: &str = r#"{"rate_limit":{"primary_window":{"remaining_percent":95.0,"reset_at":1788452580},"secondary_window":{"remaining_percent":89.0,"reset_at":"2026-09-07T09:00:00Z"}}}"#;
 const ALTERNATE_KEYS: &str = r#"{"rate_limits":{"five_hour":{"used_percent":5.0,"reset_at":1788452580},"weekly":{"percent_left":89.0,"reset_at":"2026-09-07T09:00:00Z"}}}"#;
@@ -55,27 +56,23 @@ fn test_friendly_error_formatting() {
     assert!(friendly_error(Some(401), "").contains("Run 'rho login chatgpt'"));
 }
 
+#[test_case("200 OK", r#"{"rate_limit":{"primary_window":{"remaining_percent":95.0}}}"#, Some("5%"); "usage reported")]
+#[test_case("200 OK", r#"{"other":{}}"#, None; "no rate limit")]
+#[test_case(
+    "500 Internal Server Error",
+    r#"{"rate_limit":{"primary_window":{"remaining_percent":95.0}}}"#,
+    None;
+    "http failure"
+)]
 #[tokio::test]
-async fn fetch_quota_formats_usage_from_endpoint_and_rejects_failures() {
-    let cases = [
-        (
-            "200 OK",
-            r#"{"rate_limit":{"primary_window":{"remaining_percent":95.0}}}"#,
-            Some("5%"),
-        ),
-        ("200 OK", r#"{"other":{}}"#, None),
-        (
-            "500 Internal Server Error",
-            r#"{"rate_limit":{"primary_window":{"remaining_percent":95.0}}}"#,
-            None,
-        ),
-    ];
-    for (status, body, expected) in cases {
-        let usage_url = crate::test_support::serve_http(vec![(status, body.to_string())]).await;
-        assert_eq!(
-            fetch_quota(&usage_url, "tok", Some("acct-1")).await.as_deref(),
-            expected,
-            "{status} {body}"
-        );
-    }
+async fn fetch_quota_formats_usage_from_endpoint_and_rejects_failures(
+    status: &'static str,
+    body: &str,
+    expected: Option<&str>,
+) {
+    let usage_url = crate::test_support::serve_http(vec![(status, body.to_string())]).await;
+    assert_eq!(
+        fetch_quota(&usage_url, "tok", Some("acct-1")).await.as_deref(),
+        expected
+    );
 }

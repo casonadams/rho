@@ -6,12 +6,12 @@ use crate::ui::interactive::{Activity, InteractiveState, RunningTool};
 use rho_engine::auth::AuthStore;
 use rho_harness_core::config::Config;
 
-async fn test_engine_for_footer() -> (crate::engine::AgentEngine, tempfile::TempDir) {
-    let temp = tempfile::tempdir().unwrap();
+async fn test_engine_for_footer() -> (crate::engine::AgentEngine, rho_test_support::TestDir) {
+    let temp = rho_test_support::TestDir::new();
     let config = Config {
         provider: "local".to_string(),
         model: "llama3.2".to_string(),
-        ..test_config(temp.path())
+        ..test_config(&temp)
     };
     let engine = AgentEngineBuilder::new(config, AuthStore::default())
         .build()
@@ -56,11 +56,11 @@ async fn sync_turn_footer_updates_in_flight_tokens_and_detects_changes() {
 
 #[tokio::test]
 async fn refresh_footer_keeps_activity_running_tool_and_active_tool() {
-    let temp = tempfile::tempdir().unwrap();
+    let temp = rho_test_support::TestDir::new();
     let config = Config {
         provider: "local".to_string(),
         model: "llama3.2".to_string(),
-        sessions_dir: temp.path().join("sessions"),
+        sessions_dir: temp.join("sessions"),
         ..Default::default()
     };
     let auth_store = AuthStore::default();
@@ -87,11 +87,11 @@ async fn refresh_footer_keeps_activity_running_tool_and_active_tool() {
 
 #[tokio::test]
 async fn update_footer_resets_activity_running_tool_and_active_tool() {
-    let temp = tempfile::tempdir().unwrap();
+    let temp = rho_test_support::TestDir::new();
     let config = Config {
         provider: "local".to_string(),
         model: "llama3.2".to_string(),
-        sessions_dir: temp.path().join("sessions"),
+        sessions_dir: temp.join("sessions"),
         ..Default::default()
     };
     let auth_store = AuthStore::default();
@@ -116,12 +116,16 @@ async fn update_footer_resets_activity_running_tool_and_active_tool() {
     assert!(state.active_tool().is_none());
 }
 
-async fn test_quota_harness() -> (crate::engine::AgentEngine, crate::repl::ReplSession, tempfile::TempDir) {
-    let temp = tempfile::tempdir().unwrap();
+async fn test_quota_harness() -> (
+    crate::engine::AgentEngine,
+    crate::repl::ReplSession,
+    rho_test_support::TestDir,
+) {
+    let temp = rho_test_support::TestDir::new();
     let config = Config {
         provider: "antigravity".to_string(),
         model: "gemini-2.5-pro".to_string(),
-        sessions_dir: temp.path().join("sessions"),
+        sessions_dir: temp.join("sessions"),
         ..Default::default()
     };
     let auth_store = AuthStore::default();

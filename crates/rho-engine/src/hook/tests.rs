@@ -1,4 +1,6 @@
 use super::*;
+use crate::engine::metrics::TerminalStatus;
+use test_case::test_case;
 
 #[test]
 fn test_hook_event_serde() {
@@ -16,76 +18,46 @@ fn test_hook_event_serde() {
     assert_eq!(deserialized, event);
 }
 
-#[test]
-fn turn_end_payload_status_is_the_terminal_status_serde_name() {
-    use crate::engine::metrics::TerminalStatus;
-    let cases = [
-        (TerminalStatus::Completed, "completed"),
-        (TerminalStatus::ContentFiltered, "content_filtered"),
-        (TerminalStatus::BudgetExhausted, "budget_exhausted"),
-        (TerminalStatus::Cancelled, "cancelled"),
-        (TerminalStatus::Failed, "failed"),
-    ];
-    for (status, expected) in cases {
-        let event = HookEvent::TurnEnd {
-            status,
-            tool_calls_count: 0,
-            turn: 1,
-            session_id: "s1".to_string(),
-            error: None,
-        };
-        let json = serde_json::to_value(&event).unwrap();
-        assert_eq!(json["status"], expected, "{status:?}");
-        assert!(json.get("error").is_none(), "{status:?}");
-    }
+#[test_case(TerminalStatus::Completed, "completed"; "completed")]
+#[test_case(TerminalStatus::ContentFiltered, "content_filtered"; "content filtered")]
+#[test_case(TerminalStatus::BudgetExhausted, "budget_exhausted"; "budget exhausted")]
+#[test_case(TerminalStatus::Cancelled, "cancelled"; "cancelled")]
+#[test_case(TerminalStatus::Failed, "failed"; "failed")]
+fn turn_end_payload_status_is_the_terminal_status_serde_name(status: TerminalStatus, expected: &str) {
+    let event = HookEvent::TurnEnd {
+        status,
+        tool_calls_count: 0,
+        turn: 1,
+        session_id: "s1".to_string(),
+        error: None,
+    };
+    let json = serde_json::to_value(&event).unwrap();
+    assert_eq!(json["status"], expected);
+    assert!(json.get("error").is_none());
 }
 
-#[test]
-fn test_hook_action_serde() {
-    let actions = [
-        (r#"{"action":"continue"}"#, HookAction::Continue),
-        (
-            r#"{"action":"stop","reason":"test"}"#,
-            HookAction::Stop {
-                reason: "test".to_string(),
-            },
-        ),
-        (
-            r#"{"action":"skip","reason":"skip it"}"#,
-            HookAction::Skip {
-                reason: "skip it".to_string(),
-            },
-        ),
-        (
-            r#"{"action":"rewrite_args","args":{"a":1}}"#,
-            HookAction::RewriteArgs {
-                args: serde_json::json!({"a": 1}),
-            },
-        ),
-        (
-            r#"{"action":"rewrite_result","result":"foo"}"#,
-            HookAction::RewriteResult {
-                result: "foo".to_string(),
-            },
-        ),
-        (
-            r#"{"action":"ask","message":"confirm?"}"#,
-            HookAction::Ask {
-                message: "confirm?".to_string(),
-            },
-        ),
-        (
-            r#"{"action":"retry","feedback":"bad args"}"#,
-            HookAction::Retry {
-                feedback: "bad args".to_string(),
-            },
-        ),
-    ];
-
-    for (raw, expected) in actions {
-        let parsed: HookAction = serde_json::from_str(raw).unwrap();
-        assert_eq!(parsed, expected);
-    }
+#[test_case(r#"{"action":"continue"}"#, HookAction::Continue; "continue")]
+#[test_case(r#"{"action":"stop","reason":"test"}"#, HookAction::Stop { reason: "test".to_string() }; "stop")]
+#[test_case(r#"{"action":"skip","reason":"skip it"}"#, HookAction::Skip { reason: "skip it".to_string() }; "skip")]
+#[test_case(
+    r#"{"action":"rewrite_args","args":{"a":1}}"#,
+    HookAction::RewriteArgs { args: serde_json::json!({"a": 1}) };
+    "rewrite args"
+)]
+#[test_case(
+    r#"{"action":"rewrite_result","result":"foo"}"#,
+    HookAction::RewriteResult { result: "foo".to_string() };
+    "rewrite result"
+)]
+#[test_case(r#"{"action":"ask","message":"confirm?"}"#, HookAction::Ask { message: "confirm?".to_string() }; "ask")]
+#[test_case(
+    r#"{"action":"retry","feedback":"bad args"}"#,
+    HookAction::Retry { feedback: "bad args".to_string() };
+    "retry"
+)]
+fn test_hook_action_serde(raw: &str, expected: HookAction) {
+    let parsed: HookAction = serde_json::from_str(raw).unwrap();
+    assert_eq!(parsed, expected);
 }
 
 #[test]
@@ -159,28 +131,26 @@ fn first_hook(event: &str, dirs: &[&Path]) -> Option<std::path::PathBuf> {
 }
 
 fn assert_no_hook_found(setup: impl FnOnce(&Path)) {
-    let project = tempfile::tempdir().unwrap();
-    setup(project.path());
-    assert_eq!(first_hook("tool_call", &[project.path()]), None);
+    let project = crate::test_support::TestDir::new();
+    setup(&project);
+    assert_eq!(first_hook("tool_call", &[&project]), None);
 }
 
 #[cfg(unix)]
 #[test]
 fn test_find_hook_project_agents_directory() {
-    let project = tempfile::tempdir().unwrap();
-    let hook_file = project.path().join(".agents").join("hooks").join("on_tool_call");
+    let project = crate::test_support::TestDir::new();
+    let hook_file = project.join(".agents").join("hooks").join("on_tool_call");
     write_executable(&hook_file);
 
-    let found = collect_hooks("tool_call", &[], &[], &[project.path()])
-        .into_iter()
-        .next();
+    let found = collect_hooks("tool_call", &[], &[], &[&project]).into_iter().next();
     assert_eq!(found, Some(hook_file));
 
-    let claude_project = tempfile::tempdir().unwrap();
-    let claude_file = claude_project.path().join(".claude/hooks/on_turn_start");
+    let claude_project = crate::test_support::TestDir::new();
+    let claude_file = claude_project.join(".claude/hooks/on_turn_start");
     write_executable(&claude_file);
     assert_eq!(
-        collect_hooks("turn_start", &[], &[], &[claude_project.path()])
+        collect_hooks("turn_start", &[], &[], &[&claude_project])
             .into_iter()
             .next(),
         Some(claude_file)
@@ -190,36 +160,30 @@ fn test_find_hook_project_agents_directory() {
 #[cfg(unix)]
 #[test]
 fn test_find_hook_user_fallback() {
-    let user = tempfile::tempdir().unwrap();
-    let hook_file = install_hook(user.path(), "turn_start");
+    let user = crate::test_support::TestDir::new();
+    let hook_file = install_hook(&user, "turn_start");
 
-    let found = collect_hooks("turn_start", &[], &[user.path()], &[]);
+    let found = collect_hooks("turn_start", &[], &[&user], &[]);
     assert_eq!(found, vec![hook_file]);
 }
 
 #[cfg(unix)]
 #[test]
 fn test_project_hook_is_skipped_when_workspace_untrusted() {
-    let project = tempfile::tempdir().unwrap();
-    install_hook(project.path(), "tool_call");
-    let user = tempfile::tempdir().unwrap();
+    let project = crate::test_support::TestDir::new();
+    install_hook(&project, "tool_call");
+    let user = crate::test_support::TestDir::new();
 
-    assert_eq!(
-        collect_hooks("tool_call", &[], &[user.path()], &[]),
-        Vec::<PathBuf>::new()
-    );
+    assert_eq!(collect_hooks("tool_call", &[], &[&user], &[]), Vec::<PathBuf>::new());
 }
 
 #[cfg(unix)]
 #[test]
 fn test_user_claude_hooks_directory_is_ignored() {
-    let user = tempfile::tempdir().unwrap();
-    write_executable(&user.path().join(".claude/hooks/on_turn_start"));
+    let user = crate::test_support::TestDir::new();
+    write_executable(&user.join(".claude/hooks/on_turn_start"));
 
-    assert_eq!(
-        collect_hooks("turn_start", &[], &[user.path()], &[]),
-        Vec::<PathBuf>::new()
-    );
+    assert_eq!(collect_hooks("turn_start", &[], &[&user], &[]), Vec::<PathBuf>::new());
 }
 
 #[test]
@@ -244,42 +208,37 @@ fn test_find_hook_requires_executable_bit_on_unix() {
 #[cfg(unix)]
 #[test]
 fn test_hook_precedence_user_then_project_then_configured_dirs() {
-    let project = tempfile::tempdir().unwrap();
-    let project_hook = project.path().join(".agents").join("hooks").join("turn_end");
+    let project = crate::test_support::TestDir::new();
+    let project_hook = project.join(".agents").join("hooks").join("turn_end");
     write_executable(&project_hook);
 
-    let user = tempfile::tempdir().unwrap();
-    let user_hook = user.path().join(".agents").join("hooks").join("turn_end");
+    let user = crate::test_support::TestDir::new();
+    let user_hook = user.join(".agents").join("hooks").join("turn_end");
     write_executable(&user_hook);
 
-    let found = collect_hooks("turn_end", &[], &[user.path()], &[project.path()]);
+    let found = collect_hooks("turn_end", &[], &[&user], &[&project]);
     assert_eq!(found, vec![user_hook.clone(), project_hook.clone()]);
 
-    let extra_dir = tempfile::tempdir().unwrap();
-    let extra_hook = extra_dir.path().join("turn_end");
+    let extra_dir = crate::test_support::TestDir::new();
+    let extra_hook = extra_dir.join("turn_end");
     write_executable(&extra_hook);
 
-    let all = collect_hooks(
-        "turn_end",
-        &[extra_dir.path().to_path_buf()],
-        &[user.path()],
-        &[project.path()],
-    );
+    let all = collect_hooks("turn_end", &[extra_dir.to_path_buf()], &[&user], &[&project]);
     assert_eq!(all, vec![extra_hook, user_hook, project_hook]);
 }
 
 #[cfg(unix)]
 async fn outcome_with_hook_script(script: &str) -> ToolOutcomeAction {
-    let dir = tempfile::tempdir().unwrap();
-    let hook = dir.path().join("tool_result");
+    let dir = crate::test_support::TestDir::new();
+    let hook = dir.join("tool_result");
     crate::test_support::write_file(&hook, script);
     set_unix_mode(&hook, 0o755);
     let lifecycle = LifecycleHook::new(
-        dir.path().to_path_buf(),
+        dir.to_path_buf(),
         "s1",
         std::sync::Arc::new(crate::engine::eval::presenter::NoopPresenter),
     )
-    .with_hook_dirs(vec![dir.path().to_path_buf()]);
+    .with_hook_dirs(vec![dir.to_path_buf()]);
     lifecycle
         .on_tool_outcome("read", &serde_json::json!({}), "SECRET=hunter2", false)
         .await

@@ -258,13 +258,17 @@ mod tests {
         }
     }
 
+    fn render_card(tool: &ToolLine, theme: &Theme) -> String {
+        strip_ansi(&render_tool_block(tool, 60, false, false, theme))
+    }
+
     #[test]
     fn structured_bash_card_renders_header_duration_input_and_output() {
         let tool = ToolLine::new("bash", json!({"command": "echo hi", "timeout": 30}))
             .with_output("hi\n")
             .with_output_summary("hi")
             .with_duration_ms(3400);
-        let rendered = strip_ansi(&render_tool_block(&tool, 60, false, false, &structured_theme()));
+        let rendered = render_card(&tool, &structured_theme());
         assert!(rendered.contains("✓ Bash · timeout 30s"), "got:\n{rendered}");
         assert!(rendered.contains("3.400s"), "got:\n{rendered}");
         assert!(rendered.contains("Input"), "got:\n{rendered}");
@@ -280,7 +284,7 @@ mod tests {
             .with_output_summary("exit 1")
             .failed()
             .with_duration_ms(12);
-        let rendered = strip_ansi(&render_tool_block(&tool, 60, false, false, &structured_theme()));
+        let rendered = render_card(&tool, &structured_theme());
         assert!(rendered.contains("✗ Bash"), "got:\n{rendered}");
         assert!(rendered.contains("12ms"), "got:\n{rendered}");
     }
@@ -291,7 +295,7 @@ mod tests {
             .with_output("fn main() {}")
             .with_output_summary("1 line")
             .with_duration_ms(5);
-        let rendered = strip_ansi(&render_tool_block(&tool, 60, false, false, &structured_theme()));
+        let rendered = render_card(&tool, &structured_theme());
         assert!(rendered.contains("✓ Read"), "got:\n{rendered}");
         assert!(rendered.contains("5ms"), "got:\n{rendered}");
         assert!(rendered.contains("Input"), "got:\n{rendered}");
@@ -318,7 +322,7 @@ mod tests {
             .with_output("hi")
             .with_output_summary("hi")
             .with_duration_ms(50);
-        let rendered = strip_ansi(&render_tool_block(&tool, 60, false, false, &Theme::default()));
+        let rendered = render_card(&tool, &Theme::default());
         assert!(rendered.contains("bash echo hi"), "got:\n{rendered}");
         assert!(rendered.contains("Took 50ms"), "got:\n{rendered}");
         assert!(!rendered.contains("✓ Bash"), "got:\n{rendered}");

@@ -11,6 +11,7 @@ use rho_engine::provider::adapter::MockAdapter;
 use rho_harness_core::provider::ModelRoute;
 use rho_harness_core::session::SessionManager;
 use std::sync::Arc;
+use test_case::test_case;
 
 fn test_context<'a>(
     config: &'a mut Config,
@@ -49,26 +50,22 @@ async fn run_command(
     (result, collected_output(&mut events))
 }
 
+#[test_case("/compact", None; "bare")]
+#[test_case("/compact focus on errors and tests", Some("focus on errors and tests"); "with instructions")]
 #[tokio::test]
-async fn compact_command_dispatches_with_optional_instructions() {
-    let cases = [
-        ("/compact", None),
-        ("/compact focus on errors and tests", Some("focus on errors and tests")),
-    ];
-    for (line, instructions) in cases {
-        let mut config = Config::default();
-        let mut auth = AuthStore::default();
-        let (renderer, _) = collecting_renderer();
-        let mut context = test_context(&mut config, &mut auth, &renderer);
+async fn compact_command_dispatches_with_optional_instructions(line: &str, instructions: Option<&str>) {
+    let mut config = Config::default();
+    let mut auth = AuthStore::default();
+    let (renderer, _) = collecting_renderer();
+    let mut context = test_context(&mut config, &mut auth, &renderer);
 
-        let result = SlashCommandHandler::handle(line, &mut context).await.unwrap();
-        assert_eq!(
-            result,
-            Some(CommandResult::Compact {
-                instructions: instructions.map(str::to_string)
-            })
-        );
-    }
+    let result = SlashCommandHandler::handle(line, &mut context).await.unwrap();
+    assert_eq!(
+        result,
+        Some(CommandResult::Compact {
+            instructions: instructions.map(str::to_string)
+        })
+    );
 }
 
 async fn seed_long_turns(session_mgr: &SessionManager, sid: &str) {
@@ -149,97 +146,95 @@ async fn help_is_emitted_through_the_renderer() {
     assert_eq!(non_interactive_res, Some(CommandResult::Continue));
 }
 
+#[test_case("chatgpt"; "chatgpt")]
+#[test_case("antigravity"; "antigravity")]
+#[test_case("claude"; "claude")]
 #[tokio::test]
-async fn login_is_dispatched_without_collecting_credentials() {
+async fn login_is_dispatched_without_collecting_credentials(provider: &str) {
     let mut config = Config::default();
     let mut auth = AuthStore::default();
     let (renderer, _) = collecting_renderer();
     let mut context = test_context(&mut config, &mut auth, &renderer);
 
-    for provider in ["chatgpt", "antigravity", "claude"] {
-        let cmd = format!("/login {provider}");
-        let res = SlashCommandHandler::handle(&cmd, &mut context).await.unwrap();
-        assert!(matches!(res, Some(CommandResult::Login { provider: Some(p) }) if p == provider));
-    }
+    let cmd = format!("/login {provider}");
+    let res = SlashCommandHandler::handle(&cmd, &mut context).await.unwrap();
+    assert!(matches!(res, Some(CommandResult::Login { provider: Some(p) }) if p == provider));
+}
+
+#[tokio::test]
+async fn bare_login_opens_the_login_selector() {
+    let mut config = Config::default();
+    let mut auth = AuthStore::default();
+    let (renderer, _) = collecting_renderer();
+    let mut context = test_context(&mut config, &mut auth, &renderer);
 
     let bare_res = SlashCommandHandler::handle("/login", &mut context).await.unwrap();
     assert_eq!(bare_res, Some(CommandResult::OpenLoginSelector));
 }
 
+#[test_case("/mcp", true, CommandResult::OpenMcpSelector; "mcp interactive")]
+#[test_case("/mcp login", true, CommandResult::Continue; "mcp login without server")]
+#[test_case(
+    "/mcp login atlassian",
+    true,
+    CommandResult::Login { provider: Some("mcp:atlassian".to_string()) };
+    "mcp login server"
+)]
+#[test_case(
+    "/mcp logout atlassian",
+    false,
+    CommandResult::Logout { provider: Some("mcp:atlassian".to_string()) };
+    "mcp logout server"
+)]
+#[test_case("/mcp", false, CommandResult::Continue; "mcp headless")]
+#[test_case("/logout", false, CommandResult::Logout { provider: None }; "bare logout")]
+#[test_case(
+    "/logout chatgpt",
+    true,
+    CommandResult::Logout { provider: Some("chatgpt".to_string()) };
+    "logout provider"
+)]
 #[tokio::test]
-async fn mcp_and_logout_commands_dispatch_by_renderer_mode() {
-    let cases = [
-        ("/mcp", true, CommandResult::OpenMcpSelector),
-        ("/mcp login", true, CommandResult::Continue),
-        (
-            "/mcp login atlassian",
-            true,
-            CommandResult::Login {
-                provider: Some("mcp:atlassian".to_string()),
-            },
-        ),
-        (
-            "/mcp logout atlassian",
-            false,
-            CommandResult::Logout {
-                provider: Some("mcp:atlassian".to_string()),
-            },
-        ),
-        ("/mcp", false, CommandResult::Continue),
-        ("/logout", false, CommandResult::Logout { provider: None }),
-        (
-            "/logout chatgpt",
-            true,
-            CommandResult::Logout {
-                provider: Some("chatgpt".to_string()),
-            },
-        ),
-    ];
-    for (line, interactive, expected) in cases {
-        let mut config = Config::default();
-        let mut auth = AuthStore::default();
-        let renderer = if interactive {
-            collecting_renderer().0
-        } else {
-            TerminalRenderer::default()
-        };
-        let mut context = test_context(&mut config, &mut auth, &renderer);
-        let res = SlashCommandHandler::handle(line, &mut context).await.unwrap();
-        assert_eq!(res, Some(expected), "{line}");
-    }
+async fn mcp_and_logout_commands_dispatch_by_renderer_mode(line: &str, interactive: bool, expected: CommandResult) {
+    let mut config = Config::default();
+    let mut auth = AuthStore::default();
+    let renderer = if interactive {
+        collecting_renderer().0
+    } else {
+        TerminalRenderer::default()
+    };
+    let mut context = test_context(&mut config, &mut auth, &renderer);
+    let res = SlashCommandHandler::handle(line, &mut context).await.unwrap();
+    assert_eq!(res, Some(expected));
 }
 
+#[test_case("/model gpt-4o openai", "", "gpt-4o", "openai"; "model and provider")]
+#[test_case(
+    "/model claude:me@work.com/claude-opus-5",
+    "claude",
+    "claude-opus-5",
+    "claude:me@work.com";
+    "account qualified route"
+)]
+#[test_case("/model gpt-4o", "openai:me@work.com", "gpt-4o", "openai:me@work.com"; "current account provider")]
 #[tokio::test]
-async fn model_switch_is_returned_for_the_switch_to_apply() {
-    let cases = [
-        ("/model gpt-4o openai", "", "gpt-4o", "openai"),
-        (
-            "/model claude:me@work.com/claude-opus-5",
-            "claude",
-            "claude-opus-5",
-            "claude:me@work.com",
-        ),
-        ("/model gpt-4o", "openai:me@work.com", "gpt-4o", "openai:me@work.com"),
-    ];
-    for (input, current, model, provider) in cases {
-        let mut config = Config {
-            provider: current.to_string(),
-            ..Config::default()
-        };
-        let mut auth = AuthStore::default();
-        let (renderer, _events) = collecting_renderer();
-        let mut context = test_context(&mut config, &mut auth, &renderer);
+async fn model_switch_is_returned_for_the_switch_to_apply(input: &str, current: &str, model: &str, provider: &str) {
+    let mut config = Config {
+        provider: current.to_string(),
+        ..Config::default()
+    };
+    let mut auth = AuthStore::default();
+    let (renderer, _events) = collecting_renderer();
+    let mut context = test_context(&mut config, &mut auth, &renderer);
 
-        let result = SlashCommandHandler::handle(input, &mut context).await.unwrap();
+    let result = SlashCommandHandler::handle(input, &mut context).await.unwrap();
 
-        assert_eq!(
-            result,
-            Some(CommandResult::ModelChanged {
-                route: ModelRoute::new(provider, model),
-            }),
-            "{input}"
-        );
-    }
+    assert_eq!(
+        result,
+        Some(CommandResult::ModelChanged {
+            route: ModelRoute::new(provider, model),
+        })
+    );
 }
 
 #[tokio::test]
@@ -263,7 +258,7 @@ async fn model_command_leaves_session_config_to_the_switch() {
 
 #[tokio::test]
 async fn model_command_keeps_the_selected_provider_that_lists_the_model() {
-    let temp = std::env::temp_dir().join(format!("model_provider_{}", uuid::Uuid::new_v4()));
+    let temp = rho_test_support::TestDir::new();
     let mut config = Config {
         provider: "ollama-cloud".to_string(),
         sessions_dir: temp.join("sessions"),
@@ -296,35 +291,21 @@ async fn model_command_keeps_the_selected_provider_that_lists_the_model() {
             route: ModelRoute::new("ollama-cloud", "deepseek-v4.1-flash"),
         })
     );
-    let _ = std::fs::remove_dir_all(temp);
 }
 
+#[test_case("/tree", Some(CommandResult::OpenTreeSelector); "tree")]
+#[test_case("/rewind", Some(CommandResult::Continue); "rewind")]
+#[test_case("/reload", Some(CommandResult::Reload); "reload")]
+#[test_case("/reload now", Some(CommandResult::Reload); "reload with argument")]
 #[tokio::test]
-async fn tree_and_rewind_commands_return_expected_results() {
+async fn tree_rewind_and_reload_commands_return_expected_results(input: &str, expected: Option<CommandResult>) {
     let mut config = Config::default();
     let mut auth = AuthStore::default();
     let (renderer, _) = collecting_renderer();
     let mut context = test_context(&mut config, &mut auth, &renderer);
 
-    let tree = SlashCommandHandler::handle("/tree", &mut context).await.unwrap();
-    assert_eq!(tree, Some(CommandResult::OpenTreeSelector));
-
-    let rewind = SlashCommandHandler::handle("/rewind", &mut context).await.unwrap();
-    assert_eq!(rewind, Some(CommandResult::Continue));
-}
-
-#[tokio::test]
-async fn reload_command_requests_engine_reload() {
-    let mut config = Config::default();
-    let mut auth = AuthStore::default();
-    let (renderer, _) = collecting_renderer();
-    let mut context = test_context(&mut config, &mut auth, &renderer);
-
-    let result = SlashCommandHandler::handle("/reload", &mut context).await.unwrap();
-    assert_eq!(result, Some(CommandResult::Reload));
-
-    let with_args = SlashCommandHandler::handle("/reload now", &mut context).await.unwrap();
-    assert_eq!(with_args, Some(CommandResult::Reload));
+    let result = SlashCommandHandler::handle(input, &mut context).await.unwrap();
+    assert_eq!(result, expected);
 }
 
 #[tokio::test]
@@ -654,9 +635,9 @@ fn usage_engine(
 }
 
 async fn run_usage_command(command: &str, step: rho_engine::engine::metrics::StructuralUsage) -> String {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = rho_test_support::TestDir::new();
     let mut config = Config::default();
-    let engine = usage_engine(dir.path(), &config, step);
+    let engine = usage_engine(&dir, &config, step);
     let (result, output) = run_command(command, &mut config, "test-session", Some(&engine)).await;
     assert_eq!(result, Some(CommandResult::Continue));
     output
@@ -696,24 +677,6 @@ async fn usage_commands_display_cache_stats_when_present() {
             assert!(output.contains(needle), "{command}: {output}");
         }
     }
-}
-
-#[test]
-fn test_parse_command_args() {
-    use super::args::parse_command_args;
-
-    assert_eq!(parse_command_args(""), Vec::<String>::new());
-    assert_eq!(parse_command_args("   "), Vec::<String>::new());
-    assert_eq!(parse_command_args("hello"), vec!["hello"]);
-    assert_eq!(parse_command_args("foo bar  baz"), vec!["foo", "bar", "baz"]);
-    assert_eq!(
-        parse_command_args("cmd \"hello world\" 'single quote' tail"),
-        vec!["cmd", "hello world", "single quote", "tail"]
-    );
-    assert_eq!(
-        parse_command_args("echo \"unclosed quote"),
-        vec!["echo", "unclosed quote"]
-    );
 }
 
 #[test]
@@ -811,64 +774,48 @@ async fn help_with_command_argument_prints_extended_guide() {
     assert!(out.contains("Unknown command: /nope"));
 }
 
+#[test_case("/models", CommandResult::OpenModelsSelector; "models")]
+#[test_case("/tools", CommandResult::OpenToolsSelector; "tools")]
+#[test_case("/permissions", CommandResult::OpenToolsSelector; "permissions")]
+#[test_case("/agents", CommandResult::OpenAgentsSelector; "agents")]
 #[tokio::test]
-async fn models_tools_and_agents_dispatch_in_tui_mode() {
+async fn models_tools_and_agents_dispatch_in_tui_mode(cmd: &str, expected: CommandResult) {
     let mut config = Config::default();
-    let cases = [
-        ("/models", CommandResult::OpenModelsSelector),
-        ("/tools", CommandResult::OpenToolsSelector),
-        ("/permissions", CommandResult::OpenToolsSelector),
-        ("/agents", CommandResult::OpenAgentsSelector),
-    ];
-    for (cmd, expected) in cases {
-        let (res, _) = run_command(cmd, &mut config, "s1", None).await;
-        assert_eq!(res, Some(expected), "failed for {cmd}");
-    }
+    let (res, _) = run_command(cmd, &mut config, "s1", None).await;
+    assert_eq!(res, Some(expected));
 }
 
-#[test]
-fn mid_turn_policy_classifies_immediate_vs_queued() {
-    for cmd in [
-        "/settings",
-        "/help",
-        "/help mcp",
-        "/model",
-        "/model gpt-4o",
-        "/models",
-        "/thinking high",
-        "/think off",
-        "/tools",
-        "/permissions",
-        "/agents",
-        "/session",
-        "/tokens",
-        "/fork pane",
-        "/fork hsplit 2",
-        "/fork vsplit",
-        "/fork window",
-        "/fork TAB node_1",
-        "/btw",
-        "/btw foo",
-    ] {
-        assert_eq!(
-            mid_turn_policy(cmd),
-            MidTurnPolicy::Immediate,
-            "expected immediate: {cmd}"
-        );
-    }
-    for cmd in [
-        "/compact",
-        "/clear",
-        "/new",
-        "/rewind 1",
-        "/fork",
-        "/fork 2",
-        "/fork abc",
-        "/wt",
-        "/unknown",
-    ] {
-        assert_eq!(mid_turn_policy(cmd), MidTurnPolicy::Queue, "expected queued: {cmd}");
-    }
+#[test_case("/settings", MidTurnPolicy::Immediate; "settings")]
+#[test_case("/help", MidTurnPolicy::Immediate; "help")]
+#[test_case("/help mcp", MidTurnPolicy::Immediate; "help with topic")]
+#[test_case("/model", MidTurnPolicy::Immediate; "model")]
+#[test_case("/model gpt-4o", MidTurnPolicy::Immediate; "model with name")]
+#[test_case("/models", MidTurnPolicy::Immediate; "models")]
+#[test_case("/thinking high", MidTurnPolicy::Immediate; "thinking")]
+#[test_case("/think off", MidTurnPolicy::Immediate; "think alias")]
+#[test_case("/tools", MidTurnPolicy::Immediate; "tools")]
+#[test_case("/permissions", MidTurnPolicy::Immediate; "permissions")]
+#[test_case("/agents", MidTurnPolicy::Immediate; "agents")]
+#[test_case("/session", MidTurnPolicy::Immediate; "session")]
+#[test_case("/tokens", MidTurnPolicy::Immediate; "tokens")]
+#[test_case("/fork pane", MidTurnPolicy::Immediate; "fork pane")]
+#[test_case("/fork hsplit 2", MidTurnPolicy::Immediate; "fork hsplit with turn")]
+#[test_case("/fork vsplit", MidTurnPolicy::Immediate; "fork vsplit")]
+#[test_case("/fork window", MidTurnPolicy::Immediate; "fork window")]
+#[test_case("/fork TAB node_1", MidTurnPolicy::Immediate; "fork tab with node")]
+#[test_case("/btw", MidTurnPolicy::Immediate; "btw")]
+#[test_case("/btw foo", MidTurnPolicy::Immediate; "btw with question")]
+#[test_case("/compact", MidTurnPolicy::Queue; "compact")]
+#[test_case("/clear", MidTurnPolicy::Queue; "clear")]
+#[test_case("/new", MidTurnPolicy::Queue; "new")]
+#[test_case("/rewind 1", MidTurnPolicy::Queue; "rewind")]
+#[test_case("/fork", MidTurnPolicy::Queue; "fork in place")]
+#[test_case("/fork 2", MidTurnPolicy::Queue; "fork in place with turn")]
+#[test_case("/fork abc", MidTurnPolicy::Queue; "fork in place with node")]
+#[test_case("/wt", MidTurnPolicy::Queue; "worktree")]
+#[test_case("/unknown", MidTurnPolicy::Queue; "unknown")]
+fn mid_turn_policy_classifies_immediate_vs_queued(cmd: &str, expected: MidTurnPolicy) {
+    assert_eq!(mid_turn_policy(cmd), expected);
 }
 
 #[test]
@@ -878,28 +825,24 @@ fn help_arg_completion_completes_builtin_commands() {
     assert!(matches.iter().any(|c| c.value == "/help settings"));
 }
 
+#[test_case("/btw", None; "bare")]
+#[test_case("/btw   ", None; "trailing spaces")]
+#[test_case("/btw what changed?", Some("what changed?"); "question")]
+#[test_case("/btw  keep   spacing\nline2 ", Some("keep   spacing\nline2"); "inner spacing kept")]
 #[tokio::test]
-async fn btw_command_parses_optional_question() {
-    let cases = [
-        ("/btw", None),
-        ("/btw   ", None),
-        ("/btw what changed?", Some("what changed?")),
-        ("/btw  keep   spacing\nline2 ", Some("keep   spacing\nline2")),
-    ];
-    for (line, expected) in cases {
-        let mut config = Config::default();
-        let mut auth = AuthStore::default();
-        let (renderer, _) = collecting_renderer();
-        let mut context = test_context(&mut config, &mut auth, &renderer);
+async fn btw_command_parses_optional_question(line: &str, expected: Option<&str>) {
+    let mut config = Config::default();
+    let mut auth = AuthStore::default();
+    let (renderer, _) = collecting_renderer();
+    let mut context = test_context(&mut config, &mut auth, &renderer);
 
-        let result = SlashCommandHandler::handle(line, &mut context).await.unwrap();
-        assert_eq!(
-            result,
-            Some(CommandResult::Btw {
-                question: expected.map(str::to_string)
-            })
-        );
-    }
+    let result = SlashCommandHandler::handle(line, &mut context).await.unwrap();
+    assert_eq!(
+        result,
+        Some(CommandResult::Btw {
+            question: expected.map(str::to_string)
+        })
+    );
 }
 
 #[tokio::test]

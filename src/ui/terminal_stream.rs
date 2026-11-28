@@ -148,6 +148,7 @@ impl Cursor {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use test_case::test_case;
 
     fn escapes(text: &str) -> Vec<(&str, Option<&str>)> {
         tokens(text)
@@ -216,14 +217,16 @@ mod tests {
         assert_eq!(escapes("x\u{1b}"), [("\u{1b}", None)]);
     }
 
-    #[test]
-    fn only_sequences_with_no_or_zero_parameters_reset() {
-        for reset in ["\u{1b}[m", "\u{1b}[0m", "\u{1b}[00m"] {
-            assert!(is_sgr_reset(reset), "{reset:?}");
-        }
-        for other in ["\u{1b}[1m", "\u{1b}[0;1m", "\u{1b}[0K", "0m", ""] {
-            assert!(!is_sgr_reset(other), "{other:?}");
-        }
+    #[test_case("\u{1b}[m", true; "no parameters")]
+    #[test_case("\u{1b}[0m", true; "zero parameter")]
+    #[test_case("\u{1b}[00m", true; "padded zero parameter")]
+    #[test_case("\u{1b}[1m", false; "bold")]
+    #[test_case("\u{1b}[0;1m", false; "reset then bold")]
+    #[test_case("\u{1b}[0K", false; "erase line")]
+    #[test_case("0m", false; "missing escape")]
+    #[test_case("", false; "empty")]
+    fn only_sequences_with_no_or_zero_parameters_reset(sequence: &str, resets: bool) {
+        assert_eq!(is_sgr_reset(sequence), resets);
     }
 
     #[test]

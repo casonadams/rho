@@ -127,45 +127,42 @@ impl Launcher for ProcessLauncher {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use test_case::test_case;
 
-    #[test]
-    fn credential_variables_are_recognized_and_ordinary_ones_kept() {
-        for secret in [
-            "ANTHROPIC_API_KEY",
-            "OPENAI_BASE_URL",
-            "GEMINI_API_KEY",
-            "GOOGLE_API_KEY",
-            "AWS_SECRET_ACCESS_KEY",
-            "AWS_SESSION_TOKEN",
-            "GITHUB_TOKEN",
-            "client_secret",
-            "BRAVE_API_KEY",
-            "EXA_API_KEY",
-            "API_KEY",
-            "MYSQL_PASSWORD",
-            "GPG_PASSPHRASE",
-            "SERVICE_CREDENTIALS",
-            "GOOGLE_APPLICATION_CREDENTIALS",
-            "AWS_ACCESS_KEY_ID",
-            "AZURE_CLIENT_ID",
-            "SSH_AUTH_SOCK",
-            "DATABASE_URL",
-            "NPM_TOKEN",
-        ] {
-            assert!(is_secret_var(secret), "{secret}");
-        }
-        for ordinary in [
-            "PATH",
-            "HOME",
-            "RUSTUP_HOME",
-            "LANG",
-            "TERM",
-            "GOPATH",
-            "AWS_REGION",
-            "KEYBOARD",
-        ] {
-            assert!(!is_secret_var(ordinary), "{ordinary}");
-        }
+    #[test_case("ANTHROPIC_API_KEY"; "anthropic api key")]
+    #[test_case("OPENAI_BASE_URL"; "openai base url")]
+    #[test_case("GEMINI_API_KEY"; "gemini api key")]
+    #[test_case("GOOGLE_API_KEY"; "google api key")]
+    #[test_case("AWS_SECRET_ACCESS_KEY"; "aws secret access key")]
+    #[test_case("AWS_SESSION_TOKEN"; "aws session token")]
+    #[test_case("GITHUB_TOKEN"; "github token")]
+    #[test_case("client_secret"; "lowercase client secret")]
+    #[test_case("BRAVE_API_KEY"; "brave api key")]
+    #[test_case("EXA_API_KEY"; "exa api key")]
+    #[test_case("API_KEY"; "api key")]
+    #[test_case("MYSQL_PASSWORD"; "mysql password")]
+    #[test_case("GPG_PASSPHRASE"; "gpg passphrase")]
+    #[test_case("SERVICE_CREDENTIALS"; "service credentials")]
+    #[test_case("GOOGLE_APPLICATION_CREDENTIALS"; "google application credentials")]
+    #[test_case("AWS_ACCESS_KEY_ID"; "aws access key id")]
+    #[test_case("AZURE_CLIENT_ID"; "azure client id")]
+    #[test_case("SSH_AUTH_SOCK"; "ssh auth sock")]
+    #[test_case("DATABASE_URL"; "database url")]
+    #[test_case("NPM_TOKEN"; "npm token")]
+    fn credential_variables_are_recognized(secret: &str) {
+        assert!(is_secret_var(secret));
+    }
+
+    #[test_case("PATH"; "path")]
+    #[test_case("HOME"; "home")]
+    #[test_case("RUSTUP_HOME"; "rustup home")]
+    #[test_case("LANG"; "lang")]
+    #[test_case("TERM"; "term")]
+    #[test_case("GOPATH"; "gopath")]
+    #[test_case("AWS_REGION"; "aws region")]
+    #[test_case("KEYBOARD"; "keyboard")]
+    fn ordinary_variables_are_kept(ordinary: &str) {
+        assert!(!is_secret_var(ordinary));
     }
 
     #[cfg(unix)]

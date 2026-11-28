@@ -144,7 +144,7 @@ fn names_without_memory(tools: &[Arc<dyn EngineTool>]) -> Vec<&str> {
 
 #[test]
 fn builtin_tools_build_successfully() {
-    let tools = build_builtin_tools(&std::env::temp_dir(), &Config::default(), None)
+    let tools = build_builtin_tools(&crate::test_support::TestDir::new(), &Config::default(), None)
         .unwrap()
         .tools;
     let names = names_without_memory(&tools);
@@ -170,7 +170,7 @@ fn builtin_tools_build_successfully() {
 #[test]
 fn memory_tool_needs_a_home_and_context_files() {
     let home = Path::new("/home/tester");
-    let work = std::env::temp_dir();
+    let work = crate::test_support::TestDir::new();
     let enabled = Config::default();
     assert_eq!(memory_tool(Some(home), &work, &enabled).unwrap().name(), "memory");
     assert!(memory_tool(None, &work, &enabled).is_none());
@@ -185,18 +185,24 @@ fn memory_tool_needs_a_home_and_context_files() {
 fn builtin_tools_web_flags_control_inclusion() {
     let mut config = Config::default();
     config.tools.web.search.enabled = false;
-    let search_off = build_builtin_tools(&std::env::temp_dir(), &config, None).unwrap().tools;
+    let search_off = build_builtin_tools(&crate::test_support::TestDir::new(), &config, None)
+        .unwrap()
+        .tools;
     assert!(search_off.iter().all(|t| t.name() != "web_search"));
     assert!(search_off.iter().any(|t| t.name() == "web_fetch"));
 
     config.tools.web.search.enabled = true;
     config.tools.web.fetch.enabled = false;
-    let fetch_off = build_builtin_tools(&std::env::temp_dir(), &config, None).unwrap().tools;
+    let fetch_off = build_builtin_tools(&crate::test_support::TestDir::new(), &config, None)
+        .unwrap()
+        .tools;
     assert!(fetch_off.iter().any(|t| t.name() == "web_search"));
     assert!(fetch_off.iter().all(|t| t.name() != "web_fetch"));
 
     config.tools.web.search.enabled = false;
-    let both_off = build_builtin_tools(&std::env::temp_dir(), &config, None).unwrap().tools;
+    let both_off = build_builtin_tools(&crate::test_support::TestDir::new(), &config, None)
+        .unwrap()
+        .tools;
     assert!(
         both_off
             .iter()
@@ -209,13 +215,15 @@ fn builtin_tools_omit_web_when_disabled() {
     let mut config = Config::default();
     config.tools.web.search.enabled = false;
     config.tools.web.fetch.enabled = false;
-    let tools = build_builtin_tools(&std::env::temp_dir(), &config, None).unwrap().tools;
+    let tools = build_builtin_tools(&crate::test_support::TestDir::new(), &config, None)
+        .unwrap()
+        .tools;
     assert_eq!(names_without_memory(&tools).len(), 10);
 }
 
 #[test]
 fn only_read_only_builtin_tools_run_concurrently() {
-    let tools = build_builtin_tools(&std::env::temp_dir(), &Config::default(), None)
+    let tools = build_builtin_tools(&crate::test_support::TestDir::new(), &Config::default(), None)
         .unwrap()
         .tools;
     let args = serde_json::json!({});

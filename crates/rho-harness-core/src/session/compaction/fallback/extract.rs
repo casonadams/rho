@@ -203,24 +203,20 @@ fn truncate_str(s: &str, max_chars: usize) -> String {
 mod tests {
     use super::super::generate_fallback_summary;
     use super::clean_item;
+    use test_case::test_case;
 
-    #[test]
-    fn only_explicit_markers_are_stripped_from_items() {
-        let cases = [
-            ("- item", "item"),
-            ("* item", "item"),
-            ("- [x] done thing", "done thing"),
-            ("- [ ] open thing", "open thing"),
-            ("12. numbered", "numbered"),
-            ("2 bugs in parser", "2 bugs in parser"),
-            ("1.5x faster startup", "1.5x faster startup"),
-            ("404 handler returns html", "404 handler returns html"),
-            ("3.", "3."),
-            (". leading dot", ". leading dot"),
-        ];
-        for (input, expected) in cases {
-            assert_eq!(clean_item(input), expected, "{input}");
-        }
+    #[test_case("- item", "item"; "dash bullet")]
+    #[test_case("* item", "item"; "star bullet")]
+    #[test_case("- [x] done thing", "done thing"; "checked box")]
+    #[test_case("- [ ] open thing", "open thing"; "unchecked box")]
+    #[test_case("12. numbered", "numbered"; "numbered item")]
+    #[test_case("2 bugs in parser", "2 bugs in parser"; "leading digit without dot")]
+    #[test_case("1.5x faster startup", "1.5x faster startup"; "decimal number")]
+    #[test_case("404 handler returns html", "404 handler returns html"; "leading number word")]
+    #[test_case("3.", "3."; "bare number marker")]
+    #[test_case(". leading dot", ". leading dot"; "leading dot")]
+    fn only_explicit_markers_are_stripped_from_items(input: &str, expected: &str) {
+        assert_eq!(clean_item(input), expected);
     }
 
     #[test]

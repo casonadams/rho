@@ -352,6 +352,7 @@ fn remove_server(name: &str, config: &Config) -> CliResult {
 mod tests {
     use super::*;
     use rho_harness_core::config::ProjectMcpServers;
+    use test_case::test_case;
 
     #[test]
     fn diagnostics_group_sign_ins_into_one_line() {
@@ -469,9 +470,9 @@ mod tests {
 
     #[tokio::test]
     async fn login_and_logout_explain_unusable_targets() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = rho_test_support::TestDir::new();
         let mut config = Config {
-            config_dir: dir.path().to_path_buf(),
+            config_dir: dir.to_path_buf(),
             ..Config::default()
         };
         config
@@ -536,9 +537,9 @@ mod tests {
 
     #[tokio::test]
     async fn mcp_test_refuses_to_start_an_unapproved_project_server() {
-        let dir = tempfile::tempdir().unwrap();
-        let marker = dir.path().join("started");
-        let mut config = workspace_config(dir.path());
+        let dir = rho_test_support::TestDir::new();
+        let marker = dir.join("started");
+        let mut config = workspace_config(&dir);
         config.mcp.servers.insert(
             "proj_a".into(),
             McpServerConfig::stdio("sh", vec!["-c".into(), format!("touch {}", marker.display())]),
@@ -554,8 +555,8 @@ mod tests {
 
     #[test]
     fn approve_marks_named_project_servers_approved() {
-        let dir = tempfile::tempdir().unwrap();
-        let config = workspace_config(dir.path());
+        let dir = rho_test_support::TestDir::new();
+        let config = workspace_config(&dir);
 
         approve_project_servers(&["proj_a".into()], &config).unwrap();
 
@@ -566,8 +567,8 @@ mod tests {
 
     #[test]
     fn approve_without_names_approves_every_project_server() {
-        let dir = tempfile::tempdir().unwrap();
-        let config = workspace_config(dir.path());
+        let dir = rho_test_support::TestDir::new();
+        let config = workspace_config(&dir);
 
         approve_project_servers(&[], &config).unwrap();
 
@@ -575,22 +576,21 @@ mod tests {
         assert_eq!(approval(&config, "proj_b"), Some(true));
     }
 
-    #[test]
-    fn approve_rejects_servers_outside_the_project_without_approving_any() {
-        let dir = tempfile::tempdir().unwrap();
-        let config = workspace_config(dir.path());
-        let cases = [
-            ("global", "is not defined by this project"),
-            ("ghost", "is not configured"),
-        ];
-        for (name, expected) in cases {
-            let err = approve_project_servers(&["proj_a".into(), name.into()], &config).unwrap_err();
-            assert!(err.to_string().contains(expected), "{name}: {err}");
-            assert_eq!(approval(&config, "proj_a"), Some(false), "{name}");
-        }
+    #[test_case("global", "is not defined by this project"; "global server")]
+    #[test_case("ghost", "is not configured"; "unknown server")]
+    fn approve_rejects_servers_outside_the_project_without_approving_any(name: &str, expected: &str) {
+        let dir = rho_test_support::TestDir::new();
+        let config = workspace_config(&dir);
+        let err = approve_project_servers(&["proj_a".into(), name.into()], &config).unwrap_err();
+        assert!(err.to_string().contains(expected), "{err}");
+        assert_eq!(approval(&config, "proj_a"), Some(false));
+    }
 
+    #[test]
+    fn approve_without_project_servers_is_rejected() {
+        let dir = rho_test_support::TestDir::new();
         let no_project = Config {
-            config_dir: dir.path().join("config"),
+            config_dir: dir.join("config"),
             ..Config::default()
         };
         let err = approve_project_servers(&[], &no_project).unwrap_err();

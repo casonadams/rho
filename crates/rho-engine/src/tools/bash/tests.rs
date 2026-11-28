@@ -1,6 +1,7 @@
 use super::*;
 use crate::tools::truncate::DEFAULT_MAX_BYTES as MAX_BASH_BYTES;
 use rho_test_support::TestDir;
+use test_case::test_case;
 
 /// A tool whose full-output logs live in a directory removed on drop.
 struct LoggedTool {
@@ -13,6 +14,16 @@ impl LoggedTool {
         let logs = TestDir::new();
         let tool = BashTool::new(std::env::current_dir().unwrap()).with_log_dir(logs.join("rho-bash"));
         Self { tool, logs }
+    }
+
+    async fn run_command(&self, command: &str) -> ToolResult {
+        self.execute(BashArgs {
+            command: command.to_string(),
+            timeout: Some(5),
+            background: None,
+        })
+        .await
+        .unwrap()
     }
 }
 
@@ -34,6 +45,10 @@ fn bash_args(command: &str) -> BashArgs {
         timeout: Some(10),
         background: None,
     }
+}
+
+fn pid_command(pid_file: &std::path::Path) -> String {
+    format!("echo $$ > '{}' && sleep 30 & wait", pid_file.display())
 }
 
 #[cfg(unix)]
@@ -81,8 +96,10 @@ async fn output_without_colors_needs_no_separate_display_text() {
 }
 
 #[cfg(unix)]
+#[test_case(0; "exit zero")]
+#[test_case(101; "exit nonzero")]
 #[tokio::test]
-async fn clipped_test_output_lists_the_failing_tests_above_the_footer() {
+async fn clipped_test_output_lists_the_failing_tests_above_the_footer(exit: i32) {
     let tool = LoggedTool::new();
     let run = "printf 'test math::subtracts ... FAILED\\n'; seq 1 2100; \
                printf -- '---- math::subtracts stdout ----\\n'; \
@@ -90,15 +107,13 @@ async fn clipped_test_output_lists_the_failing_tests_above_the_footer() {
                printf 'test result: FAILED. 0 passed; 1 failed\\n'";
     let summary = "[1 failing test; details from log]\n- math::subtracts\n    \
                    thread 'math::subtracts' panicked at src/math.rs:12:9:\n    assertion failed";
-    for exit in [0, 101] {
-        let res = tool.execute(bash_args(&format!("{run}; exit {exit}"))).await.unwrap();
+    let res = tool.execute(bash_args(&format!("{run}; exit {exit}"))).await.unwrap();
 
-        let (body, footer) = res.content.rsplit_once("\n\n").unwrap();
-        assert!(body.ends_with(summary), "exit {exit}: {}", res.content);
-        let parsed = footer::BashFooter::parse(&res.content).expect("the footer still parses");
-        assert_eq!((parsed.exit_code, parsed.lines), (exit, 2136));
-        assert!(footer.starts_with(&format!("[exit {exit}; 2136 lines")), "{footer}");
-    }
+    let (body, footer) = res.content.rsplit_once("\n\n").unwrap();
+    assert!(body.ends_with(summary), "{}", res.content);
+    let parsed = footer::BashFooter::parse(&res.content).expect("the footer still parses");
+    assert_eq!((parsed.exit_code, parsed.lines), (exit, 2136));
+    assert!(footer.starts_with(&format!("[exit {exit}; 2136 lines")), "{footer}");
 }
 
 #[cfg(unix)]
@@ -162,10 +177,10 @@ async fn a_bound_tool_streams_its_output_to_the_turns_port_as_the_command_runs()
 #[cfg(unix)]
 #[tokio::test]
 async fn a_bound_tool_owns_its_background_jobs_and_they_stop_when_the_session_is_abandoned() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = TestDir::new();
     let owner = crate::mailbox::AgentId::from("bash-owner-7c2");
     let inbox = crate::mailbox::Mailboxes::default().open(&owner, None);
-    let unbound = BashTool::new(dir.path());
+    let unbound = BashTool::new(&dir);
     let tool = unbound
         .bind_turn(&TurnToolContext {
             inbox: Some(inbox.clone()),
@@ -206,8 +221,8 @@ async fn a_bound_tool_owns_its_background_jobs_and_they_stop_when_the_session_is
 #[cfg(unix)]
 #[tokio::test]
 async fn without_an_agent_to_report_to_a_command_never_moves_to_the_background() {
-    let dir = tempfile::tempdir().unwrap();
-    let tool = BashTool::new(dir.path());
+    let dir = TestDir::new();
+    let tool = BashTool::new(&dir);
 
     let refused = tool
         .execute(BashArgs {
@@ -293,8 +308,8 @@ fn the_full_output_log_has_no_terminal_colors_even_when_escapes_span_chunks() {
 
 #[test]
 fn the_log_sweep_removes_only_old_rho_logs() {
-    let root = tempfile::tempdir().unwrap();
-    let logs = root.path().join("rho-bash");
+    let root = TestDir::new();
+    let logs = root.join("rho-bash");
     std::fs::create_dir_all(&logs).unwrap();
     let day_ago = std::time::SystemTime::now() - std::time::Duration::from_secs(25 * 60 * 60);
     let make = |path: std::path::PathBuf, old: bool| {
@@ -306,11 +321,11 @@ fn the_log_sweep_removes_only_old_rho_logs() {
     };
     let old_log = make(logs.join("old.log"), true);
     let new_log = make(logs.join("new.log"), false);
-    let old_loose = make(root.path().join("rho-bash-legacy.log"), true);
-    let new_loose = make(root.path().join("rho-bash-current.log"), false);
-    let foreign = make(root.path().join("someone-else.log"), true);
+    let old_loose = make(root.join("rho-bash-legacy.log"), true);
+    let new_loose = make(root.join("rho-bash-current.log"), false);
+    let foreign = make(root.join("someone-else.log"), true);
 
-    assert_eq!(accumulator::sweep_logs(root.path()), 2);
+    assert_eq!(accumulator::sweep_logs(&root), 2);
 
     assert!(!old_log.exists() && !old_loose.exists());
     assert!(new_log.exists() && new_loose.exists() && foreign.exists());
@@ -360,49 +375,38 @@ fn test_output_accumulator_preserves_ansi_escapes_split_across_chunks() {
     assert_eq!(snap.content, "starting \x1b[40mblack background\x1b[0m ending");
 }
 
+#[test_case(
+    "echo FIRST_LINE; seq 1 5000; echo LAST_LINE",
+    false,
+    "[... 4977 lines omitted]\n\n4987\n",
+    "5000\nLAST_LINE\n\n[exit 0; 5002 lines, ";
+    "success"
+)]
+#[test_case(
+    "echo FIRST_LINE; seq 1 5000; exit 1",
+    true,
+    "[... 4891 lines omitted]\n\n4901\n",
+    "\n5000\n\n[exit 1; 5001 lines, ";
+    "failure"
+)]
 #[tokio::test]
-async fn clipped_successful_output_keeps_its_first_and_last_lines_and_names_the_log_once() {
+async fn clipped_output_keeps_head_and_tail_and_names_the_log_once(
+    command: &str,
+    is_error: bool,
+    omitted: &str,
+    footer: &str,
+) {
     let tool = LoggedTool::new();
-    let res = tool
-        .execute(bash_args("echo FIRST_LINE; seq 1 5000; echo LAST_LINE"))
-        .await
-        .unwrap();
+    let res = tool.execute(bash_args(command)).await.unwrap();
 
-    assert!(!res.is_error);
+    assert_eq!(res.is_error, is_error);
     assert!(
         res.content
-            .starts_with("FIRST_LINE\n1\n2\n3\n4\n5\n6\n7\n8\n9\n\n[... 4977 lines omitted]\n\n4987\n"),
+            .starts_with(&format!("FIRST_LINE\n1\n2\n3\n4\n5\n6\n7\n8\n9\n\n{omitted}")),
         "{}",
         res.content
     );
-    assert!(
-        res.content.contains("5000\nLAST_LINE\n\n[exit 0; 5002 lines, "),
-        "{}",
-        res.content
-    );
-    assert_eq!(res.content.matches("log: ").count(), 1, "{}", res.content);
-}
-
-#[tokio::test]
-async fn clipped_failing_output_keeps_its_first_lines_and_a_longer_tail() {
-    let tool = LoggedTool::new();
-    let res = tool
-        .execute(bash_args("echo FIRST_LINE; seq 1 5000; exit 1"))
-        .await
-        .unwrap();
-
-    assert!(res.is_error);
-    assert!(
-        res.content
-            .starts_with("FIRST_LINE\n1\n2\n3\n4\n5\n6\n7\n8\n9\n\n[... 4891 lines omitted]\n\n4901\n"),
-        "{}",
-        &res.content[..200]
-    );
-    assert!(
-        res.content.contains("\n5000\n\n[exit 1; 5001 lines, "),
-        "{}",
-        res.content
-    );
+    assert!(res.content.contains(footer), "{}", res.content);
     assert_eq!(res.content.matches("log: ").count(), 1, "{}", res.content);
 }
 
@@ -435,14 +439,7 @@ async fn test_bash_streaming_receives_chunks() {
 #[tokio::test]
 async fn test_bash_echo() {
     let tool = LoggedTool::new();
-    let res = tool
-        .execute(BashArgs {
-            command: "echo 'hello from bash'".to_string(),
-            timeout: Some(5),
-            background: None,
-        })
-        .await
-        .unwrap();
+    let res = tool.run_command("echo 'hello from bash'").await;
 
     assert!(!res.is_error);
     assert!(res.content.contains("hello from bash"));
@@ -451,14 +448,7 @@ async fn test_bash_echo() {
 #[tokio::test]
 async fn test_bash_nonzero_exit() {
     let tool = LoggedTool::new();
-    let res = tool
-        .execute(BashArgs {
-            command: "exit 42".to_string(),
-            timeout: Some(5),
-            background: None,
-        })
-        .await
-        .unwrap();
+    let res = tool.run_command("exit 42").await;
 
     assert!(res.is_error);
     assert!(res.content.contains("[exit 42]"));
@@ -494,13 +484,13 @@ async fn a_command_that_outlives_its_timeout_moves_to_its_agents_background_work
 #[cfg(unix)]
 #[tokio::test]
 async fn test_bash_timeout_kills_process_group() {
-    let dir = tempfile::tempdir().unwrap();
-    let pid_file = dir.path().join("pid.txt");
+    let dir = TestDir::new();
+    let pid_file = dir.join("pid.txt");
     let tool = LoggedTool::new();
 
     let res = tool
         .execute(BashArgs {
-            command: format!("echo $$ > '{}' && sleep 30 & wait", pid_file.display()),
+            command: pid_command(&pid_file),
             timeout: Some(1),
             background: Some(false),
         })
@@ -522,12 +512,12 @@ async fn test_bash_timeout_kills_process_group() {
 #[cfg(unix)]
 #[tokio::test]
 async fn test_bash_cancellation_kills_process_group() {
-    let dir = tempfile::tempdir().unwrap();
-    let pid_file = dir.path().join("pid.txt");
+    let dir = TestDir::new();
+    let pid_file = dir.join("pid.txt");
     let tool = LoggedTool::new();
 
     let mut future = Box::pin(tool.execute(BashArgs {
-        command: format!("echo $$ > '{}' && sleep 30 & wait", pid_file.display()),
+        command: pid_command(&pid_file),
         timeout: Some(30),
         background: None,
     }));
@@ -610,14 +600,7 @@ async fn a_timed_out_command_with_long_output_is_windowed_and_names_its_log() {
 #[tokio::test]
 async fn test_bash_nonzero_exit_preserves_output_before_status() {
     let tool = LoggedTool::new();
-    let res = tool
-        .execute(BashArgs {
-            command: "echo 'first output line'; exit 42".to_string(),
-            timeout: Some(5),
-            background: None,
-        })
-        .await
-        .unwrap();
+    let res = tool.run_command("echo 'first output line'; exit 42").await;
 
     assert!(res.is_error);
     assert!(res.content.contains("first output line"));
@@ -673,14 +656,7 @@ async fn test_bash_sanitizes_cargo_environment_variables() {
 #[tokio::test]
 async fn test_bash_exit_zero_over_threshold_includes_metadata_footer() {
     let tool = LoggedTool::new();
-    let res = tool
-        .execute(BashArgs {
-            command: "seq 1 25".to_string(),
-            timeout: Some(5),
-            background: None,
-        })
-        .await
-        .unwrap();
+    let res = tool.run_command("seq 1 25").await;
 
     assert!(!res.is_error);
     let footer = super::footer::BashFooter::parse(&res.content).expect("footer");
@@ -701,14 +677,7 @@ async fn test_bash_exit_zero_over_threshold_includes_metadata_footer() {
 #[tokio::test]
 async fn test_bash_exit_zero_under_threshold_omits_metadata_footer() {
     let tool = LoggedTool::new();
-    let res = tool
-        .execute(BashArgs {
-            command: "seq 1 5".to_string(),
-            timeout: Some(5),
-            background: None,
-        })
-        .await
-        .unwrap();
+    let res = tool.run_command("seq 1 5").await;
 
     assert!(!res.is_error);
     assert!(!res.content.contains("[exit 0;"));
@@ -717,14 +686,7 @@ async fn test_bash_exit_zero_under_threshold_omits_metadata_footer() {
 #[tokio::test]
 async fn test_bash_exit_zero_over_window_threshold_windows_output() {
     let tool = LoggedTool::new();
-    let res = tool
-        .execute(BashArgs {
-            command: "seq 1 100".to_string(),
-            timeout: Some(5),
-            background: None,
-        })
-        .await
-        .unwrap();
+    let res = tool.run_command("seq 1 100").await;
 
     assert!(!res.is_error);
     assert!(res.content.starts_with("1\n2\n3"));
@@ -739,14 +701,7 @@ async fn test_bash_exit_zero_over_window_threshold_windows_output() {
 #[tokio::test]
 async fn test_bash_collapses_consecutive_identical_lines() {
     let tool = LoggedTool::new();
-    let res = tool
-        .execute(BashArgs {
-            command: "printf 'repeat\\n%.0s' {1..10}".to_string(),
-            timeout: Some(5),
-            background: None,
-        })
-        .await
-        .unwrap();
+    let res = tool.run_command("printf 'repeat\\n%.0s' {1..10}").await;
 
     assert!(!res.is_error);
     assert!(res.content.contains("repeat\n[... 9 identical lines collapsed]"));

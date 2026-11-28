@@ -2,6 +2,7 @@ use super::*;
 use crate::model::{AssistantContent, ChatMessage, ToolCall, ToolFunction, ToolResult, UserContent};
 use crate::session::tree::{SessionTree, TreeNodeData, TreeNodeKind};
 use chrono::Utc;
+use test_case::test_case;
 
 fn sample_tool_node() -> TreeNodeData {
     TreeNodeData {
@@ -114,30 +115,21 @@ fn falls_back_to_session_id_when_unnamed() {
     assert!(markdown.contains("# rho session: abc-123"), "{markdown}");
 }
 
-#[test]
-fn export_format_is_selected_by_extension() {
-    let cases = [
-        ("html", ExportFormat::Html),
-        ("md", ExportFormat::Markdown),
-        ("txt", ExportFormat::Markdown),
-    ];
-    for (ext, expected) in cases {
-        assert_eq!(ExportFormat::from_extension(ext), expected, "{ext}");
-    }
+#[test_case("html", ExportFormat::Html; "html extension")]
+#[test_case("md", ExportFormat::Markdown; "md extension")]
+#[test_case("txt", ExportFormat::Markdown; "unknown extension defaults to markdown")]
+fn export_format_is_selected_by_extension(ext: &str, expected: ExportFormat) {
+    assert_eq!(ExportFormat::from_extension(ext), expected);
 }
 
+#[test_case("out.html", ExportFormat::Html, "<!doctype html>"; "html")]
+#[test_case("out.md", ExportFormat::Markdown, "# rho session: export demo"; "markdown")]
 #[tokio::test]
-async fn write_export_creates_parents_and_renders_selected_format() {
-    let cases = [
-        ("out.html", ExportFormat::Html, "<!doctype html>"),
-        ("out.md", ExportFormat::Markdown, "# rho session: export demo"),
-    ];
+async fn write_export_creates_parents_and_renders_selected_format(file: &str, format: ExportFormat, prefix: &str) {
     let tree = tree_with_conversation();
     let dir = crate::test_support::temp_dir();
-    for (file, format, prefix) in cases {
-        let path = dir.join("nested").join(file);
-        write_export(&path, &tree, "session-1", format).await.unwrap();
-        let written = std::fs::read_to_string(&path).unwrap();
-        assert!(written.starts_with(prefix), "{file}: {written}");
-    }
+    let path = dir.join("nested").join(file);
+    write_export(&path, &tree, "session-1", format).await.unwrap();
+    let written = std::fs::read_to_string(&path).unwrap();
+    assert!(written.starts_with(prefix), "{written}");
 }

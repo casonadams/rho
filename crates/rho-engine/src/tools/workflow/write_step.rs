@@ -34,26 +34,26 @@ pub(super) async fn write_output(project_dir: &Path, relative: &str, content: St
 mod tests {
     use super::*;
     use crate::test_support::TestDir;
+    use test_case::test_case;
 
-    #[test]
-    fn accepts_only_relative_paths_inside_the_output_root() {
-        let root = Path::new("/p");
-        for ok in [".rho/a.md", ".rho/audit/x/report.md", " .rho/a.md "] {
-            assert!(output_path(root, ok).is_ok(), "{ok}");
-        }
-        for bad in [
-            "",
-            ".rho",
-            "a.md",
-            "src/lib.rs",
-            "/etc/passwd",
-            ".rho/../x",
-            "../.rho/x",
-            ".rho/./../../x",
-            ".rhoo/x",
-        ] {
-            assert!(output_path(root, bad).is_err(), "{bad}");
-        }
+    #[test_case(".rho/a.md"; "top level file")]
+    #[test_case(".rho/audit/x/report.md"; "nested file")]
+    #[test_case(" .rho/a.md "; "padded path")]
+    fn accepts_relative_paths_inside_the_output_root(ok: &str) {
+        assert!(output_path(Path::new("/p"), ok).is_ok());
+    }
+
+    #[test_case(""; "empty")]
+    #[test_case(".rho"; "root itself")]
+    #[test_case("a.md"; "outside root")]
+    #[test_case("src/lib.rs"; "source file")]
+    #[test_case("/etc/passwd"; "absolute")]
+    #[test_case(".rho/../x"; "parent escape")]
+    #[test_case("../.rho/x"; "leading parent")]
+    #[test_case(".rho/./../../x"; "dot then parents")]
+    #[test_case(".rhoo/x"; "similar prefix")]
+    fn rejects_paths_outside_the_output_root(bad: &str) {
+        assert!(output_path(Path::new("/p"), bad).is_err());
     }
 
     #[tokio::test]

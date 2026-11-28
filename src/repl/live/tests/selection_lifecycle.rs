@@ -37,13 +37,13 @@ impl ModalDriver<'_> {
     }
 }
 
-fn setup_searchable_modal() -> (TerminalController<NullBackend>, tempfile::TempDir, usize) {
+fn setup_searchable_modal() -> (TerminalController<NullBackend>, rho_test_support::TestDir, usize) {
     let mut controller = crate::repl::test_controller();
     controller.state_mut().editor_mut().set_text("in-progress user draft");
     let cursor = controller.state().editor().cursor();
-    let temp = tempfile::tempdir().unwrap();
+    let temp = rho_test_support::TestDir::new();
     let config = rho_harness_core::config::Config {
-        config_dir: temp.path().to_path_buf(),
+        config_dir: temp.to_path_buf(),
         ..Default::default()
     };
     let session = crate::repl::ReplSession::new(config, crate::auth::AuthStore::default(), None);
@@ -284,9 +284,9 @@ fn test_install_interaction_forwards_option_layout() {
 fn test_settings_hierarchical_escape_back_navigation() {
     let mut controller = crate::repl::test_controller();
     controller.state_mut().editor_mut().set_text("draft to preserve");
-    let temp = tempfile::tempdir().unwrap();
+    let temp = rho_test_support::TestDir::new();
     let config = rho_harness_core::config::Config {
-        config_dir: temp.path().to_path_buf(),
+        config_dir: temp.to_path_buf(),
         model: "claude-3-7-sonnet".to_string(),
         ..Default::default()
     };
@@ -327,9 +327,9 @@ fn test_settings_hierarchical_escape_back_navigation() {
 fn test_tools_and_permissions_hierarchical_escape_back_navigation() {
     let mut controller = crate::repl::test_controller();
     controller.state_mut().editor_mut().set_text("unsent prompt");
-    let temp = tempfile::tempdir().unwrap();
+    let temp = rho_test_support::TestDir::new();
     let config = rho_harness_core::config::Config {
-        config_dir: temp.path().to_path_buf(),
+        config_dir: temp.to_path_buf(),
         ..Default::default()
     };
     let session = crate::repl::ReplSession::new(config, crate::auth::AuthStore::default(), None);

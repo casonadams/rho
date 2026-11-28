@@ -312,6 +312,8 @@ pub fn friendly_error(status: Option<u16>, body: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rho_harness_core::thinking::ThinkingLevel;
+    use test_case::test_case;
 
     #[test]
     fn chatgpt_client_headers_include_originator_and_beta() {
@@ -348,29 +350,27 @@ mod tests {
         assert_eq!(json_body["include"], json!(["reasoning.encrypted_content"]));
     }
 
-    #[test]
-    fn build_request_maps_the_thinking_level_to_reasoning_effort_with_a_summary() {
-        use rho_harness_core::thinking::ThinkingLevel;
-        let cases = [
-            (None, None, None),
-            (Some("off"), None, None),
-            (Some("minimal"), None, Some("minimal")),
-            (Some("low"), None, Some("low")),
-            (Some("high"), None, Some("high")),
-            (Some("xhigh"), None, Some("xhigh")),
-            (Some("max"), None, Some("max")),
-            (Some("auto"), None, Some("medium")),
-            (Some("off"), Some(ThinkingLevel::High), Some("high")),
-            (Some("high"), Some(ThinkingLevel::Off), None),
-        ];
-        for (configured, per_turn, effort) in cases {
-            let client = ChatGptClient::new("test-token", "gpt-5.4").with_thinking_level(configured);
-            let mut req = sample_completion_request();
-            req.thinking_level = per_turn;
-            let body = client.build_request(&req);
-            let expected = effort.map(|effort| json!({"effort": effort, "summary": "auto"}));
-            assert_eq!(body.get("reasoning").cloned(), expected, "{configured:?} {per_turn:?}");
-        }
+    #[test_case(None, None, None; "unset")]
+    #[test_case(Some("off"), None, None; "off")]
+    #[test_case(Some("minimal"), None, Some("minimal"); "minimal")]
+    #[test_case(Some("low"), None, Some("low"); "low")]
+    #[test_case(Some("high"), None, Some("high"); "high")]
+    #[test_case(Some("xhigh"), None, Some("xhigh"); "xhigh")]
+    #[test_case(Some("max"), None, Some("max"); "max")]
+    #[test_case(Some("auto"), None, Some("medium"); "auto maps to medium")]
+    #[test_case(Some("off"), Some(ThinkingLevel::High), Some("high"); "per turn enables")]
+    #[test_case(Some("high"), Some(ThinkingLevel::Off), None; "per turn disables")]
+    fn build_request_maps_the_thinking_level_to_reasoning_effort_with_a_summary(
+        configured: Option<&str>,
+        per_turn: Option<ThinkingLevel>,
+        effort: Option<&str>,
+    ) {
+        let client = ChatGptClient::new("test-token", "gpt-5.4").with_thinking_level(configured);
+        let mut req = sample_completion_request();
+        req.thinking_level = per_turn;
+        let body = client.build_request(&req);
+        let expected = effort.map(|effort| json!({"effort": effort, "summary": "auto"}));
+        assert_eq!(body.get("reasoning").cloned(), expected);
     }
 
     #[test]
@@ -466,7 +466,7 @@ mod tests {
     }
 
     use crate::test_support::{ScriptedTokenProvider, serve_raw_http};
-    use std::sync::atomic::Ordering;
+    use std::sync::atomic::{AtomicUsize, Ordering};
 
     fn sample_completion_request() -> ModelCompletionRequest {
         ModelCompletionRequest {
@@ -481,14 +481,29 @@ mod tests {
         }
     }
 
-    #[tokio::test]
-    async fn open_stream_success() {
+    fn sse_response() -> String {
         let sse_body = "data: {\"type\": \"response.completed\", \"response\": {\"usage\": {\"input_tokens\": 1, \"output_tokens\": 1, \"total_tokens\": 2}}}\n\n";
-        let resp = format!(
+        format!(
             "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{sse_body}",
             sse_body.len()
-        );
-        let endpoint = serve_raw_http(vec![resp]).await;
+        )
+    }
+
+    fn unauthorized_response() -> String {
+        "HTTP/1.1 401 Unauthorized\r\nContent-Length: 12\r\nConnection: close\r\n\r\nUnauthorized".to_string()
+    }
+
+    async fn refreshing_client(responses: Vec<String>) -> (ChatGptClient, Arc<AtomicUsize>) {
+        let endpoint = serve_raw_http(responses).await;
+        let provider = ScriptedTokenProvider::new(Ok("initial-token"), Ok("token-refreshed"));
+        let refresh_count = provider.refresh_count.clone();
+        let client = ChatGptClient::with_token_provider(provider, "gpt-5.4").with_endpoint(endpoint);
+        (client, refresh_count)
+    }
+
+    #[tokio::test]
+    async fn open_stream_success() {
+        let endpoint = serve_raw_http(vec![sse_response()]).await;
         let client = ChatGptClient::new("test-token", "gpt-5.4").with_endpoint(endpoint);
         let res = client.open_stream(&sample_completion_request()).await;
         assert!(res.is_ok());
@@ -497,17 +512,7 @@ mod tests {
 
     #[tokio::test]
     async fn open_stream_401_retry_success() {
-        let resp401 =
-            "HTTP/1.1 401 Unauthorized\r\nContent-Length: 12\r\nConnection: close\r\n\r\nUnauthorized".to_string();
-        let sse_body = "data: {\"type\": \"response.completed\", \"response\": {\"usage\": {\"input_tokens\": 1, \"output_tokens\": 1, \"total_tokens\": 2}}}\n\n";
-        let resp200 = format!(
-            "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{sse_body}",
-            sse_body.len()
-        );
-        let endpoint = serve_raw_http(vec![resp401, resp200]).await;
-        let provider = ScriptedTokenProvider::new(Ok("initial-token"), Ok("token-refreshed"));
-        let refresh_count = provider.refresh_count.clone();
-        let client = ChatGptClient::with_token_provider(provider, "gpt-5.4").with_endpoint(endpoint);
+        let (client, refresh_count) = refreshing_client(vec![unauthorized_response(), sse_response()]).await;
         let res = client.open_stream(&sample_completion_request()).await;
         assert!(res.is_ok());
         assert_eq!(refresh_count.load(Ordering::SeqCst), 1);
@@ -515,14 +520,7 @@ mod tests {
 
     #[tokio::test]
     async fn open_stream_401_retry_fails() {
-        let resp401a =
-            "HTTP/1.1 401 Unauthorized\r\nContent-Length: 12\r\nConnection: close\r\n\r\nUnauthorized".to_string();
-        let resp401b =
-            "HTTP/1.1 401 Unauthorized\r\nContent-Length: 12\r\nConnection: close\r\n\r\nUnauthorized".to_string();
-        let endpoint = serve_raw_http(vec![resp401a, resp401b]).await;
-        let provider = ScriptedTokenProvider::new(Ok("initial-token"), Ok("token-refreshed"));
-        let refresh_count = provider.refresh_count.clone();
-        let client = ChatGptClient::with_token_provider(provider, "gpt-5.4").with_endpoint(endpoint);
+        let (client, refresh_count) = refreshing_client(vec![unauthorized_response(), unauthorized_response()]).await;
         let err = client.open_stream(&sample_completion_request()).await.unwrap_err();
         assert_eq!(err.status_code(), Some(401));
         assert_eq!(refresh_count.load(Ordering::SeqCst), 1);

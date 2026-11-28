@@ -35,23 +35,25 @@ pub(crate) fn parse_retention_days(name: &str, value: &str) -> Result<u32> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use test_case::test_case;
 
-    #[test]
-    fn booleans_accept_one_grammar_everywhere() {
-        for (input, expected) in [
-            ("true", true),
-            (" TRUE ", true),
-            ("1", true),
-            ("yes", true),
-            ("false", false),
-            ("No", false),
-            ("0", false),
-        ] {
-            assert_eq!(parse_bool("K", input).unwrap(), expected, "{input:?}");
-        }
-        for input in ["", "maybe", "2", "on"] {
-            assert!(parse_bool("K", input).is_err(), "{input:?}");
-        }
+    #[test_case("true", true; "lowercase true")]
+    #[test_case(" TRUE ", true; "padded uppercase true")]
+    #[test_case("1", true; "one")]
+    #[test_case("yes", true; "yes")]
+    #[test_case("false", false; "lowercase false")]
+    #[test_case("No", false; "mixed case no")]
+    #[test_case("0", false; "zero")]
+    fn booleans_accept_one_grammar_everywhere(input: &str, expected: bool) {
+        assert_eq!(parse_bool("K", input).unwrap(), expected);
+    }
+
+    #[test_case(""; "empty")]
+    #[test_case("maybe"; "maybe")]
+    #[test_case("2"; "two")]
+    #[test_case("on"; "on")]
+    fn booleans_reject_other_spellings(input: &str) {
+        assert!(parse_bool("K", input).is_err());
     }
 
     #[test]

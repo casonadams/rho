@@ -214,6 +214,7 @@ fn decode_entities(raw: &str) -> Result<String, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use test_case::test_case;
 
     #[test]
     fn parses_elements_attributes_and_raw_text() {
@@ -238,21 +239,16 @@ mod tests {
         );
     }
 
-    #[test]
-    fn reports_errors_with_line_numbers() {
-        let cases = [
-            ("<a>\n<b>\n</a>", "line 3: expected </b>, found </a>"),
-            ("<a>\n  stray\n</a>", "line 2: text is not allowed inside <a>"),
-            ("<a x=1/>", "line 1: attribute values must be quoted"),
-            ("<a x=\"1\" x=\"2\"/>", "duplicate attribute 'x'"),
-            ("<a x=\"&bogus;\"/>", "unknown entity '&bogus;'"),
-            ("<a>\n<agent>never closed", "line 2: <agent> is missing </agent>"),
-            ("<a>", "line 1: <a> is never closed"),
-            ("<a/><b/>", "unexpected content after the root element"),
-        ];
-        for (src, expected) in cases {
-            let err = parse_document(src, &["agent"]).unwrap_err();
-            assert!(err.contains(expected), "{src:?}: {err}");
-        }
+    #[test_case("<a>\n<b>\n</a>", "line 3: expected </b>, found </a>"; "mismatched close")]
+    #[test_case("<a>\n  stray\n</a>", "line 2: text is not allowed inside <a>"; "stray text")]
+    #[test_case("<a x=1/>", "line 1: attribute values must be quoted"; "unquoted attribute")]
+    #[test_case("<a x=\"1\" x=\"2\"/>", "duplicate attribute 'x'"; "duplicate attribute")]
+    #[test_case("<a x=\"&bogus;\"/>", "unknown entity '&bogus;'"; "unknown entity")]
+    #[test_case("<a>\n<agent>never closed", "line 2: <agent> is missing </agent>"; "unclosed text element")]
+    #[test_case("<a>", "line 1: <a> is never closed"; "unclosed root")]
+    #[test_case("<a/><b/>", "unexpected content after the root element"; "trailing content")]
+    fn reports_errors_with_line_numbers(src: &str, expected: &str) {
+        let err = parse_document(src, &["agent"]).unwrap_err();
+        assert!(err.contains(expected), "{err}");
     }
 }

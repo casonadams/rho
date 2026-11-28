@@ -471,13 +471,13 @@ mod tests {
         LiveBatch,
         crate::repl::ReplSession,
         crate::engine::AgentEngine,
-        tempfile::TempDir,
+        rho_test_support::TestDir,
     ) {
-        let temp = tempfile::tempdir().unwrap();
+        let temp = rho_test_support::TestDir::new();
         let config = Config {
             provider: "antigravity".to_string(),
             model: "gemini-2.5-pro".to_string(),
-            sessions_dir: temp.path().join("sessions"),
+            sessions_dir: temp.join("sessions"),
             ..Default::default()
         };
         let auth_store = AuthStore::default();

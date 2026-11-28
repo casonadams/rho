@@ -13,7 +13,8 @@ echo "{\"jsonrpc\":\"2.0\",\"id\":$id,\"result\":{\"status\":\"ok\"}}"
 "#;
     let config = McpServerConfig::stdio("/bin/sh", vec!["-c".to_string(), script.to_string()]);
 
-    let (stdin, stdout, handle) = McpProcess::spawn(&config, &std::env::temp_dir()).unwrap();
+    let dir = crate::test_support::TestDir::new();
+    let (stdin, stdout, handle) = McpProcess::spawn(&config, &dir).unwrap();
     let transport = McpTransport::new_stdio(stdin, stdout, handle, None);
 
     let result = transport.request("ping", None).await.unwrap();
@@ -32,7 +33,8 @@ read roots_reply
 echo "{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":[$ping_reply,$roots_reply]}"
 "#;
     let config = McpServerConfig::stdio("/bin/sh", vec!["-c".to_string(), script.to_string()]);
-    let (stdin, stdout, handle) = McpProcess::spawn(&config, &std::env::temp_dir()).unwrap();
+    let dir = crate::test_support::TestDir::new();
+    let (stdin, stdout, handle) = McpProcess::spawn(&config, &dir).unwrap();
     let transport = McpTransport::new_stdio(stdin, stdout, handle, Some(Duration::from_secs(1)));
 
     let replies = transport.request("tools/list", None).await.unwrap();

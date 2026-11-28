@@ -250,6 +250,7 @@ pub fn map_key(event: KeyEvent) -> InputAction {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use test_case::test_case;
 
     fn key(code: KeyCode, modifiers: KeyModifiers) -> KeyEvent {
         KeyEvent::new(code, modifiers)
@@ -262,14 +263,10 @@ mod tests {
         }
     }
 
-    #[test]
-    fn shift_tab_variants_cycle_thinking() {
-        for event in [
-            key(KeyCode::BackTab, KeyModifiers::NONE),
-            key(KeyCode::Tab, KeyModifiers::SHIFT),
-        ] {
-            assert_eq!(map_key(event), InputAction::ThinkingCycle);
-        }
+    #[test_case(key(KeyCode::BackTab, KeyModifiers::NONE); "backtab")]
+    #[test_case(key(KeyCode::Tab, KeyModifiers::SHIFT); "shift tab")]
+    fn shift_tab_variants_cycle_thinking(event: KeyEvent) {
+        assert_eq!(map_key(event), InputAction::ThinkingCycle);
     }
 
     #[test]
@@ -280,51 +277,30 @@ mod tests {
         );
     }
 
-    #[test]
-    fn map_key_maps_keys_and_modifiers_to_actions() {
-        let cases = [
-            (
-                key(KeyCode::Char('Q'), KeyModifiers::NONE),
-                InputAction::Edit(UiAction::Insert('Q')),
-            ),
-            (
-                key(KeyCode::Char('T'), KeyModifiers::SHIFT),
-                InputAction::Edit(UiAction::Insert('T')),
-            ),
-            (key(KeyCode::Char('P'), CTRL_SHIFT), InputAction::ModelCycleBackward),
-            (
-                key(KeyCode::Char('P'), KeyModifiers::CONTROL),
-                InputAction::ModelCycleForward,
-            ),
-            (
-                key(KeyCode::Char('P'), KeyModifiers::ALT),
-                InputAction::ModelCycleBackward,
-            ),
-            (key(KeyCode::Char('x'), KeyModifiers::ALT), InputAction::Ignore),
-            (key(KeyCode::Char('?'), KeyModifiers::CONTROL), InputAction::Ignore),
-            (key(KeyCode::Tab, KeyModifiers::NONE), InputAction::Complete),
-            (key(KeyCode::Tab, KeyModifiers::SHIFT), InputAction::ThinkingCycle),
-            (key(KeyCode::BackTab, KeyModifiers::SHIFT), InputAction::ThinkingCycle),
-            (
-                key(KeyCode::Enter, KeyModifiers::ALT),
-                InputAction::Edit(UiAction::Submit(QueueKind::FollowUp)),
-            ),
-            (key(KeyCode::Up, KeyModifiers::SHIFT), InputAction::Ignore),
-            (key(KeyCode::F(1), KeyModifiers::NONE), InputAction::Ignore),
-            (
-                key(KeyCode::Char('\n'), KeyModifiers::NONE),
-                InputAction::Edit(UiAction::InsertNewline),
-            ),
-            (
-                KeyEvent {
-                    kind: KeyEventKind::Release,
-                    ..key(KeyCode::Esc, KeyModifiers::NONE)
-                },
-                InputAction::Ignore,
-            ),
-        ];
-        for (event, expected) in cases {
-            assert_eq!(map_key(event), expected);
-        }
+    #[test_case(key(KeyCode::Char('Q'), KeyModifiers::NONE), InputAction::Edit(UiAction::Insert('Q')); "uppercase char")]
+    #[test_case(key(KeyCode::Char('T'), KeyModifiers::SHIFT), InputAction::Edit(UiAction::Insert('T')); "shifted char")]
+    #[test_case(key(KeyCode::Char('P'), CTRL_SHIFT), InputAction::ModelCycleBackward; "ctrl shift p")]
+    #[test_case(key(KeyCode::Char('P'), KeyModifiers::CONTROL), InputAction::ModelCycleForward; "ctrl p")]
+    #[test_case(key(KeyCode::Char('P'), KeyModifiers::ALT), InputAction::ModelCycleBackward; "alt p")]
+    #[test_case(key(KeyCode::Char('x'), KeyModifiers::ALT), InputAction::Ignore; "alt x")]
+    #[test_case(key(KeyCode::Char('?'), KeyModifiers::CONTROL), InputAction::Ignore; "ctrl question")]
+    #[test_case(key(KeyCode::Tab, KeyModifiers::NONE), InputAction::Complete; "tab")]
+    #[test_case(key(KeyCode::Tab, KeyModifiers::SHIFT), InputAction::ThinkingCycle; "shift tab")]
+    #[test_case(key(KeyCode::BackTab, KeyModifiers::SHIFT), InputAction::ThinkingCycle; "shift backtab")]
+    #[test_case(
+        key(KeyCode::Enter, KeyModifiers::ALT),
+        InputAction::Edit(UiAction::Submit(QueueKind::FollowUp));
+        "alt enter"
+    )]
+    #[test_case(key(KeyCode::Up, KeyModifiers::SHIFT), InputAction::Ignore; "shift up")]
+    #[test_case(key(KeyCode::F(1), KeyModifiers::NONE), InputAction::Ignore; "f1")]
+    #[test_case(key(KeyCode::Char('\n'), KeyModifiers::NONE), InputAction::Edit(UiAction::InsertNewline); "raw newline")]
+    #[test_case(
+        KeyEvent { kind: KeyEventKind::Release, ..key(KeyCode::Esc, KeyModifiers::NONE) },
+        InputAction::Ignore;
+        "key release"
+    )]
+    fn map_key_maps_keys_and_modifiers_to_actions(event: KeyEvent, expected: InputAction) {
+        assert_eq!(map_key(event), expected);
     }
 }

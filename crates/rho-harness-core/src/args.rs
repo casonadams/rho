@@ -702,19 +702,19 @@ pub mod worktree {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
+    use test_case::test_case;
+
+    #[test_case(json!({"path": "a", "file_path": "b"}), Some("a"); "path wins over legacy")]
+    #[test_case(json!({"file_path": "b"}), Some("b"); "legacy file path")]
+    #[test_case(json!({"path": 3, "file_path": "b"}), Some("b"); "non string path falls back")]
+    #[test_case(json!({"other": "c"}), None; "no path")]
+    fn target_path_reads_current_and_legacy_argument_names(args: serde_json::Value, expected: Option<&str>) {
+        assert_eq!(target_path(&args), expected);
+    }
 
     #[test]
-    fn target_path_and_write_text_read_current_and_legacy_argument_names() {
-        use serde_json::json;
-        let cases = [
-            (json!({"path": "a", "file_path": "b"}), Some("a")),
-            (json!({"file_path": "b"}), Some("b")),
-            (json!({"path": 3, "file_path": "b"}), Some("b")),
-            (json!({"other": "c"}), None),
-        ];
-        for (args, expected) in cases {
-            assert_eq!(target_path(&args), expected, "{args}");
-        }
+    fn write_text_reads_current_and_legacy_argument_names() {
         assert_eq!(write_text(&json!({"text": "t", "content": "c"})), Some("t"));
         assert_eq!(write_text(&json!({"content": "c"})), Some("c"));
         assert_eq!(write_text(&json!({})), None);
@@ -726,50 +726,33 @@ mod tests {
             .map_err(|error| error.to_string())
     }
 
-    #[test]
-    fn web_fetch_mode_and_format_accept_any_case_and_save_canonical_names() {
-        let cases = [
-            ("mode", "auto", "auto"),
-            ("mode", "Main", "main"),
-            ("mode", "FULL", "full"),
-            ("format", "html", "html"),
-            ("format", "JSON", "json"),
-            ("format", "Markdown", "markdown"),
-            ("format", "md", "markdown"),
-            ("format", "CSV", "csv"),
-            ("format", "tsv", "tsv"),
-            ("format", "Xml", "xml"),
-            ("format", "rss", "rss"),
-            ("format", "ATOM", "atom"),
-            ("format", "PDF", "pdf"),
-        ];
-        for (field, input, expected) in cases {
-            assert_eq!(
-                fetch_args(field, input),
-                Ok(serde_json::json!(expected)),
-                "{field}={input}"
-            );
-        }
+    #[test_case("mode", "auto", "auto"; "mode auto")]
+    #[test_case("mode", "Main", "main"; "mode main")]
+    #[test_case("mode", "FULL", "full"; "mode full")]
+    #[test_case("format", "html", "html"; "format html")]
+    #[test_case("format", "JSON", "json"; "format json")]
+    #[test_case("format", "Markdown", "markdown"; "format markdown")]
+    #[test_case("format", "md", "markdown"; "format md alias")]
+    #[test_case("format", "CSV", "csv"; "format csv")]
+    #[test_case("format", "tsv", "tsv"; "format tsv")]
+    #[test_case("format", "Xml", "xml"; "format xml")]
+    #[test_case("format", "rss", "rss"; "format rss")]
+    #[test_case("format", "ATOM", "atom"; "format atom")]
+    #[test_case("format", "PDF", "pdf"; "format pdf")]
+    fn web_fetch_mode_and_format_accept_any_case_and_save_canonical_names(field: &str, input: &str, expected: &str) {
+        assert_eq!(fetch_args(field, input), Ok(serde_json::json!(expected)));
     }
 
-    #[test]
-    fn web_fetch_rejects_unknown_mode_and_format_naming_the_valid_values() {
-        let cases = [
-            (
-                "mode",
-                "bogus",
-                "unknown web_fetch mode 'bogus': expected one of auto, main, full",
-            ),
-            (
-                "format",
-                "custom-unknown",
-                "unknown web_fetch format 'custom-unknown': expected one of html, json, markdown, csv, tsv, xml, rss, atom, pdf",
-            ),
-        ];
-        for (field, input, expected) in cases {
-            let error = fetch_args(field, input).unwrap_err();
-            assert!(error.contains(expected), "{error}");
-        }
+    #[test_case("mode", "bogus", "unknown web_fetch mode 'bogus': expected one of auto, main, full"; "unknown mode")]
+    #[test_case(
+        "format",
+        "custom-unknown",
+        "unknown web_fetch format 'custom-unknown': expected one of html, json, markdown, csv, tsv, xml, rss, atom, pdf";
+        "unknown format"
+    )]
+    fn web_fetch_rejects_unknown_mode_and_format_naming_the_valid_values(field: &str, input: &str, expected: &str) {
+        let error = fetch_args(field, input).unwrap_err();
+        assert!(error.contains(expected), "{error}");
     }
 
     #[test]

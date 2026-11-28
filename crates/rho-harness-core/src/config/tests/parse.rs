@@ -1,4 +1,5 @@
 use super::super::{Config, FileConfig, McpConfig, PermissionConfig};
+use test_case::test_case;
 
 #[test]
 fn parses_providers_config() {
@@ -201,12 +202,9 @@ guard = "local/qwen2.5-coder:7b"
     assert_eq!(config.guard_model(), Some("local/qwen2.5-coder:7b"));
 }
 
-#[test]
-fn parses_tools_web_config() {
-    let cases = [
-        ("model = \"claude\"\n", (true, "brave", true, None)),
-        (
-            r#"
+#[test_case("model = \"claude\"\n", true, "brave", true, None; "defaults")]
+#[test_case(
+    r#"
 [tools.web.search]
 enabled = false
 default = "duckduckgo"
@@ -215,34 +213,35 @@ fallback = ["yahoo"]
 [tools.web.fetch]
 enabled = false
 "#,
-            (false, "duckduckgo", false, Some(vec!["yahoo"])),
-        ),
-    ];
-    for (toml_str, (search_enabled, search_default, fetch_enabled, fallback)) in cases {
-        let file: FileConfig = toml::from_str(toml_str).unwrap();
-        let mut config = Config::default();
-        super::super::merge::merge_file(&mut config, file);
-        assert_eq!(config.tools.web.search.enabled, search_enabled);
-        assert_eq!(config.tools.web.search.default, search_default);
-        assert_eq!(config.tools.web.fetch.enabled, fetch_enabled);
-        if let Some(fallback) = fallback {
-            assert_eq!(config.tools.web.search.fallback, fallback);
-        }
+    false, "duckduckgo", false, Some(&["yahoo"]);
+    "overrides"
+)]
+fn parses_tools_web_config(
+    toml_str: &str,
+    search_enabled: bool,
+    search_default: &str,
+    fetch_enabled: bool,
+    fallback: Option<&[&str]>,
+) {
+    let file: FileConfig = toml::from_str(toml_str).unwrap();
+    let mut config = Config::default();
+    super::super::merge::merge_file(&mut config, file);
+    assert_eq!(config.tools.web.search.enabled, search_enabled);
+    assert_eq!(config.tools.web.search.default, search_default);
+    assert_eq!(config.tools.web.fetch.enabled, fetch_enabled);
+    if let Some(fallback) = fallback {
+        assert_eq!(config.tools.web.search.fallback, fallback);
     }
 }
 
-#[test]
-fn lsp_tool_is_enabled_unless_the_file_turns_it_off() {
-    for (toml_str, expected) in [
-        ("model = \"claude\"\n", true),
-        ("[tools.lsp]\nenabled = false\n", false),
-        ("[tools.lsp]\nenabled = true\n", true),
-    ] {
-        let file: FileConfig = toml::from_str(toml_str).unwrap();
-        let mut config = Config::default();
-        super::super::merge::merge_file(&mut config, file);
-        assert_eq!(config.tools.lsp.enabled, expected, "{toml_str}");
-    }
+#[test_case("model = \"claude\"\n", true; "absent section")]
+#[test_case("[tools.lsp]\nenabled = false\n", false; "disabled")]
+#[test_case("[tools.lsp]\nenabled = true\n", true; "enabled")]
+fn lsp_tool_is_enabled_unless_the_file_turns_it_off(toml_str: &str, expected: bool) {
+    let file: FileConfig = toml::from_str(toml_str).unwrap();
+    let mut config = Config::default();
+    super::super::merge::merge_file(&mut config, file);
+    assert_eq!(config.tools.lsp.enabled, expected);
 }
 
 #[test]

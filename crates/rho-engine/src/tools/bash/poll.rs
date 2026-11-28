@@ -39,6 +39,7 @@ pub(super) fn refusal(owner: Option<&Mailbox>, args: &BashArgs) -> Option<ToolRe
 mod tests {
     use super::*;
     use crate::mailbox::Mailboxes;
+    use test_case::test_case;
 
     fn foreground(command: &str) -> BashArgs {
         BashArgs {
@@ -48,26 +49,21 @@ mod tests {
         }
     }
 
-    #[test]
-    fn only_bare_polls_are_classified_as_polling() {
-        let cases = [
-            ("sleep 5", true),
-            ("sleep 5; echo hi", true),
-            ("sleep 30; tail -n 5 build.log", true),
-            ("pgrep -f cargo", true),
-            ("ps aux | rg x", true),
-            ("tail -f log", true),
-            ("sleep 1 && make", false),
-            ("sleep 5; cargo test", false),
-            ("cargo test", false),
-            ("echo sleep", false),
-            ("tail -n 20 log", false),
-            ("ls | rg sleep", false),
-            ("", false),
-        ];
-        for (command, expected) in cases {
-            assert_eq!(is_poll_command(command), expected, "{command}");
-        }
+    #[test_case("sleep 5", true; "bare sleep")]
+    #[test_case("sleep 5; echo hi", true; "sleep then echo")]
+    #[test_case("sleep 30; tail -n 5 build.log", true; "sleep then tail")]
+    #[test_case("pgrep -f cargo", true; "pgrep")]
+    #[test_case("ps aux | rg x", true; "ps piped")]
+    #[test_case("tail -f log", true; "tail follow")]
+    #[test_case("sleep 1 && make", false; "sleep then make")]
+    #[test_case("sleep 5; cargo test", false; "sleep then cargo test")]
+    #[test_case("cargo test", false; "cargo test")]
+    #[test_case("echo sleep", false; "echo sleep")]
+    #[test_case("tail -n 20 log", false; "tail lines")]
+    #[test_case("ls | rg sleep", false; "rg for sleep")]
+    #[test_case("", false; "empty")]
+    fn only_bare_polls_are_classified_as_polling(command: &str, expected: bool) {
+        assert_eq!(is_poll_command(command), expected);
     }
 
     #[test]

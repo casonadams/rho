@@ -1,5 +1,6 @@
 use super::shell::{ShellAction, handle_shell_command};
 use crate::ui::TerminalRenderer;
+use test_case::test_case;
 
 #[tokio::test]
 async fn plain_input_is_passthrough() {
@@ -19,20 +20,9 @@ use super::dispatch::{
 use crate::repl::branch_summary::{has_assistant_turn, should_summarize_branch};
 use crate::repl::commands::CommandResult;
 use crate::repl::model_switch::switch_session_model;
+use crate::repl::test_session_and_engine;
 use rho_harness_core::provider::ModelRoute;
 use rho_harness_core::session::tree::{TreeNodeData, TreeNodeKind};
-
-async fn setup_test_session(dir: &std::path::Path) -> (crate::repl::ReplSession, crate::engine::AgentEngine) {
-    let config = rho_harness_core::config::Config {
-        config_dir: dir.to_path_buf(),
-        sessions_dir: dir.join("sessions"),
-        ..Default::default()
-    };
-    let auth = rho_engine::auth::AuthStore::default();
-    let session = crate::repl::ReplSession::new(config, auth, None);
-    let engine = session.new_engine(None).await.unwrap();
-    (session, engine)
-}
 
 #[test]
 fn test_has_assistant_turn_detection() {
@@ -76,8 +66,8 @@ fn test_should_summarize_branch_inputs() {
 
 #[tokio::test]
 async fn test_show_tree_and_session_summaries() {
-    let temp = tempfile::tempdir().unwrap();
-    let (session, engine) = setup_test_session(temp.path()).await;
+    let temp = rho_test_support::TestDir::new();
+    let (session, engine) = test_session_and_engine(&temp).await;
 
     assert!(show_tree(&session, &engine).await.is_ok());
     assert!(show_session_summaries(&session).is_ok());
@@ -85,8 +75,8 @@ async fn test_show_tree_and_session_summaries() {
 
 #[tokio::test]
 async fn test_session_management_helpers() {
-    let temp = tempfile::tempdir().unwrap();
-    let (mut session, mut engine) = setup_test_session(temp.path()).await;
+    let temp = rho_test_support::TestDir::new();
+    let (mut session, mut engine) = test_session_and_engine(&temp).await;
 
     let sid = engine.session_manager.session_id.clone();
     let name = CommandResult::NameSession {
@@ -124,8 +114,8 @@ async fn test_session_management_helpers() {
 
 #[tokio::test]
 async fn test_fork_and_clone_session() {
-    let temp = tempfile::tempdir().unwrap();
-    let (session, engine) = setup_test_session(temp.path()).await;
+    let temp = rho_test_support::TestDir::new();
+    let (session, engine) = test_session_and_engine(&temp).await;
 
     assert!(fork_session(&session, &engine, None, None).await.is_ok());
     assert!(clone_session(&session, &engine).await.is_ok());
@@ -133,8 +123,8 @@ async fn test_fork_and_clone_session() {
 
 #[tokio::test]
 async fn test_handle_session_manage_result_arms() {
-    let temp = tempfile::tempdir().unwrap();
-    let (mut session, mut engine) = setup_test_session(temp.path()).await;
+    let temp = rho_test_support::TestDir::new();
+    let (mut session, mut engine) = test_session_and_engine(&temp).await;
     let sid = engine.session_manager.session_id.clone();
 
     let res = handle_session_manage_result(
@@ -167,8 +157,8 @@ async fn test_handle_session_manage_result_arms() {
 
 #[tokio::test]
 async fn name_session_reports_the_quoted_name_in_line_mode() {
-    let temp = tempfile::tempdir().unwrap();
-    let (mut session, mut engine) = setup_test_session(temp.path()).await;
+    let temp = rho_test_support::TestDir::new();
+    let (mut session, mut engine) = test_session_and_engine(&temp).await;
     let (renderer, mut events) = crate::repl::collecting_renderer();
     session.renderer = renderer;
 
@@ -185,8 +175,8 @@ async fn name_session_reports_the_quoted_name_in_line_mode() {
 
 #[tokio::test]
 async fn rewind_reports_the_turn_and_retained_count_in_line_mode() {
-    let temp = tempfile::tempdir().unwrap();
-    let (mut session, mut engine) = setup_test_session(temp.path()).await;
+    let temp = rho_test_support::TestDir::new();
+    let (mut session, mut engine) = test_session_and_engine(&temp).await;
     let (renderer, mut events) = crate::repl::collecting_renderer();
     session.renderer = renderer;
 
@@ -198,8 +188,8 @@ async fn rewind_reports_the_turn_and_retained_count_in_line_mode() {
 
 #[tokio::test]
 async fn resume_reports_a_missing_workspace_in_line_mode() {
-    let temp = tempfile::tempdir().unwrap();
-    let (mut session, mut engine) = setup_test_session(temp.path()).await;
+    let temp = rho_test_support::TestDir::new();
+    let (mut session, mut engine) = test_session_and_engine(&temp).await;
     let sid = engine.session_manager.session_id.clone();
     let scratch = rho_test_support::TestDir::new();
     let workspace = scratch.join("workspace");
@@ -223,8 +213,8 @@ async fn resume_reports_a_missing_workspace_in_line_mode() {
 
 #[tokio::test]
 async fn test_handle_session_branching_result_arms() {
-    let temp = tempfile::tempdir().unwrap();
-    let (mut session, mut engine) = setup_test_session(temp.path()).await;
+    let temp = rho_test_support::TestDir::new();
+    let (mut session, mut engine) = test_session_and_engine(&temp).await;
 
     let res = handle_session_branching_result(&CommandResult::Tree, &mut session, &mut engine).await;
     assert!(matches!(res, Ok(true)));
@@ -252,8 +242,8 @@ async fn test_handle_session_branching_result_arms() {
 
 #[tokio::test]
 async fn a_failed_model_switch_changes_neither_the_session_nor_the_engine() {
-    let temp = tempfile::tempdir().unwrap();
-    let (mut session, mut engine) = setup_test_session(temp.path()).await;
+    let temp = rho_test_support::TestDir::new();
+    let (mut session, mut engine) = test_session_and_engine(&temp).await;
     let before = (session.config.model.clone(), session.config.provider.clone());
     assert_eq!(before, (engine.config.model.clone(), engine.config.provider.clone()));
 
@@ -271,8 +261,8 @@ async fn a_failed_model_switch_changes_neither_the_session_nor_the_engine() {
 
 #[tokio::test]
 async fn a_successful_model_switch_updates_the_session_and_the_engine_together() {
-    let temp = tempfile::tempdir().unwrap();
-    let (mut session, mut engine) = setup_test_session(temp.path()).await;
+    let temp = rho_test_support::TestDir::new();
+    let (mut session, mut engine) = test_session_and_engine(&temp).await;
 
     let route = ModelRoute::new("ollama", "new-model");
 
@@ -285,9 +275,9 @@ async fn a_successful_model_switch_updates_the_session_and_the_engine_together()
 
 #[tokio::test]
 async fn test_handle_auth_and_config_results() {
-    let temp = tempfile::tempdir().unwrap();
-    let _home = rho_test_support::EnvVarGuard::set("RHO_HOME", temp.path().to_str().unwrap());
-    let (mut session, mut engine) = setup_test_session(temp.path()).await;
+    let temp = rho_test_support::TestDir::new();
+    let _home = rho_test_support::EnvVarGuard::set("RHO_HOME", temp.to_str().unwrap());
+    let (mut session, mut engine) = test_session_and_engine(&temp).await;
 
     let orig_provider = session.config.provider.clone();
     assert!(switch_session_model(&ModelRoute::new(&orig_provider, "new-model"), &mut session, &mut engine).await);
@@ -318,8 +308,8 @@ async fn test_handle_auth_and_config_results() {
 
 #[tokio::test]
 async fn test_terminal_and_command_result_dispatch() {
-    let temp = tempfile::tempdir().unwrap();
-    let (mut session, mut engine) = setup_test_session(temp.path()).await;
+    let temp = rho_test_support::TestDir::new();
+    let (mut session, mut engine) = test_session_and_engine(&temp).await;
 
     compact_context(&session, &engine, None).await;
 
@@ -359,8 +349,8 @@ async fn test_terminal_and_command_result_dispatch() {
 
 #[tokio::test]
 async fn test_maybe_summarize_abandoned_and_branch_switch() {
-    let temp = tempfile::tempdir().unwrap();
-    let (mut session, mut engine) = setup_test_session(temp.path()).await;
+    let temp = rho_test_support::TestDir::new();
+    let (mut session, mut engine) = test_session_and_engine(&temp).await;
 
     engine
         .session_manager
@@ -389,7 +379,7 @@ async fn test_maybe_summarize_abandoned_and_branch_switch() {
 #[tokio::test]
 async fn abandoned_branch_without_assistant_turn_is_not_offered_a_summary() {
     let temp = rho_test_support::TestDir::new();
-    let (_session, engine) = setup_test_session(&temp).await;
+    let (_session, engine) = test_session_and_engine(&temp).await;
     let user_node = TreeNodeData::turn(TreeNodeKind::UserTurn, None, chrono::Utc::now(), vec![]);
     let mut reader = std::io::Cursor::new(b"y\n".to_vec());
     let mut writer = Vec::new();
@@ -407,17 +397,15 @@ async fn abandoned_branch_without_assistant_turn_is_not_offered_a_summary() {
     assert!(writer.is_empty(), "no prompt is printed");
 }
 
+#[test_case(b"n\n", false; "n")]
+#[test_case(b"no\n", false; "no")]
+#[test_case(b"y\n", true; "y")]
+#[test_case(b"yes\n", true; "yes")]
+#[test_case(b"\n", true; "empty answer")]
 #[tokio::test]
-async fn abandoned_branch_summary_follows_the_typed_answer() {
-    let cases: [(&[u8], bool); 5] = [
-        (b"n\n", false),
-        (b"no\n", false),
-        (b"y\n", true),
-        (b"yes\n", true),
-        (b"\n", true),
-    ];
+async fn abandoned_branch_summary_follows_the_typed_answer(answer: &[u8], expect_summary: bool) {
     let temp = rho_test_support::TestDir::new();
-    let (_session, engine) = setup_test_session(&temp).await;
+    let (_session, engine) = test_session_and_engine(&temp).await;
     let assistant_node = TreeNodeData::turn(
         TreeNodeKind::AssistantTurn,
         None,
@@ -427,25 +415,23 @@ async fn abandoned_branch_summary_follows_the_typed_answer() {
             rho_harness_core::model::ChatMessage::assistant("hi"),
         ],
     );
-    for (answer, expect_summary) in cases {
-        let mut reader = std::io::Cursor::new(answer.to_vec());
-        let mut writer = Vec::new();
+    let mut reader = std::io::Cursor::new(answer.to_vec());
+    let mut writer = Vec::new();
 
-        let summary = super::dispatch::maybe_summarize_abandoned(
-            &[&assistant_node],
-            &engine,
-            &mut reader,
-            &mut writer,
-            &TerminalRenderer::default(),
-        )
-        .await;
+    let summary = super::dispatch::maybe_summarize_abandoned(
+        &[&assistant_node],
+        &engine,
+        &mut reader,
+        &mut writer,
+        &TerminalRenderer::default(),
+    )
+    .await;
 
-        assert_eq!(summary.is_some(), expect_summary, "answer {answer:?}");
-        assert_eq!(
-            String::from_utf8(writer).unwrap(),
-            crate::repl::branch_summary::SUMMARY_PROMPT
-        );
-    }
+    assert_eq!(summary.is_some(), expect_summary);
+    assert_eq!(
+        String::from_utf8(writer).unwrap(),
+        crate::repl::branch_summary::SUMMARY_PROMPT
+    );
 }
 
 struct FailingReader;
@@ -467,7 +453,7 @@ impl std::io::BufRead for FailingReader {
 #[tokio::test]
 async fn a_summary_prompt_read_error_is_reported_and_skips_the_summary() {
     let temp = rho_test_support::TestDir::new();
-    let (_session, engine) = setup_test_session(&temp).await;
+    let (_session, engine) = test_session_and_engine(&temp).await;
     let (renderer, mut events) = crate::repl::collecting_renderer();
     let assistant_node = TreeNodeData::turn(
         TreeNodeKind::AssistantTurn,
@@ -494,7 +480,7 @@ async fn a_summary_prompt_read_error_is_reported_and_skips_the_summary() {
 #[tokio::test]
 async fn a_failed_command_reports_its_error_and_keeps_the_session_going() {
     let temp = rho_test_support::TestDir::new();
-    let (mut session, mut engine) = setup_test_session(&temp).await;
+    let (mut session, mut engine) = test_session_and_engine(&temp).await;
     let (renderer, mut events) = crate::repl::collecting_renderer();
     session.renderer = renderer;
 
@@ -508,15 +494,15 @@ async fn a_failed_command_reports_its_error_and_keeps_the_session_going() {
     assert!(printed.contains("No stored credentials for claude"), "{printed}");
 }
 
-#[test]
-fn test_build_emacs_edit_mode_newline_bindings() {
-    use reedline::{EditCommand, KeyCode, KeyModifiers, ReedlineEvent};
+#[test_case(reedline::KeyModifiers::ALT; "alt")]
+#[test_case(reedline::KeyModifiers::SHIFT; "shift")]
+#[test_case(reedline::KeyModifiers::CONTROL; "control")]
+fn test_build_emacs_edit_mode_newline_bindings(modifier: reedline::KeyModifiers) {
+    use reedline::{EditCommand, KeyCode, ReedlineEvent};
 
     let keybindings = super::build_emacs_keybindings();
-    for modifier in [KeyModifiers::ALT, KeyModifiers::SHIFT, KeyModifiers::CONTROL] {
-        let binding = keybindings.find_binding(modifier, KeyCode::Enter);
-        assert_eq!(binding, Some(ReedlineEvent::Edit(vec![EditCommand::InsertNewline])));
-    }
+    let binding = keybindings.find_binding(modifier, KeyCode::Enter);
+    assert_eq!(binding, Some(ReedlineEvent::Edit(vec![EditCommand::InsertNewline])));
 }
 
 #[tokio::test]
@@ -550,8 +536,8 @@ fn test_handle_line_control_signal() {
 #[tokio::test]
 async fn test_handle_line_signal_control_paths() {
     use reedline::Signal;
-    let temp = tempfile::tempdir().unwrap();
-    let (mut session, mut engine) = setup_test_session(temp.path()).await;
+    let temp = rho_test_support::TestDir::new();
+    let (mut session, mut engine) = test_session_and_engine(&temp).await;
 
     let err_sig = Err(std::io::Error::other("read error"));
     assert!(
@@ -595,8 +581,8 @@ async fn test_handle_line_signal_control_paths() {
 
 #[tokio::test]
 async fn test_apply_dispatch_outcome() {
-    let temp = tempfile::tempdir().unwrap();
-    let (mut session, mut engine) = setup_test_session(temp.path()).await;
+    let temp = rho_test_support::TestDir::new();
+    let (mut session, mut engine) = test_session_and_engine(&temp).await;
 
     assert!(
         super::apply_dispatch_outcome(DispatchOutcome::Continue, &mut session, &mut engine)
@@ -612,8 +598,8 @@ async fn test_apply_dispatch_outcome() {
 
 #[tokio::test]
 async fn test_step_line_prompt() {
-    let temp = tempfile::tempdir().unwrap();
-    let (session, engine) = setup_test_session(temp.path()).await;
+    let temp = rho_test_support::TestDir::new();
+    let (session, engine) = test_session_and_engine(&temp).await;
 
     let mut is_first = true;
     super::step_line_prompt(&session, &engine, &mut is_first);
@@ -647,9 +633,9 @@ async fn run_line_event_loop_stops_on_exit_or_input_error() {
             Err(std::io::Error::other("read error")),
         ],
     ];
-    let temp = tempfile::tempdir().unwrap();
+    let temp = rho_test_support::TestDir::new();
     for script in scripts {
-        let (mut session, engine) = setup_test_session(temp.path()).await;
+        let (mut session, engine) = test_session_and_engine(&temp).await;
         super::run_line_event_loop(ScriptedLines(script.into()), &mut session, engine, false)
             .await
             .unwrap();

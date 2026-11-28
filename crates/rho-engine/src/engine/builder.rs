@@ -417,19 +417,21 @@ impl AgentEngineBuilder {
 mod tests {
     use super::*;
     use crate::test_support::temp_auth_store;
+    use rho_harness_core::config::CacheRetention::{self, Auto, Long, Short};
+    use test_case::test_case;
 
     #[tokio::test]
     async fn engine_without_a_selected_model_builds_and_refuses_turns() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = crate::test_support::TestDir::new();
         let (_auth_dir, store) = temp_auth_store();
         let config = Config {
-            config_dir: dir.path().to_path_buf(),
-            sessions_dir: dir.path().join("sessions"),
+            config_dir: dir.to_path_buf(),
+            sessions_dir: dir.join("sessions"),
             ..Config::default()
         };
         assert!(config.model.is_empty() && config.provider.is_empty());
         let engine = AgentEngineBuilder::new(config, store)
-            .base_dir(dir.path().to_path_buf())
+            .base_dir(dir.to_path_buf())
             .lsp(None)
             .build()
             .await
@@ -449,8 +451,8 @@ mod tests {
 
     #[tokio::test]
     async fn the_lsp_tool_is_registered_only_with_a_manager_and_the_config_on() {
-        let dir = tempfile::tempdir().unwrap();
-        let (manager, _) = crate::lsp::test_server::fake_manager(dir.path(), Default::default());
+        let dir = crate::test_support::TestDir::new();
+        let (manager, _) = crate::lsp::test_server::fake_manager(&dir, Default::default());
         let cases = [
             (true, Some(Some(manager.clone())), true),
             (false, Some(Some(manager)), true),
@@ -460,12 +462,12 @@ mod tests {
         for (enabled, lsp, registered) in cases {
             let (_auth_dir, store) = temp_auth_store();
             let mut config = Config {
-                config_dir: dir.path().to_path_buf(),
-                sessions_dir: dir.path().join("sessions"),
+                config_dir: dir.to_path_buf(),
+                sessions_dir: dir.join("sessions"),
                 ..Config::default()
             };
             config.tools.lsp.enabled = enabled;
-            let mut builder = AgentEngineBuilder::new(config, store).base_dir(dir.path().to_path_buf());
+            let mut builder = AgentEngineBuilder::new(config, store).base_dir(dir.to_path_buf());
             if let Some(lsp) = lsp {
                 builder = builder.lsp(lsp);
             }
@@ -536,15 +538,14 @@ mod tests {
         assert_eq!(rebuilt.base_dir, dir.to_path_buf());
     }
 
-    #[test]
-    fn subagents_get_short_retention_only_under_auto() {
-        use rho_harness_core::config::CacheRetention::{Auto, Long, Short};
-        for (configured, expected) in [(Auto, Short), (Short, Short), (Long, Long)] {
-            let config = Config {
-                cache_retention: configured,
-                ..Config::default()
-            };
-            assert_eq!(short_lived_config(&config).cache_retention, expected, "{configured}");
-        }
+    #[test_case(Auto, Short; "auto")]
+    #[test_case(Short, Short; "short")]
+    #[test_case(Long, Long; "long")]
+    fn subagents_get_short_retention_only_under_auto(configured: CacheRetention, expected: CacheRetention) {
+        let config = Config {
+            cache_retention: configured,
+            ..Config::default()
+        };
+        assert_eq!(short_lived_config(&config).cache_retention, expected);
     }
 }

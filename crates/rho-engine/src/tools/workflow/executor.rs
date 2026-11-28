@@ -420,6 +420,7 @@ impl Executor<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use test_case::test_case;
 
     fn scope() -> Scope {
         let mut inputs = BTreeMap::new();
@@ -446,8 +447,12 @@ mod tests {
     fn loop_max_accepts_numbers_and_numeric_strings() {
         assert_eq!(parse_max(&json!(4)).unwrap(), 4);
         assert_eq!(parse_max(&json!("3")).unwrap(), 3);
-        for bad in [json!(0), json!("x"), json!(null)] {
-            assert!(parse_max(&bad).is_err(), "{bad}");
-        }
+    }
+
+    #[test_case(json!(0); "zero")]
+    #[test_case(json!("x"); "non numeric string")]
+    #[test_case(json!(null); "null")]
+    fn loop_max_rejects_zero_and_non_numbers(bad: Value) {
+        assert!(parse_max(&bad).is_err());
     }
 }

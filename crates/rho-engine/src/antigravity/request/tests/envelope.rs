@@ -1,6 +1,7 @@
 use super::*;
 use crate::provider::adapter::ModelToolDefinition;
 use rho_harness_core::model::{AssistantContent, ChatMessage, Reasoning, ToolCall, ToolFunction, UserContent};
+use test_case::test_case;
 
 #[test]
 fn request_envelope_has_project_model_and_agent_shape() {
@@ -134,24 +135,23 @@ fn sample_image_tool_history() -> Vec<ChatMessage> {
     ]
 }
 
-#[test]
-fn tool_result_with_image_multimodal_response() {
-    for model in ["claude-sonnet-4-6", "gemini-3.8-flash-low"] {
-        let request = minimal_request(sample_image_tool_history());
-        let body = build_request_body(target("p", model), &request, &envelope()).unwrap();
-        let contents = body["request"]["contents"].as_array().unwrap();
-        let fn_resp = &contents[2]["parts"][0]["functionResponse"];
-        assert_eq!(fn_resp["name"], "read");
-        let parts = fn_resp["parts"].as_array().unwrap();
-        assert_eq!(
-            (
-                parts.len(),
-                parts[0]["inlineData"]["mimeType"].as_str(),
-                parts[0]["inlineData"]["data"].as_str()
-            ),
-            (1, Some("image/png"), Some("iVBORw0KGgo="))
-        );
-    }
+#[test_case("claude-sonnet-4-6"; "claude")]
+#[test_case("gemini-3.8-flash-low"; "gemini")]
+fn tool_result_with_image_multimodal_response(model: &str) {
+    let request = minimal_request(sample_image_tool_history());
+    let body = build_request_body(target("p", model), &request, &envelope()).unwrap();
+    let contents = body["request"]["contents"].as_array().unwrap();
+    let fn_resp = &contents[2]["parts"][0]["functionResponse"];
+    assert_eq!(fn_resp["name"], "read");
+    let parts = fn_resp["parts"].as_array().unwrap();
+    assert_eq!(
+        (
+            parts.len(),
+            parts[0]["inlineData"]["mimeType"].as_str(),
+            parts[0]["inlineData"]["data"].as_str()
+        ),
+        (1, Some("image/png"), Some("iVBORw0KGgo="))
+    );
 }
 
 #[test]

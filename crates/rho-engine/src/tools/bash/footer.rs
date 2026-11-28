@@ -70,6 +70,7 @@ impl BashFooter {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use test_case::test_case;
 
     fn footer(log_path: Option<&str>) -> BashFooter {
         BashFooter {
@@ -123,15 +124,11 @@ mod tests {
         assert_eq!(BashFooter::parse(without_log).unwrap().log_path, None);
     }
 
-    #[test]
-    fn text_without_a_footer_does_not_parse() {
-        for text in [
-            "plain output",
-            "[exit 0; lines, big; log: x]",
-            "[exit 1]",
-            "[exit 0; no output]",
-        ] {
-            assert_eq!(BashFooter::parse(text), None, "{text}");
-        }
+    #[test_case("plain output"; "plain output")]
+    #[test_case("[exit 0; lines, big; log: x]"; "non numeric fields")]
+    #[test_case("[exit 1]"; "exit only")]
+    #[test_case("[exit 0; no output]"; "no output")]
+    fn text_without_a_footer_does_not_parse(text: &str) {
+        assert_eq!(BashFooter::parse(text), None);
     }
 }

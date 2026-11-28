@@ -390,7 +390,8 @@ agent had failed or denied tool calls says so in its detail
 When a run finishes or stops, its report is added in front of your next prompt,
 so the main agent sees what happened, with an instruction to verify the work
 rather than trust the report. It can review the run's worktree
-(`worktree` tool, `diff`), merge or discard it, inspect any listed agent
+(`worktree` tool, `diff`), merge or discard it (the report states the merge
+bar: DRY, SOLID, no code smells), inspect any listed agent
 (`task_id` with `inspect: true`), and continue it with the `subagent` tool's
 `task_id`, for example to answer "the reviewer ran out of turns; finish the
 review" or "you missed the test, fix it". A continued agent keeps everything it

@@ -69,17 +69,17 @@ fn tool_def(name: &str) -> McpToolDefinition {
 
 #[tokio::test]
 async fn connection_problems_are_reported_as_diagnostics() {
-    let dir = tempfile::tempdir().unwrap();
-    let broken = McpServerConfig::stdio(dir.path().join("missing-mcp-binary").display().to_string(), Vec::new());
+    let dir = crate::test_support::TestDir::new();
+    let broken = McpServerConfig::stdio(dir.join("missing-mcp-binary").display().to_string(), Vec::new());
     let config = config_with(
-        dir.path(),
+        &dir,
         vec![
             ("remote", remote(&always_unauthorized_server().await)),
             ("broken", broken),
         ],
     );
 
-    let load = load_mcp(&config, dir.path(), &HashSet::new()).await;
+    let load = load_mcp(&config, &dir, &HashSet::new()).await;
 
     assert!(load.tools.is_empty());
     assert_eq!(load.diagnostics.len(), 2, "{:?}", load.diagnostics);
@@ -98,7 +98,7 @@ async fn connection_problems_are_reported_as_diagnostics() {
 
 #[tokio::test]
 async fn slow_servers_do_not_block_startup_and_join_the_catalog_later() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = crate::test_support::TestDir::new();
     let gate = Arc::new(tokio::sync::Notify::new());
     let release = Arc::clone(&gate);
     let slow = test_server::spawn(handler(move |method, _| {
@@ -116,13 +116,10 @@ async fn slow_servers_do_not_block_startup_and_join_the_catalog_later() {
     }))
     .await;
     let fast = test_server::spawn(standard(&["ping"], None)).await;
-    let mut config = config_with(
-        dir.path(),
-        vec![("fast", remote(&fast.url)), ("slow", remote(&slow.url))],
-    );
+    let mut config = config_with(&dir, vec![("fast", remote(&fast.url)), ("slow", remote(&slow.url))]);
     config.mcp.startup_timeout_ms = 150;
 
-    let load = load_mcp(&config, dir.path(), &HashSet::new()).await;
+    let load = load_mcp(&config, &dir, &HashSet::new()).await;
 
     assert_eq!(names(&load), ["fast_ping", "tool_search", "mcp"]);
     assert_eq!(load.diagnostics, [McpDiagnostic::Pending { server: "slow".into() }]);
@@ -144,14 +141,14 @@ fn stale_cache(config: &Config, server: &str, cfg: &McpServerConfig, updated_at:
 
 #[tokio::test]
 async fn fresh_cache_entries_start_without_contacting_the_server() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = crate::test_support::TestDir::new();
     let server = test_server::spawn(standard(&["new_tool"], None)).await;
     let cfg = remote(&server.url);
-    let config = config_with(dir.path(), vec![("srv", cfg.clone())]);
+    let config = config_with(&dir, vec![("srv", cfg.clone())]);
     let now = crate::clock::unix_now_secs();
     stale_cache(&config, "srv", &cfg, now);
 
-    let load = load_mcp(&config, dir.path(), &HashSet::new()).await;
+    let load = load_mcp(&config, &dir, &HashSet::new()).await;
     tokio::task::yield_now().await;
 
     assert_eq!(names(&load), ["srv_old_tool", "mcp"]);
@@ -160,13 +157,13 @@ async fn fresh_cache_entries_start_without_contacting_the_server() {
 
 #[tokio::test]
 async fn stale_cache_entries_are_used_then_refreshed_in_the_background() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = crate::test_support::TestDir::new();
     let server = test_server::spawn(standard(&["new_tool"], None)).await;
     let cfg = remote(&server.url);
-    let config = config_with(dir.path(), vec![("srv", cfg.clone())]);
+    let config = config_with(&dir, vec![("srv", cfg.clone())]);
     stale_cache(&config, "srv", &cfg, 0);
 
-    let load = load_mcp(&config, dir.path(), &HashSet::new()).await;
+    let load = load_mcp(&config, &dir, &HashSet::new()).await;
 
     assert_eq!(names(&load), ["srv_old_tool", "mcp"]);
     let catalog = load.runtime.as_ref().unwrap().catalog().clone();
@@ -185,22 +182,22 @@ fn tool_def_described(name: &str) -> McpToolDefinition {
 
 #[tokio::test]
 async fn server_instructions_are_collected_cached_and_can_be_disabled() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = crate::test_support::TestDir::new();
     let docs = test_server::spawn(standard(&["a"], Some("Use project keys."))).await;
     let quiet = test_server::spawn(standard(&["b"], Some("Ignore me."))).await;
     let mut quiet_cfg = remote(&quiet.url);
     quiet_cfg.instructions = Some(false);
-    let config = config_with(dir.path(), vec![("docs", remote(&docs.url)), ("quiet", quiet_cfg)]);
+    let config = config_with(&dir, vec![("docs", remote(&docs.url)), ("quiet", quiet_cfg)]);
     let expected = [McpServerInstructions {
         server: "docs".into(),
         text: "Use project keys.".into(),
     }];
 
-    let first = load_mcp(&config, dir.path(), &HashSet::new()).await;
+    let first = load_mcp(&config, &dir, &HashSet::new()).await;
     assert_eq!(first.instructions, expected);
     let requests = docs.methods().len();
 
-    let cached = load_mcp(&config, dir.path(), &HashSet::new()).await;
+    let cached = load_mcp(&config, &dir, &HashSet::new()).await;
     assert_eq!(cached.instructions, expected);
     assert_eq!(docs.methods().len(), requests, "second load must come from the cache");
 }
@@ -237,11 +234,11 @@ async fn gateway(load: &McpLoad, args: Value) -> crate::tools::ToolResult {
 
 #[tokio::test]
 async fn gateway_calls_deferred_tools_and_reads_resources() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = crate::test_support::TestDir::new();
     let server = test_server::spawn(gateway_server(Arc::new(Mutex::new(vec!["lookup"])))).await;
-    let mut config = config_with(dir.path(), vec![("srv", remote(&server.url))]);
+    let mut config = config_with(&dir, vec![("srv", remote(&server.url))]);
     config.mcp.defer_threshold = 0;
-    let load = load_mcp(&config, dir.path(), &HashSet::new()).await;
+    let load = load_mcp(&config, &dir, &HashSet::new()).await;
     assert_eq!(names(&load), ["tool_search", "mcp"]);
 
     let called = gateway(
@@ -274,12 +271,12 @@ async fn gateway_calls_deferred_tools_and_reads_resources() {
 
 #[tokio::test]
 async fn tools_list_changed_notifications_refresh_the_catalog() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = crate::test_support::TestDir::new();
     let tools = Arc::new(Mutex::new(vec!["lookup"]));
     let server = test_server::spawn(gateway_server(Arc::clone(&tools))).await;
-    let mut config = config_with(dir.path(), vec![("srv", remote(&server.url))]);
+    let mut config = config_with(&dir, vec![("srv", remote(&server.url))]);
     config.mcp.defer_threshold = 0;
-    let load = load_mcp(&config, dir.path(), &HashSet::new()).await;
+    let load = load_mcp(&config, &dir, &HashSet::new()).await;
     let catalog = load.runtime.as_ref().unwrap().catalog().clone();
     assert!(catalog.find(Some("srv"), "added").is_none());
 
@@ -297,11 +294,11 @@ async fn tools_list_changed_notifications_refresh_the_catalog() {
 
 #[tokio::test]
 async fn direct_tool_names_that_collide_stay_behind_tool_search() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = crate::test_support::TestDir::new();
     let server = test_server::spawn(standard(&["fetch"], None)).await;
-    let config = config_with(dir.path(), vec![("web", remote(&server.url))]);
+    let config = config_with(&dir, vec![("web", remote(&server.url))]);
 
-    let load = load_mcp(&config, dir.path(), &HashSet::new()).await;
+    let load = load_mcp(&config, &dir, &HashSet::new()).await;
 
     assert_eq!(names(&load), ["tool_search", "mcp"]);
     assert_eq!(
@@ -324,13 +321,13 @@ async fn direct_tool_names_that_collide_stay_behind_tool_search() {
 
 #[tokio::test]
 async fn untrusted_project_servers_are_never_contacted() {
-    let dir = tempfile::tempdir().unwrap();
-    std::fs::write(dir.path().join(".mcp.json"), "{}").unwrap();
+    let dir = crate::test_support::TestDir::new();
+    std::fs::write(dir.join(".mcp.json"), "{}").unwrap();
     let server = test_server::spawn(standard(&["a"], None)).await;
-    let mut config = config_with(dir.path(), vec![("proj", remote(&server.url))]);
-    config.mcp.project = Some(project(dir.path(), &["proj"]));
+    let mut config = config_with(&dir, vec![("proj", remote(&server.url))]);
+    config.mcp.project = Some(project(&dir, &["proj"]));
 
-    let load = load_mcp(&config, dir.path(), &HashSet::new()).await;
+    let load = load_mcp(&config, &dir, &HashSet::new()).await;
 
     assert!(load.runtime.is_none());
     assert_eq!(load.diagnostics, [McpDiagnostic::Untrusted { server: "proj".into() }]);
@@ -346,17 +343,17 @@ fn project(workspace: &Path, names: &[&str]) -> ProjectMcpServers {
 
 #[tokio::test]
 async fn global_servers_load_in_a_workspace_with_project_servers() {
-    let dir = tempfile::tempdir().unwrap();
-    std::fs::write(dir.path().join(".mcp.json"), "{}").unwrap();
+    let dir = crate::test_support::TestDir::new();
+    std::fs::write(dir.join(".mcp.json"), "{}").unwrap();
     let global = test_server::spawn(standard(&["g"], None)).await;
     let local = test_server::spawn(standard(&["p"], None)).await;
     let mut config = config_with(
-        dir.path(),
+        &dir,
         vec![("global", remote(&global.url)), ("proj", remote(&local.url))],
     );
-    config.mcp.project = Some(project(dir.path(), &["proj"]));
+    config.mcp.project = Some(project(&dir, &["proj"]));
 
-    let load = load_mcp(&config, dir.path(), &HashSet::new()).await;
+    let load = load_mcp(&config, &dir, &HashSet::new()).await;
 
     assert_eq!(names(&load), ["global_g", "mcp"]);
     assert_eq!(load.diagnostics, [McpDiagnostic::Untrusted { server: "proj".into() }]);
@@ -365,19 +362,19 @@ async fn global_servers_load_in_a_workspace_with_project_servers() {
 
 #[tokio::test]
 async fn approved_project_servers_load_until_their_definition_changes() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = crate::test_support::TestDir::new();
     let server = test_server::spawn(standard(&["a"], None)).await;
-    let mut config = config_with(dir.path(), vec![("proj", remote(&server.url))]);
-    config.mcp.project = Some(project(dir.path(), &["proj"]));
+    let mut config = config_with(&dir, vec![("proj", remote(&server.url))]);
+    config.mcp.project = Some(project(&dir, &["proj"]));
     let approved = compute_definition_hash(&config.mcp.servers["proj"]);
-    crate::mcp::approve_server_definition(dir.path(), "proj", &approved, &config.config_dir).unwrap();
+    crate::mcp::approve_server_definition(&dir, "proj", &approved, &config.config_dir).unwrap();
 
-    let load = load_mcp(&config, dir.path(), &HashSet::new()).await;
+    let load = load_mcp(&config, &dir, &HashSet::new()).await;
     assert_eq!(names(&load), ["proj_a", "mcp"]);
     assert!(load.diagnostics.is_empty(), "{:?}", load.diagnostics);
 
     config.mcp.servers.get_mut("proj").unwrap().url = Some(format!("{}?changed", server.url));
-    let changed = load_mcp(&config, dir.path(), &HashSet::new()).await;
+    let changed = load_mcp(&config, &dir, &HashSet::new()).await;
     assert_eq!(
         changed.diagnostics,
         [McpDiagnostic::Untrusted { server: "proj".into() }]
@@ -406,10 +403,10 @@ async fn work(load: &McpLoad) -> crate::tools::ToolResult {
 
 #[tokio::test]
 async fn a_tool_call_lost_in_flight_is_not_resent_but_the_next_call_reconnects() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = crate::test_support::TestDir::new();
     let server = test_server::spawn(crashing_server(1)).await;
-    let config = config_with(dir.path(), vec![("srv", remote(&server.url))]);
-    let load = load_mcp(&config, dir.path(), &HashSet::new()).await;
+    let config = config_with(&dir, vec![("srv", remote(&server.url))]);
+    let load = load_mcp(&config, &dir, &HashSet::new()).await;
 
     let lost = work(&load).await;
 
@@ -440,7 +437,7 @@ async fn a_tool_call_lost_in_flight_is_not_resent_but_the_next_call_reconnects()
 
 #[tokio::test]
 async fn a_read_only_request_lost_in_flight_is_reconnected_and_resent() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = crate::test_support::TestDir::new();
     let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let server = test_server::spawn(handler(move |method, _| {
         let calls = Arc::clone(&calls);
@@ -454,8 +451,8 @@ async fn a_read_only_request_lost_in_flight_is_reconnected_and_resent() {
         }
     }))
     .await;
-    let config = config_with(dir.path(), vec![("srv", remote(&server.url))]);
-    let load = load_mcp(&config, dir.path(), &HashSet::new()).await;
+    let config = config_with(&dir, vec![("srv", remote(&server.url))]);
+    let load = load_mcp(&config, &dir, &HashSet::new()).await;
     let runtime = Arc::clone(load.runtime.as_ref().unwrap());
 
     let result = runtime.list_resources("srv").await;
@@ -466,10 +463,10 @@ async fn a_read_only_request_lost_in_flight_is_reconnected_and_resent() {
 
 #[tokio::test]
 async fn servers_that_keep_dropping_stop_reconnecting_and_report_it() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = crate::test_support::TestDir::new();
     let server = test_server::spawn(crashing_server(usize::MAX)).await;
-    let config = config_with(dir.path(), vec![("srv", remote(&server.url))]);
-    let load = load_mcp(&config, dir.path(), &HashSet::new()).await;
+    let config = config_with(&dir, vec![("srv", remote(&server.url))]);
+    let load = load_mcp(&config, &dir, &HashSet::new()).await;
     let runtime = Arc::clone(load.runtime.as_ref().unwrap());
 
     for _ in 0..crate::mcp::runtime::MAX_RECONNECTS {
@@ -495,7 +492,7 @@ async fn servers_that_keep_dropping_stop_reconnecting_and_report_it() {
 
 #[tokio::test]
 async fn late_discovery_problems_are_reported_once_to_subscribers() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = crate::test_support::TestDir::new();
     let gate = Arc::new(tokio::sync::Notify::new());
     let release = Arc::clone(&gate);
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -509,10 +506,10 @@ async fn late_discovery_problems_are_reported_once_to_subscribers() {
             let _ = socket.write_all(reply.as_bytes()).await;
         }
     });
-    let mut config = config_with(dir.path(), vec![("late", remote(&url))]);
+    let mut config = config_with(&dir, vec![("late", remote(&url))]);
     config.mcp.startup_timeout_ms = 50;
 
-    let load = load_mcp(&config, dir.path(), &HashSet::new()).await;
+    let load = load_mcp(&config, &dir, &HashSet::new()).await;
     assert_eq!(load.diagnostics, [McpDiagnostic::Pending { server: "late".into() }]);
     let runtime = Arc::clone(load.runtime.as_ref().unwrap());
     release.notify_one();

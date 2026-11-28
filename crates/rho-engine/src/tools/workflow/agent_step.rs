@@ -365,6 +365,7 @@ impl Executor<'_> {
 mod tests {
     use super::*;
     use std::collections::BTreeMap;
+    use test_case::test_case;
 
     fn agent(context: &[&str], output: OutputFormat) -> AgentNode {
         AgentNode {
@@ -395,19 +396,11 @@ mod tests {
         assert_eq!(build_prompt(&agent(&[], OutputFormat::Text), &scope), "Check security");
     }
 
-    #[test]
-    fn extracts_fenced_or_bare_json_objects() {
-        let cases = [
-            (
-                "Done.\n```json\n{\"fixed\": [\"a\"]}\n```\nbye",
-                Some(json!({"fixed": ["a"]})),
-            ),
-            ("Result: {\"actionable\": []} end", Some(json!({"actionable": []}))),
-            ("```json\n[1, 2]\n```", None),
-            ("no json here", None),
-        ];
-        for (text, expected) in cases {
-            assert_eq!(extract_json(text), expected, "{text}");
-        }
+    #[test_case("Done.\n```json\n{\"fixed\": [\"a\"]}\n```\nbye", Some(json!({"fixed": ["a"]})); "fenced object")]
+    #[test_case("Result: {\"actionable\": []} end", Some(json!({"actionable": []})); "bare object")]
+    #[test_case("```json\n[1, 2]\n```", None; "fenced array")]
+    #[test_case("no json here", None; "no json")]
+    fn extracts_fenced_or_bare_json_objects(text: &str, expected: Option<Value>) {
+        assert_eq!(extract_json(text), expected);
     }
 }

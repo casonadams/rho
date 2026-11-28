@@ -16,10 +16,6 @@ struct TransclusionScope<'a> {
     visited: &'a mut HashSet<PathBuf>,
 }
 
-pub fn expand_transclusions(content: &str, base_dir: &Path) -> String {
-    expand_transclusions_with_root(content, base_dir, None)
-}
-
 pub fn expand_transclusions_with_root(content: &str, base_dir: &Path, root_path: Option<&Path>) -> String {
     let mut visited = HashSet::new();
     if let Some(root) = root_path

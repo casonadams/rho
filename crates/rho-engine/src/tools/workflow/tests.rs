@@ -7,6 +7,7 @@ use crate::provider::adapter::{ModelAdapter, ModelCompletionRequest, ModelComple
 use rho_harness_core::agents::AgentMonitor;
 use rho_harness_core::error::AppError;
 use std::sync::{Arc, Mutex};
+use test_case::test_case;
 
 /// A completion delivered the way a streaming provider sends it.
 fn as_stream(response: ModelCompletionResponse) -> crate::provider::adapter::ModelEventStream {
@@ -143,7 +144,7 @@ const FOUND: &str = "```json\n{\"actionable\": [{\"fingerprint\": \"src/a.rs:bug
 const CLEAN: &str = "```json\n{\"actionable\": []}\n```";
 
 struct Fixture {
-    dir: tempfile::TempDir,
+    dir: crate::test_support::TestDir,
     model: Arc<ScriptedModel>,
     monitor: AgentMonitor,
     session: Option<rho_harness_core::session::SessionManager>,
@@ -151,9 +152,9 @@ struct Fixture {
 
 impl Fixture {
     fn new(validate_replies: &[&str], files: &[(&str, &str)]) -> Self {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = crate::test_support::TestDir::new();
         for (path, text) in files {
-            let path = dir.path().join(".agents/workflows").join(path);
+            let path = dir.join(".agents/workflows").join(path);
             std::fs::create_dir_all(path.parent().unwrap()).unwrap();
             std::fs::write(path, text).unwrap();
         }
@@ -170,7 +171,7 @@ impl Fixture {
         subagents: SubagentTool,
         project: Option<Arc<crate::engine::context::ProjectContext>>,
     ) -> WorkflowRunner {
-        WorkflowRunner::new(subagents, self.dir.path(), None).bind(&TurnToolContext {
+        WorkflowRunner::new(subagents, self.dir.to_path_buf(), None).bind(&TurnToolContext {
             cancellation: Some(CancellationSignal::default()),
             monitor: Some(self.monitor.clone()),
             project,
@@ -232,7 +233,7 @@ const WIPE: &str = r#"
 #[tokio::test]
 async fn a_worktree_that_cannot_be_committed_keeps_the_answer_and_warns_in_the_report() {
     let fx = Fixture::new(&[], &[("wipe.xml", WIPE)]);
-    let root = fx.dir.path();
+    let root = &fx.dir;
     crate::worktree::git::test_repo::git(root, &["init", "--quiet", "-b", "main"]);
     crate::worktree::git::test_repo::git(root, &["add", "."]);
     crate::worktree::git::test_repo::git(root, &["commit", "--quiet", "--allow-empty", "-m", "init"]);
@@ -298,14 +299,14 @@ async fn run_id_names_files_and_matches_the_run_log() {
     let run = fx.run("stamped", &[]).await;
 
     assert!(run.ok, "{}", run.report);
-    let written = std::fs::read_dir(fx.dir.path().join(".rho/out"))
+    let written = std::fs::read_dir(fx.dir.join(".rho/out"))
         .unwrap()
         .next()
         .unwrap()
         .unwrap();
     let name = written.file_name().into_string().unwrap();
     let id = name.strip_suffix(".md").unwrap();
-    let logs: Vec<String> = std::fs::read_dir(fx.dir.path().join(".rho/workflows"))
+    let logs: Vec<String> = std::fs::read_dir(fx.dir.join(".rho/workflows"))
         .unwrap()
         .map(|e| e.unwrap().file_name().into_string().unwrap())
         .collect();
@@ -323,7 +324,7 @@ async fn templated_agents_and_write_steps_persist_output_in_the_project() {
     assert!(run.ok, "{}", run.report);
     assert_eq!(fx.model.prompts_starting_with("HELLO").len(), 2);
     assert!(fx.monitor.summaries().iter().any(|s| s.label == "agent · critic"));
-    let saved = std::fs::read_to_string(fx.dir.path().join(".rho/out/report.md")).unwrap();
+    let saved = std::fs::read_to_string(fx.dir.join(".rho/out/report.md")).unwrap();
     assert_eq!(saved, "2 agents, 2 answered");
     assert!(run.report.contains(".rho/out/report.md"), "{}", run.report);
 }
@@ -335,7 +336,7 @@ async fn resume_replays_journaled_agent_results_without_calling_the_model() {
     assert!(first.ok, "{}", first.report);
     let asked = fx.model.prompts_starting_with("HELLO").len();
     assert_eq!(asked, 2);
-    let id = std::fs::read_dir(fx.dir.path().join(".rho/workflows"))
+    let id = std::fs::read_dir(fx.dir.join(".rho/workflows"))
         .unwrap()
         .map(|e| e.unwrap().file_name().into_string().unwrap())
         .find_map(|n| {
@@ -370,7 +371,7 @@ async fn write_steps_outside_the_output_root_stop_the_workflow() {
 
     assert!(!run.ok, "{}", run.report);
     assert!(run.report.contains("inside .rho/"), "{}", run.report);
-    assert!(!fx.dir.path().join("src/main.rs").exists());
+    assert!(!fx.dir.join("src/main.rs").exists());
 }
 
 #[tokio::test]
@@ -438,7 +439,7 @@ async fn loops_until_clean_feeding_failures_and_history_into_later_passes() {
             .any(|s| s.label == "implement · general" && s.model == "test/scripted")
     );
 
-    let log_dir = fx.dir.path().join(".rho/workflows");
+    let log_dir = fx.dir.join(".rho/workflows");
     let log = std::fs::read_dir(log_dir)
         .unwrap()
         .map(|entry| entry.unwrap().path())
@@ -471,7 +472,7 @@ async fn workflows_ignore_permission_rules_for_steps_and_agents() {
     let fx = Fixture::new(&[CLEAN], &[("trusted.xml", wf)]);
     let scope = parse_scope_from_str("[permission.bash]\n\"*\" = \"deny\"\n").unwrap();
     let deny_all = PermissionHook::with_policy(
-        Some(fx.dir.path().to_path_buf()),
+        Some(fx.dir.to_path_buf()),
         Arc::new(MockHookPresenter::new(false, None)),
         build_policy(None, Some(scope)),
     );
@@ -518,7 +519,7 @@ async fn agents_are_grounded_with_project_instructions_environment_and_position(
     );
     let subagents = SubagentTool::new(Some(fx.model.clone()), Vec::new());
     let run = fx
-        .runner_with(subagents, Some(project(fx.dir.path())))
+        .runner_with(subagents, Some(project(&fx.dir)))
         .run("greet", BTreeMap::new())
         .await;
     assert!(run.ok, "{}", run.report);
@@ -598,25 +599,20 @@ async fn blocks_and_calls_compose_without_any_agent() {
     assert!(fx.model.requests.lock().unwrap().is_empty());
 }
 
+#[test_case("ghost", &[], "unknown workflow 'ghost'; available: audit, loop, slowpoke"; "unknown workflow")]
+#[test_case("loop", &[("nope", "1")], "no input named 'nope'"; "bad input")]
+#[test_case("slowpoke", &[], "model roles that are not configured: slow"; "unconfigured model")]
 #[tokio::test]
-async fn rejects_unknown_workflows_bad_inputs_and_unconfigured_models_before_running() {
+async fn rejects_unknown_workflows_bad_inputs_and_unconfigured_models_before_running(
+    name: &str,
+    inputs: &[(&str, &str)],
+    expected: &str,
+) {
     let slow = r#"<workflow name="slowpoke"><agent use="general" model="slow">HELLO</agent></workflow>"#;
     let fx = Fixture::new(&[CLEAN], &[("loop.xml", LOOP), ("slowpoke.xml", slow)]);
-    type Case<'a> = (&'a str, &'a [(&'a str, &'a str)], &'a str);
-    let cases: [Case<'_>; 3] = [
-        (
-            "ghost",
-            &[],
-            "unknown workflow 'ghost'; available: audit, loop, slowpoke",
-        ),
-        ("loop", &[("nope", "1")], "no input named 'nope'"),
-        ("slowpoke", &[], "model roles that are not configured: slow"),
-    ];
-    for (name, inputs, expected) in cases {
-        let run = fx.run(name, inputs).await;
-        assert!(!run.ok, "{name}");
-        assert!(run.report.contains(expected), "{name}: {}", run.report);
-    }
+    let run = fx.run(name, inputs).await;
+    assert!(!run.ok);
+    assert!(run.report.contains(expected), "{}", run.report);
     assert!(fx.model.requests.lock().unwrap().is_empty());
 }
 
@@ -675,7 +671,7 @@ async fn resume_continues_a_stopped_agent_in_the_same_task_and_takes_its_structu
         &[CLEAN],
         &[("gate/workflow.xml", RESUMING), ("gate/agents/checker.md", CHECKER)],
     );
-    let session = rho_harness_core::session::SessionManager::new(&fx.dir.path().join("sessions"), None).unwrap();
+    let session = rho_harness_core::session::SessionManager::new(&fx.dir.join("sessions"), None).unwrap();
     fx.session = Some(session);
     let finish = vec![ModelStreamEvent::ToolCall(rho_harness_core::model::ToolCall::new(
         "call-finish",
@@ -739,7 +735,7 @@ async fn workflow_agent_tasks_are_saved_and_can_be_continued_by_the_main_agent()
         &[CLEAN],
         &[("gate/workflow.xml", REVIEW), ("gate/agents/checker.md", CHECKER)],
     );
-    let session = rho_harness_core::session::SessionManager::new(&fx.dir.path().join("sessions"), None).unwrap();
+    let session = rho_harness_core::session::SessionManager::new(&fx.dir.join("sessions"), None).unwrap();
     fx.session = Some(session.clone());
     let adapter =
         crate::provider::adapter::MockAdapter::from_turns([read_call(), text_turn("So far: a.rs looks fine.")]);
@@ -865,14 +861,14 @@ impl ModelAdapter for WritingModel {
 fn worktree_runner(
     workflow: &str,
 ) -> (
-    tempfile::TempDir,
+    crate::test_support::TestDir,
     std::path::PathBuf,
     crate::worktree::WorktreeStore,
     WorkflowRunner,
 ) {
     let (dir, root) =
         crate::worktree::git::test_repo::create(&[("a.rs", "base\n"), (".agents/workflows/w/workflow.xml", workflow)]);
-    let store = crate::worktree::WorktreeStore::new(dir.path().join("store"));
+    let store = crate::worktree::WorktreeStore::new(dir.join("store"));
     let placeholder: Arc<dyn crate::tools::EngineTool> = Arc::new(crate::tools::GenericTool::new(
         "write",
         "replaced by the real write tool in each worktree",
@@ -919,6 +915,7 @@ async fn workflows_run_in_a_worktree_and_hand_their_changes_to_the_parent() {
         "{}",
         run.report
     );
+    assert!(run.report.contains(crate::worktree::MERGE_STANDARD), "{}", run.report);
     assert_eq!(
         std::fs::read_to_string(run_worktree.path.join("a.rs")).unwrap(),
         "agent\n"

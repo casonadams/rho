@@ -58,36 +58,26 @@ impl SizeSettle {
 mod tests {
     use super::*;
     use crate::ui::interactive::controller::tests::fake::controller_with_size;
+    use test_case::test_case;
 
-    type Sightings = &'static [(Size, u64)];
-
-    #[test]
-    fn a_size_applies_only_after_it_holds_still() {
+    #[test_case(&[((80, 24), 0), ((80, 24), 200)], false; "unchanged")]
+    #[test_case(&[((60, 24), 0)], false; "first sighting")]
+    #[test_case(&[((60, 24), 0), ((60, 24), 99)], false; "still settling")]
+    #[test_case(&[((60, 24), 0), ((60, 24), 100)], true; "settled")]
+    #[test_case(&[((60, 24), 0), ((50, 24), 100)], false; "moved again")]
+    #[test_case(&[((60, 24), 0), ((50, 24), 50), ((50, 24), 150)], true; "settled after moving")]
+    #[test_case(&[((60, 24), 0), ((80, 24), 50), ((60, 24), 120)], false; "moved back")]
+    fn a_size_applies_only_after_it_holds_still(steps: &[(Size, u64)], expected: bool) {
         let start = Instant::now();
         let at = |ms| start + Duration::from_millis(ms);
         let shown = (80, 24);
-        let cases: &[(&str, Sightings, bool)] = &[
-            ("unchanged", &[((80, 24), 0), ((80, 24), 200)], false),
-            ("first sighting", &[((60, 24), 0)], false),
-            ("still settling", &[((60, 24), 0), ((60, 24), 99)], false),
-            ("settled", &[((60, 24), 0), ((60, 24), 100)], true),
-            ("moved again", &[((60, 24), 0), ((50, 24), 100)], false),
-            (
-                "settled after moving",
-                &[((60, 24), 0), ((50, 24), 50), ((50, 24), 150)],
-                true,
-            ),
-            ("moved back", &[((60, 24), 0), ((80, 24), 50), ((60, 24), 120)], false),
-        ];
-        for (name, steps, expected) in cases {
-            let mut settle = SizeSettle::default();
-            let last = steps
-                .iter()
-                .map(|&(size, ms)| settle.settled(shown, size, at(ms)))
-                .last()
-                .unwrap();
-            assert_eq!(last, *expected, "{name}");
-        }
+        let mut settle = SizeSettle::default();
+        let last = steps
+            .iter()
+            .map(|&(size, ms)| settle.settled(shown, size, at(ms)))
+            .last()
+            .unwrap();
+        assert_eq!(last, expected);
     }
 
     #[tokio::test(start_paused = true)]

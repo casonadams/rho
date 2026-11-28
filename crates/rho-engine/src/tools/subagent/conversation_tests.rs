@@ -7,6 +7,7 @@ use rho_harness_core::model::{ToolCall, ToolFunction, UserContent};
 use rho_harness_core::presentation::SUBAGENT_STARTED_MARKER;
 use serde_json::json;
 use std::sync::Arc;
+use test_case::test_case;
 
 fn call(name: &str, args: serde_json::Value) -> Vec<ModelStreamEvent> {
     vec![ModelStreamEvent::ToolCall(ToolCall::new(
@@ -119,8 +120,8 @@ async fn next_notice(parent: &crate::mailbox::Mailbox) -> String {
 
 #[tokio::test]
 async fn a_question_is_answered_while_the_subagent_waits_with_its_work_in_progress() {
-    let dir = tempfile::tempdir().unwrap();
-    let session = SessionManager::new(dir.path(), None).unwrap();
+    let dir = crate::test_support::TestDir::new();
+    let session = SessionManager::new(&dir, None).unwrap();
     let runtime = SubagentRuntime::default();
     let parent = runtime.inbox(&session.session_id.as_str().into());
     let adapter = ask_turns();
@@ -160,8 +161,8 @@ async fn a_question_is_answered_while_the_subagent_waits_with_its_work_in_progre
 
 #[tokio::test]
 async fn a_declined_question_pauses_the_task_and_the_reply_resumes_it() {
-    let dir = tempfile::tempdir().unwrap();
-    let session = SessionManager::new(dir.path(), None).unwrap();
+    let dir = crate::test_support::TestDir::new();
+    let session = SessionManager::new(&dir, None).unwrap();
     let runtime = SubagentRuntime::default();
     let parent = runtime.inbox(&session.session_id.as_str().into());
     let adapter = ask_turns();
@@ -207,8 +208,8 @@ async fn a_declined_question_pauses_the_task_and_the_reply_resumes_it() {
 
 #[tokio::test(start_paused = true)]
 async fn a_long_round_moves_to_the_background_takes_messages_and_its_task_continues_afterwards() {
-    let dir = tempfile::tempdir().unwrap();
-    let session = SessionManager::new(dir.path(), None).unwrap();
+    let dir = crate::test_support::TestDir::new();
+    let session = SessionManager::new(&dir, None).unwrap();
     let owner = crate::mailbox::AgentId::from(session.session_id.as_str());
     let release = Arc::new(tokio::sync::Notify::new());
     let gate = release.clone();
@@ -296,8 +297,8 @@ async fn a_long_round_moves_to_the_background_takes_messages_and_its_task_contin
 
 #[tokio::test]
 async fn a_continued_task_keeps_its_persona_and_refuses_a_different_one() {
-    let dir = tempfile::tempdir().unwrap();
-    let session = SessionManager::new(dir.path(), None).unwrap();
+    let dir = crate::test_support::TestDir::new();
+    let session = SessionManager::new(&dir, None).unwrap();
     let adapter = MockAdapter::from_turns([text("Looks fine."), text("Still fine.")]);
     let ctx = TurnToolContext {
         session: Some(session),
@@ -327,8 +328,8 @@ async fn a_continued_task_keeps_its_persona_and_refuses_a_different_one() {
 
 #[tokio::test]
 async fn a_model_chosen_when_continuing_a_task_is_kept_for_later_continuations() {
-    let dir = tempfile::tempdir().unwrap();
-    let session = SessionManager::new(dir.path(), None).unwrap();
+    let dir = crate::test_support::TestDir::new();
+    let session = SessionManager::new(&dir, None).unwrap();
     let resolver: crate::tools::subagent::SubagentModelResolver = Arc::new(|model: &str| {
         let reply = format!("answered by {model}");
         Ok(Arc::new(MockAdapter::text(&reply)) as crate::provider::adapter::ModelHandle)
@@ -358,8 +359,8 @@ async fn a_model_chosen_when_continuing_a_task_is_kept_for_later_continuations()
 
 #[tokio::test]
 async fn review_feedback_starts_a_new_task_that_keeps_the_subagent_history() {
-    let dir = tempfile::tempdir().unwrap();
-    let session = SessionManager::new(dir.path(), None).unwrap();
+    let dir = crate::test_support::TestDir::new();
+    let session = SessionManager::new(&dir, None).unwrap();
     let adapter = MockAdapter::from_turns([
         call("read", json!({ "path": "src/hot.rs" })),
         text("Found one hot loop."),
@@ -378,7 +379,7 @@ async fn review_feedback_starts_a_new_task_that_keeps_the_subagent_history() {
     let session_id = session.session_id.clone();
     drop(session);
 
-    let reopened = SessionManager::new(dir.path(), Some(&session_id)).unwrap();
+    let reopened = SessionManager::new(&dir, Some(&session_id)).unwrap();
     adapter.add_turn(
         text("Also found the allocation in cold().")
             .into_iter()
@@ -409,8 +410,8 @@ async fn review_feedback_starts_a_new_task_that_keeps_the_subagent_history() {
 
 #[tokio::test]
 async fn a_turn_limit_waits_for_a_go_ahead_and_continues_with_its_history() {
-    let dir = tempfile::tempdir().unwrap();
-    let session = SessionManager::new(dir.path(), None).unwrap();
+    let dir = crate::test_support::TestDir::new();
+    let session = SessionManager::new(&dir, None).unwrap();
     let adapter = MockAdapter::from_turns([
         call("read", json!({ "path": "a.rs" })),
         text("So far: a.rs is clean."),
@@ -438,8 +439,8 @@ async fn a_turn_limit_waits_for_a_go_ahead_and_continues_with_its_history() {
 
 #[tokio::test]
 async fn bad_continuations_are_rejected() {
-    let dir = tempfile::tempdir().unwrap();
-    let session = SessionManager::new(dir.path(), None).unwrap();
+    let dir = crate::test_support::TestDir::new();
+    let session = SessionManager::new(&dir, None).unwrap();
     let adapter = MockAdapter::from_turns([text("done")]);
     let tool = bound_tool(&adapter, Some(session));
     let id = task_id(&ask(&tool, json!({ "role": "scout", "prompt": "look" })).await);
@@ -465,9 +466,9 @@ async fn bad_continuations_are_rejected() {
 
 #[tokio::test]
 async fn inspecting_shows_recorded_evidence_without_running_the_subagent() {
-    let dir = tempfile::tempdir().unwrap();
-    let session = SessionManager::new(dir.path(), None).unwrap();
-    let secret = dir.path().join("app.env");
+    let dir = crate::test_support::TestDir::new();
+    let session = SessionManager::new(&dir, None).unwrap();
+    let secret = dir.join("app.env");
     let adapter = MockAdapter::from_turns([
         vec![
             ModelStreamEvent::ToolCall(ToolCall::new(
@@ -486,7 +487,7 @@ async fn inspecting_shows_recorded_evidence_without_running_the_subagent() {
     )
     .unwrap();
     let hook = crate::permission::PermissionHook::with_policy(
-        Some(dir.path().to_path_buf()),
+        Some(dir.to_path_buf()),
         Arc::new(crate::permission::tests::mock::MockHookPresenter::new(false, None)),
         crate::permission::policy::build_policy(None, Some(scope)),
     );
@@ -538,10 +539,10 @@ async fn inspecting_shows_recorded_evidence_without_running_the_subagent() {
 
 #[tokio::test]
 async fn a_continued_subagent_is_told_which_files_changed_since_it_read_them() {
-    let dir = tempfile::tempdir().unwrap();
-    let session = SessionManager::new(&dir.path().join("sessions"), None).unwrap();
-    let watched = dir.path().join("lib.rs");
-    let untouched = dir.path().join("other.rs");
+    let dir = crate::test_support::TestDir::new();
+    let session = SessionManager::new(&dir.join("sessions"), None).unwrap();
+    let watched = dir.join("lib.rs");
+    let untouched = dir.join("other.rs");
     std::fs::write(&watched, "fn a() {}").unwrap();
     std::fs::write(&untouched, "fn b() {}").unwrap();
     let read = |path: &std::path::Path| call("read", json!({ "path": path.to_string_lossy() }));
@@ -569,8 +570,8 @@ async fn a_continued_subagent_is_told_which_files_changed_since_it_read_them() {
 async fn bash_changes_are_attributed_and_later_changes_reach_a_continued_subagent() {
     let _repo = rho_test_support::TestDir::new();
     let root = crate::tools::subagent::test_repo::committed_repo(&_repo, &["other.rs"]);
-    let sessions = tempfile::tempdir().unwrap();
-    let session = SessionManager::new(sessions.path(), None).unwrap();
+    let sessions = crate::test_support::TestDir::new();
+    let session = SessionManager::new(&sessions, None).unwrap();
     let bash_root = root.clone();
     let bash = GenericTool::new("bash", "runs", json!({}), move |_| {
         let target = bash_root.join("gen.rs");
@@ -627,7 +628,7 @@ async fn bash_changes_are_attributed_and_later_changes_reach_a_continued_subagen
 }
 
 struct WorktreeSetup {
-    dir: tempfile::TempDir,
+    dir: crate::test_support::TestDir,
     root: std::path::PathBuf,
     store: crate::worktree::WorktreeStore,
     adapter: MockAdapter,
@@ -641,8 +642,8 @@ fn write_turn(path: &str, body: &str) -> Vec<ModelStreamEvent> {
 /// A repository and a subagent tool whose `write` runs for real inside each subagent's worktree.
 fn worktree_setup(turns: Vec<Vec<ModelStreamEvent>>) -> WorktreeSetup {
     let (dir, root) = crate::worktree::git::test_repo::create(&[("a.rs", "base\n"), ("other.rs", "v1\n")]);
-    let store = crate::worktree::WorktreeStore::new(dir.path().join("store"));
-    let session = SessionManager::new(&dir.path().join("sessions"), None).unwrap();
+    let store = crate::worktree::WorktreeStore::new(dir.join("store"));
+    let session = SessionManager::new(&dir.join("sessions"), None).unwrap();
     let placeholder: Arc<dyn EngineTool> = Arc::new(GenericTool::new(
         "write",
         "replaced in the worktree",
@@ -750,6 +751,7 @@ async fn subagents_work_in_their_own_worktree_and_feedback_continues_there() {
         second.contains("not in your working tree: a.rs, b.rs (added)."),
         "{second}"
     );
+    assert!(second.contains(crate::worktree::MERGE_STANDARD), "{second}");
     assert!(second.contains("Files changed: b.rs\nTool outcomes"), "{second}");
     assert!(
         !s.adapter
@@ -801,28 +803,23 @@ async fn after_a_merge_a_continued_subagent_gets_a_fresh_worktree_and_hears_what
     drop(s.dir);
 }
 
-#[test]
-fn only_subagents_limited_to_read_only_tools_run_in_parallel() {
+#[test_case(json!({ "role": "scout", "prompt": "x" }), true; "read only role")]
+#[test_case(json!({ "role": "general", "prompt": "x" }), false; "writing role")]
+#[test_case(json!({ "task_id": "t-1", "prompt": "x" }), false; "continuation")]
+#[test_case(json!({ "inspect": true }), true; "inspect")]
+fn only_subagents_limited_to_read_only_tools_run_in_parallel(args: serde_json::Value, parallel: bool) {
     let adapter = MockAdapter::from_turns([]);
     let write: Arc<dyn EngineTool> = Arc::new(GenericTool::new("write", "writes", json!({}), |_| async {
         Ok(ToolResult::success("written"))
     }));
     let tool = inline_tool(Some(Arc::new(adapter)), vec![read_tool(), write]);
-    let cases = [
-        (json!({ "role": "scout", "prompt": "x" }), true),
-        (json!({ "role": "general", "prompt": "x" }), false),
-        (json!({ "task_id": "t-1", "prompt": "x" }), false),
-        (json!({ "inspect": true }), true),
-    ];
-    for (args, parallel) in cases {
-        assert_eq!(tool.concurrency_safe(&args), parallel, "{args}");
-    }
+    assert_eq!(tool.concurrency_safe(&args), parallel);
 }
 
 #[tokio::test]
 async fn a_compacted_round_replaces_the_saved_conversation_and_the_next_round_continues_from_it() {
-    let dir = tempfile::tempdir().unwrap();
-    let session = SessionManager::new(dir.path(), None).unwrap();
+    let dir = crate::test_support::TestDir::new();
+    let session = SessionManager::new(&dir, None).unwrap();
     let adapter = MockAdapter::from_result_turns([
         call("read", json!({ "path": "a.rs" })).into_iter().map(Ok).collect(),
         call("read", json!({ "path": "b.rs" })).into_iter().map(Ok).collect(),

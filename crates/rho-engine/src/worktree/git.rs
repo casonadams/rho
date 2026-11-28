@@ -155,12 +155,13 @@ pub(crate) async fn changed_paths(root: &Path, from: &str, to: &str) -> Result<V
 
 #[cfg(test)]
 pub(crate) mod test_repo {
+    use crate::test_support::TestDir;
     use std::path::{Path, PathBuf};
 
     /// A throwaway repository with one commit of `files`, using no user or global git config.
-    pub(crate) fn create(files: &[(&str, &str)]) -> (tempfile::TempDir, PathBuf) {
-        let dir = tempfile::tempdir().unwrap();
-        let root = dir.path().join("repo");
+    pub(crate) fn create(files: &[(&str, &str)]) -> (TestDir, PathBuf) {
+        let dir = TestDir::new();
+        let root = dir.join("repo");
         std::fs::create_dir(&root).unwrap();
         let root = root.canonicalize().unwrap();
         git(&root, &["init", "--quiet", "-b", "main"]);

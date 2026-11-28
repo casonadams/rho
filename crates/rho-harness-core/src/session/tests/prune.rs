@@ -4,6 +4,7 @@ use crate::session::SessionManager;
 use std::fs::File;
 use std::path::Path;
 use std::time::{Duration, SystemTime};
+use test_case::test_case;
 
 fn create_test_session_file(dir: &Path, session_id: &str, age_days: u64, is_named: bool) {
     let path = dir.join(format!("{session_id}.jsonl"));
@@ -42,71 +43,41 @@ fn assert_sessions(dir: &Path, kept: &[&str], removed: &[&str]) {
 
 type SeedList<'a> = &'a [(&'a str, u64, bool)];
 
-struct ExpiryCase<'a> {
-    name: &'a str,
-    sessions: SeedList<'a>,
+#[test_case(
+    &[("old_session", 6, false), ("recent_session", 2, false)], 5, 1, &["recent_session"], &["old_session"];
+    "prunes expired unnamed sessions"
+)]
+#[test_case(
+    &[("active_session", 10, false)], 5, 0, &["active_session"], &[];
+    "preserves the active session even if old"
+)]
+#[test_case(
+    &[("named_old_session", 10, true), ("unnamed_old_session", 10, false)], 5, 1, &["named_old_session"], &["unnamed_old_session"];
+    "preserves named sessions even if old"
+)]
+#[test_case(
+    &[("old_session", 30, false)], 0, 0, &["old_session"], &[];
+    "is disabled when retention days is zero"
+)]
+#[test_case(
+    &[("old_session_1", 7, false), ("recent_session_1", 1, false), ("named_old_session_1", 10, true)],
+    5, 1, &["recent_session_1", "named_old_session_1"], &["old_session_1"];
+    "mixed old recent and named sessions"
+)]
+#[tokio::test]
+async fn expired_session_pruning_follows_retention_rules(
+    sessions: SeedList<'_>,
     retention_days: u32,
     expected_pruned: usize,
-    kept: &'a [&'a str],
-    removed: &'a [&'a str],
-}
-
-#[tokio::test]
-async fn expired_session_pruning_follows_retention_rules() {
-    let cases = [
-        ExpiryCase {
-            name: "prunes expired unnamed sessions",
-            sessions: &[("old_session", 6, false), ("recent_session", 2, false)],
-            retention_days: 5,
-            expected_pruned: 1,
-            kept: &["recent_session"],
-            removed: &["old_session"],
-        },
-        ExpiryCase {
-            name: "preserves the active session even if old",
-            sessions: &[("active_session", 10, false)],
-            retention_days: 5,
-            expected_pruned: 0,
-            kept: &["active_session"],
-            removed: &[],
-        },
-        ExpiryCase {
-            name: "preserves named sessions even if old",
-            sessions: &[("named_old_session", 10, true), ("unnamed_old_session", 10, false)],
-            retention_days: 5,
-            expected_pruned: 1,
-            kept: &["named_old_session"],
-            removed: &["unnamed_old_session"],
-        },
-        ExpiryCase {
-            name: "is disabled when retention days is zero",
-            sessions: &[("old_session", 30, false)],
-            retention_days: 0,
-            expected_pruned: 0,
-            kept: &["old_session"],
-            removed: &[],
-        },
-        ExpiryCase {
-            name: "mixed old, recent and named sessions",
-            sessions: &[
-                ("old_session_1", 7, false),
-                ("recent_session_1", 1, false),
-                ("named_old_session_1", 10, true),
-            ],
-            retention_days: 5,
-            expected_pruned: 1,
-            kept: &["recent_session_1", "named_old_session_1"],
-            removed: &["old_session_1"],
-        },
-    ];
-    for case in cases {
-        let dir = seeded_dir(case.sessions);
-        let pruned = prune_expired_sessions_async(&dir, "active_session", case.retention_days)
-            .await
-            .unwrap();
-        assert_eq!(pruned, case.expected_pruned, "{}", case.name);
-        assert_sessions(&dir, case.kept, case.removed);
-    }
+    kept: &[&str],
+    removed: &[&str],
+) {
+    let dir = seeded_dir(sessions);
+    let pruned = prune_expired_sessions_async(&dir, "active_session", retention_days)
+        .await
+        .unwrap();
+    assert_eq!(pruned, expected_pruned);
+    assert_sessions(&dir, kept, removed);
 }
 
 #[tokio::test]

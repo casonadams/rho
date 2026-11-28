@@ -269,176 +269,101 @@ pub fn fork_status_message(session_id: &str, target: Option<ForkTarget>, fallbac
 mod tests {
     use super::*;
 
-    fn test_paths() -> (&'static Path, &'static Path) {
-        (Path::new("/usr/local/bin/rho"), Path::new("/tmp/my workspace"))
+    const CWD: &str = "/tmp/my workspace";
+
+    fn launch_plan(target: ForkTarget, session_id: &str, env: &MuxEnv) -> Result<ForkLaunchPlan, String> {
+        build_fork_launch_plan(target, Path::new("/usr/local/bin/rho"), session_id, Path::new(CWD), env)
+    }
+
+    fn resume_argv(prefix: &[&str], session_id: &str) -> Vec<String> {
+        prefix
+            .iter()
+            .copied()
+            .chain(["--", "/usr/local/bin/rho", "--resume", session_id])
+            .map(String::from)
+            .collect()
     }
 
     #[test]
     fn tmux_launch_plans_cover_all_targets() {
-        let (exe, cwd) = test_paths();
         let env = MuxEnv {
             tmux: Some("/tmp/tmux-1000/default,123,0".into()),
             wezterm_pane: Some("1".into()),
             ..MuxEnv::default()
         };
 
-        let pane = build_fork_launch_plan(ForkTarget::Pane, exe, "s1", cwd, &env).unwrap();
+        let pane = launch_plan(ForkTarget::Pane, "s1", &env).unwrap();
         assert_eq!(pane.program, "tmux");
-        assert_eq!(
-            pane.args,
-            [
-                "split-window",
-                "-h",
-                "-c",
-                "/tmp/my workspace",
-                "--",
-                "/usr/local/bin/rho",
-                "--resume",
-                "s1"
-            ]
-        );
+        assert_eq!(pane.args, resume_argv(&["split-window", "-h", "-c", CWD], "s1"));
 
-        let hsplit = build_fork_launch_plan(ForkTarget::HSplit, exe, "s1", cwd, &env).unwrap();
+        let hsplit = launch_plan(ForkTarget::HSplit, "s1", &env).unwrap();
         assert_eq!(hsplit.args[0..2], ["split-window", "-h"]);
 
-        let vsplit = build_fork_launch_plan(ForkTarget::VSplit, exe, "s1", cwd, &env).unwrap();
+        let vsplit = launch_plan(ForkTarget::VSplit, "s1", &env).unwrap();
         assert_eq!(vsplit.args[0..2], ["split-window", "-v"]);
 
-        let window = build_fork_launch_plan(ForkTarget::Window, exe, "s1", cwd, &env).unwrap();
-        assert_eq!(
-            window.args,
-            [
-                "new-window",
-                "-c",
-                "/tmp/my workspace",
-                "--",
-                "/usr/local/bin/rho",
-                "--resume",
-                "s1"
-            ]
-        );
+        let window = launch_plan(ForkTarget::Window, "s1", &env).unwrap();
+        assert_eq!(window.args, resume_argv(&["new-window", "-c", CWD], "s1"));
 
-        let tab = build_fork_launch_plan(ForkTarget::Tab, exe, "s1", cwd, &env).unwrap();
+        let tab = launch_plan(ForkTarget::Tab, "s1", &env).unwrap();
         assert_eq!(tab.args[0], "new-window");
     }
 
     #[test]
     fn zellij_launch_plans_cover_all_targets() {
-        let (exe, cwd) = test_paths();
         let env = MuxEnv {
             zellij: Some("0".into()),
             ..MuxEnv::default()
         };
 
-        let pane = build_fork_launch_plan(ForkTarget::Pane, exe, "s2", cwd, &env).unwrap();
+        let pane = launch_plan(ForkTarget::Pane, "s2", &env).unwrap();
         assert_eq!(pane.program, "zellij");
-        assert_eq!(
-            pane.args,
-            [
-                "action",
-                "new-pane",
-                "--cwd",
-                "/tmp/my workspace",
-                "--",
-                "/usr/local/bin/rho",
-                "--resume",
-                "s2"
-            ]
-        );
+        assert_eq!(pane.args, resume_argv(&["action", "new-pane", "--cwd", CWD], "s2"));
 
-        let hsplit = build_fork_launch_plan(ForkTarget::HSplit, exe, "s2", cwd, &env).unwrap();
+        let hsplit = launch_plan(ForkTarget::HSplit, "s2", &env).unwrap();
         assert_eq!(
             hsplit.args,
-            [
-                "action",
-                "new-pane",
-                "--direction",
-                "right",
-                "--cwd",
-                "/tmp/my workspace",
-                "--",
-                "/usr/local/bin/rho",
-                "--resume",
-                "s2"
-            ]
+            resume_argv(&["action", "new-pane", "--direction", "right", "--cwd", CWD], "s2")
         );
 
-        let vsplit = build_fork_launch_plan(ForkTarget::VSplit, exe, "s2", cwd, &env).unwrap();
+        let vsplit = launch_plan(ForkTarget::VSplit, "s2", &env).unwrap();
         assert_eq!(vsplit.args[0..4], ["action", "new-pane", "--direction", "down"]);
 
-        let tab = build_fork_launch_plan(ForkTarget::Tab, exe, "s2", cwd, &env).unwrap();
-        assert_eq!(
-            tab.args,
-            [
-                "action",
-                "new-tab",
-                "--cwd",
-                "/tmp/my workspace",
-                "--",
-                "/usr/local/bin/rho",
-                "--resume",
-                "s2"
-            ]
-        );
+        let tab = launch_plan(ForkTarget::Tab, "s2", &env).unwrap();
+        assert_eq!(tab.args, resume_argv(&["action", "new-tab", "--cwd", CWD], "s2"));
     }
 
     #[test]
     fn wezterm_launch_plans_work_via_pane_or_term_program() {
-        let (exe, cwd) = test_paths();
         let env = MuxEnv {
             wezterm_pane: Some("42".into()),
             ..MuxEnv::default()
         };
-        let pane = build_fork_launch_plan(ForkTarget::Pane, exe, "s3", cwd, &env).unwrap();
+        let pane = launch_plan(ForkTarget::Pane, "s3", &env).unwrap();
         assert_eq!(pane.program, "wezterm");
-        assert_eq!(
-            pane.args,
-            [
-                "cli",
-                "split-pane",
-                "--cwd",
-                "/tmp/my workspace",
-                "--",
-                "/usr/local/bin/rho",
-                "--resume",
-                "s3"
-            ]
-        );
+        assert_eq!(pane.args, resume_argv(&["cli", "split-pane", "--cwd", CWD], "s3"));
 
-        let hsplit = build_fork_launch_plan(ForkTarget::HSplit, exe, "s3", cwd, &env).unwrap();
+        let hsplit = launch_plan(ForkTarget::HSplit, "s3", &env).unwrap();
         assert_eq!(hsplit.args[0..3], ["cli", "split-pane", "--right"]);
 
-        let vsplit = build_fork_launch_plan(ForkTarget::VSplit, exe, "s3", cwd, &env).unwrap();
+        let vsplit = launch_plan(ForkTarget::VSplit, "s3", &env).unwrap();
         assert_eq!(vsplit.args[0..3], ["cli", "split-pane", "--bottom"]);
 
         let env_term = MuxEnv {
             term_program: Some("WezTerm".into()),
             ..MuxEnv::default()
         };
-        let tab = build_fork_launch_plan(ForkTarget::Tab, exe, "s3", cwd, &env_term).unwrap();
-        assert_eq!(
-            tab.args,
-            [
-                "cli",
-                "spawn",
-                "--cwd",
-                "/tmp/my workspace",
-                "--",
-                "/usr/local/bin/rho",
-                "--resume",
-                "s3"
-            ]
-        );
+        let tab = launch_plan(ForkTarget::Tab, "s3", &env_term).unwrap();
+        assert_eq!(tab.args, resume_argv(&["cli", "spawn", "--cwd", CWD], "s3"));
     }
 
     #[test]
     fn kitty_launch_plans_work_via_window_id_or_term_program() {
-        let (exe, cwd) = test_paths();
         let env = MuxEnv {
             kitty_window_id: Some("7".into()),
             ..MuxEnv::default()
         };
-        let tab = build_fork_launch_plan(ForkTarget::Tab, exe, "s4", cwd, &env).unwrap();
+        let tab = launch_plan(ForkTarget::Tab, "s4", &env).unwrap();
         assert_eq!(tab.program, "kitten");
         assert_eq!(
             tab.args,
@@ -447,7 +372,7 @@ mod tests {
                 "launch",
                 "--type=tab",
                 "--cwd",
-                "/tmp/my workspace",
+                CWD,
                 "/usr/local/bin/rho",
                 "--resume",
                 "s4"
@@ -458,19 +383,18 @@ mod tests {
             term_program: Some("kitty".into()),
             ..MuxEnv::default()
         };
-        let pane = build_fork_launch_plan(ForkTarget::Pane, exe, "s4", cwd, &env_term).unwrap();
+        let pane = launch_plan(ForkTarget::Pane, "s4", &env_term).unwrap();
         assert_eq!(pane.args[0..3], ["@", "launch", "--type=window"]);
     }
 
     #[test]
     fn macos_iterm_and_terminal_launch_plans_use_osascript() {
-        let (exe, cwd) = test_paths();
         let iterm = MuxEnv {
             is_macos: true,
             term_program: Some("iTerm.app".into()),
             ..MuxEnv::default()
         };
-        let plan = build_fork_launch_plan(ForkTarget::Tab, exe, "s5", cwd, &iterm).unwrap();
+        let plan = launch_plan(ForkTarget::Tab, "s5", &iterm).unwrap();
         assert_eq!(plan.program, "osascript");
         assert_eq!(plan.args[0], "-e");
         assert!(plan.args[1].contains("create tab with default profile command"));
@@ -481,16 +405,15 @@ mod tests {
             term_program: Some("Apple_Terminal".into()),
             ..MuxEnv::default()
         };
-        let term_plan = build_fork_launch_plan(ForkTarget::Window, exe, "s5", cwd, &term).unwrap();
+        let term_plan = launch_plan(ForkTarget::Window, "s5", &term).unwrap();
         assert_eq!(term_plan.program, "osascript");
         assert!(term_plan.args[1].contains("tell application \"Terminal\" to do script"));
     }
 
     #[test]
     fn unsupported_and_ghostty_envs_return_actionable_errors_with_resume_hint() {
-        let (exe, cwd) = test_paths();
         let plain = MuxEnv::default();
-        let err = build_fork_launch_plan(ForkTarget::Pane, exe, "sess-99", cwd, &plain).unwrap_err();
+        let err = launch_plan(ForkTarget::Pane, "sess-99", &plain).unwrap_err();
         assert!(err.contains("tmux"));
         assert!(err.contains("Zellij"));
         assert!(err.contains("rho --resume sess-99"));
@@ -500,7 +423,7 @@ mod tests {
             ghostty_resources_dir: Some("/Applications/Ghostty.app/Contents/Resources".into()),
             ..MuxEnv::default()
         };
-        let ghostty_err = build_fork_launch_plan(ForkTarget::Tab, exe, "sess-100", cwd, &ghostty).unwrap_err();
+        let ghostty_err = launch_plan(ForkTarget::Tab, "sess-100", &ghostty).unwrap_err();
         assert!(ghostty_err.contains("Ghostty"));
         assert!(ghostty_err.contains("rho --resume sess-100"));
     }

@@ -107,6 +107,7 @@ pub fn match_platform_asset<'a>(platform: &Platform, assets: &'a [String]) -> Re
 #[cfg(test)]
 mod tests {
     use super::*;
+    use test_case::test_case;
 
     #[test]
     fn test_os_and_arch_hints() {
@@ -125,56 +126,15 @@ mod tests {
         assert!(Platform::current().is_some());
     }
 
-    #[test]
-    fn test_platform_target_triples() {
-        let cases = [
-            (
-                Platform {
-                    arch: Arch::Aarch64,
-                    os: Os::Macos,
-                },
-                "aarch64-apple-darwin",
-            ),
-            (
-                Platform {
-                    arch: Arch::X86_64,
-                    os: Os::Macos,
-                },
-                "x86_64-apple-darwin",
-            ),
-            (
-                Platform {
-                    arch: Arch::Aarch64,
-                    os: Os::Linux,
-                },
-                "aarch64-unknown-linux-gnu",
-            ),
-            (
-                Platform {
-                    arch: Arch::X86_64,
-                    os: Os::Linux,
-                },
-                "x86_64-unknown-linux-gnu",
-            ),
-            (
-                Platform {
-                    arch: Arch::Aarch64,
-                    os: Os::Windows,
-                },
-                "aarch64-pc-windows-msvc",
-            ),
-            (
-                Platform {
-                    arch: Arch::X86_64,
-                    os: Os::Windows,
-                },
-                "x86_64-pc-windows-msvc",
-            ),
-        ];
-
-        for (platform, expected_triple) in cases {
-            assert_eq!(platform.target_triple(), expected_triple);
-        }
+    #[test_case(Arch::Aarch64, Os::Macos, "aarch64-apple-darwin"; "macos arm64")]
+    #[test_case(Arch::X86_64, Os::Macos, "x86_64-apple-darwin"; "macos x64")]
+    #[test_case(Arch::Aarch64, Os::Linux, "aarch64-unknown-linux-gnu"; "linux arm64")]
+    #[test_case(Arch::X86_64, Os::Linux, "x86_64-unknown-linux-gnu"; "linux x64")]
+    #[test_case(Arch::Aarch64, Os::Windows, "aarch64-pc-windows-msvc"; "windows arm64")]
+    #[test_case(Arch::X86_64, Os::Windows, "x86_64-pc-windows-msvc"; "windows x64")]
+    fn test_platform_target_triples(arch: Arch, os: Os, expected_triple: &str) {
+        let platform = Platform { arch, os };
+        assert_eq!(platform.target_triple(), expected_triple);
     }
 
     #[test]

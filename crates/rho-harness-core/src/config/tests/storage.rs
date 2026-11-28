@@ -2,6 +2,12 @@ use super::super::{Config, FileConfig};
 use super::sample_cli;
 
 use rho_test_support::EnvVarGuard;
+use test_case::test_case;
+
+fn saved_file(dir: &std::path::Path) -> FileConfig {
+    let content = std::fs::read_to_string(dir.join("config.toml")).unwrap();
+    toml::from_str(&content).unwrap()
+}
 
 #[test]
 fn unreadable_config_file_warns_while_a_missing_one_is_silent() {
@@ -156,16 +162,14 @@ fn test_set_file_value_persists_and_validates() {
 
     Config::set_file_value(&dir, "model", "gpt-test").unwrap();
     Config::set_file_value(&dir, "max_turns", "7").unwrap();
-    let content = std::fs::read_to_string(dir.join("config.toml")).unwrap();
-    let file: FileConfig = toml::from_str(&content).unwrap();
+    let file = saved_file(&dir);
     let actual = (file.models.default.as_deref(), file.max_turns);
     assert_eq!(actual, (Some("gpt-test"), Some(7)));
     assert!(Config::set_file_value(&dir, "max_turns", "0").is_err());
     assert!(Config::set_file_value(&dir, "unknown", "value").is_err());
     assert!(Config::set_file_value(&dir, "thinking_level", "hgih").is_err());
     Config::set_file_value(&dir, "thinking_level", "HIGH").unwrap();
-    let content = std::fs::read_to_string(dir.join("config.toml")).unwrap();
-    let file: FileConfig = toml::from_str(&content).unwrap();
+    let file = saved_file(&dir);
     assert_eq!(file.thinking_level.as_deref(), Some("high"));
 }
 
@@ -185,37 +189,35 @@ fn test_cli_overrides_config_file() {
     assert_eq!(cli_config.model, "cli-model");
 }
 
+#[test_case("saved-model", "saved-provider", "saved-model", "saved-provider"; "plain model and provider")]
+#[test_case(
+    "anthropic/claude-3.7-sonnet", "openrouter", "anthropic/claude-3.7-sonnet", "openrouter";
+    "slashed model id"
+)]
+#[test_case("claude:me@work.com/opus", "claude:me@work.com", "opus", "claude:me@work.com"; "account prefixed model")]
 #[tokio::test]
-async fn test_save_default_model_persists_both_fields() {
-    let cases = [
-        (("saved-model", "saved-provider"), ("saved-model", "saved-provider")),
-        (
-            ("anthropic/claude-3.7-sonnet", "openrouter"),
-            ("anthropic/claude-3.7-sonnet", "openrouter"),
-        ),
-        (
-            ("claude:me@work.com/opus", "claude:me@work.com"),
-            ("opus", "claude:me@work.com"),
-        ),
-    ];
-    for ((model, provider), (expected_model, expected_provider)) in cases {
-        let dir = crate::test_support::temp_dir();
-        Config::save_default_model_async(&dir, model, provider).await.unwrap();
+async fn test_save_default_model_persists_both_fields(
+    model: &str,
+    provider: &str,
+    expected_model: &str,
+    expected_provider: &str,
+) {
+    let dir = crate::test_support::temp_dir();
+    Config::save_default_model_async(&dir, model, provider).await.unwrap();
 
-        let config = load_config_with_rho_home(&dir);
-        let spec = format!("{expected_provider}/{expected_model}");
-        let actual = (
-            config.model.as_str(),
-            config.provider.as_str(),
-            config.default_model.as_deref(),
-        );
-        assert_eq!(actual, (expected_model, expected_provider, Some(spec.as_str())));
-        let content = std::fs::read_to_string(dir.join("config.toml")).unwrap();
-        assert!(
-            content.contains(&format!("[models]\ndefault = \"{spec}\"")),
-            "{content}"
-        );
-    }
+    let config = load_config_with_rho_home(&dir);
+    let spec = format!("{expected_provider}/{expected_model}");
+    let actual = (
+        config.model.as_str(),
+        config.provider.as_str(),
+        config.default_model.as_deref(),
+    );
+    assert_eq!(actual, (expected_model, expected_provider, Some(spec.as_str())));
+    let content = std::fs::read_to_string(dir.join("config.toml")).unwrap();
+    assert!(
+        content.contains(&format!("[models]\ndefault = \"{spec}\"")),
+        "{content}"
+    );
 }
 
 #[tokio::test]
@@ -256,8 +258,7 @@ async fn test_save_ui_settings_async_helpers_persist() {
     Config::save_ui_cursor_async(&dir, "hardware").await.unwrap();
     Config::save_show_label_async(&dir, true).await.unwrap();
 
-    let content = std::fs::read_to_string(dir.join("config.toml")).unwrap();
-    let file: FileConfig = toml::from_str(&content).unwrap();
+    let file = saved_file(&dir);
     assert_eq!(file.show_label, Some(true));
     let ui = file.ui.expect("ui section present");
     assert_eq!(ui.block_style.as_deref(), Some("solid"));
@@ -278,8 +279,7 @@ fn test_set_file_value_ui_keys_and_aliases() {
     Config::set_file_value(&dir, "ui.cursor", "hardware").unwrap();
     Config::set_file_value(&dir, "show_label", "true").unwrap();
 
-    let content = std::fs::read_to_string(dir.join("config.toml")).unwrap();
-    let file: FileConfig = toml::from_str(&content).unwrap();
+    let file = saved_file(&dir);
     assert_eq!(file.show_label, Some(true));
     let ui = file.ui.expect("ui section present");
     assert_eq!(ui.block_style.as_deref(), Some("border"));
@@ -292,8 +292,7 @@ fn test_set_file_value_ui_keys_and_aliases() {
     Config::set_file_value(&dir, "thinking_hidden", "false").unwrap();
     Config::set_file_value(&dir, "expand_tools", "true").unwrap();
 
-    let content = std::fs::read_to_string(dir.join("config.toml")).unwrap();
-    let file: FileConfig = toml::from_str(&content).unwrap();
+    let file = saved_file(&dir);
     let ui = file.ui.expect("ui section present");
     assert_eq!(ui.agent_block_output, Some(false));
     assert_eq!(ui.hide_thinking, Some(false));
@@ -311,8 +310,7 @@ async fn test_set_file_value_tools_and_permissions_keys() {
     Config::set_file_value(&dir, "mcp.enabled", "false").unwrap();
     Config::set_file_value(&dir, "permission.enabled", "false").unwrap();
 
-    let content = std::fs::read_to_string(dir.join("config.toml")).unwrap();
-    let file: FileConfig = toml::from_str(&content).unwrap();
+    let file = saved_file(&dir);
 
     let tools = file.tools.expect("tools section present");
     let web = tools.web.expect("web section present");
@@ -337,8 +335,7 @@ async fn test_set_file_value_tools_and_permissions_keys() {
     Config::save_mcp_enabled_async(&dir, true).await.unwrap();
     Config::save_permission_enabled_async(&dir, true).await.unwrap();
 
-    let content = std::fs::read_to_string(dir.join("config.toml")).unwrap();
-    let file: FileConfig = toml::from_str(&content).unwrap();
+    let file = saved_file(&dir);
     let tools = file.tools.unwrap();
     let web = tools.web.unwrap();
     let search = web.search.as_ref().unwrap();
@@ -365,8 +362,7 @@ fn test_set_file_value_limits_keys() {
     Config::set_file_value(&dir, "reserve_tokens", "2000").unwrap();
     Config::set_file_value(&dir, "keep_recent_tokens", "1000").unwrap();
 
-    let content = std::fs::read_to_string(dir.join("config.toml")).unwrap();
-    let file: FileConfig = toml::from_str(&content).unwrap();
+    let file = saved_file(&dir);
 
     assert_eq!(file.max_output_tokens, Some(4096));
     assert_eq!(file.max_turns, Some(50));
@@ -390,8 +386,7 @@ fn test_set_file_value_network_and_retention_keys() {
     Config::set_file_value(&dir, "allow_private_network", "true").unwrap();
     Config::set_file_value(&dir, "session_retention_days", "14").unwrap();
 
-    let content = std::fs::read_to_string(dir.join("config.toml")).unwrap();
-    let file: FileConfig = toml::from_str(&content).unwrap();
+    let file = saved_file(&dir);
 
     assert_eq!(file.search_min_interval_ms, Some(500));
     assert_eq!(file.search_timeout_sec, Some(15));
@@ -403,13 +398,11 @@ fn test_set_file_value_network_and_retention_keys() {
     assert_eq!(file.session_retention_days, Some(14));
 
     Config::set_file_value(&dir, "session_retention_days", "off").unwrap();
-    let content = std::fs::read_to_string(dir.join("config.toml")).unwrap();
-    let file: FileConfig = toml::from_str(&content).unwrap();
+    let file = saved_file(&dir);
     assert_eq!(file.session_retention_days, Some(0));
 
     Config::set_file_value(&dir, "session_retention_days", "0").unwrap();
-    let content = std::fs::read_to_string(dir.join("config.toml")).unwrap();
-    let file: FileConfig = toml::from_str(&content).unwrap();
+    let file = saved_file(&dir);
     assert_eq!(file.session_retention_days, Some(0));
 }
 
@@ -436,8 +429,7 @@ fn test_set_file_value_model_provider_cache_and_runtime_mode_keys() {
     Config::set_file_value(&dir, "cache_retention", "long").unwrap();
     assert!(Config::set_file_value(&dir, "cache_retention", "forever").is_err());
 
-    let content = std::fs::read_to_string(dir.join("config.toml")).unwrap();
-    let file: FileConfig = toml::from_str(&content).unwrap();
+    let file = saved_file(&dir);
 
     assert_eq!(file.models.default.as_deref(), Some("claude-3-7-sonnet"));
     assert_eq!(file.thinking_level.as_deref(), Some("off"));
@@ -447,13 +439,11 @@ fn test_set_file_value_model_provider_cache_and_runtime_mode_keys() {
     assert_eq!(file.cache_retention, Some(crate::config::CacheRetention::Long));
 
     Config::set_file_value(&dir, "provider", "openai").unwrap();
-    let content = std::fs::read_to_string(dir.join("config.toml")).unwrap();
-    let file: FileConfig = toml::from_str(&content).unwrap();
+    let file = saved_file(&dir);
     assert_eq!(file.models.default.as_deref(), Some("openai/claude-3-7-sonnet"));
 
     Config::set_file_value(&dir, "provider", "anthropic").unwrap();
-    let content = std::fs::read_to_string(dir.join("config.toml")).unwrap();
-    let file: FileConfig = toml::from_str(&content).unwrap();
+    let file = saved_file(&dir);
     assert_eq!(file.models.default.as_deref(), Some("anthropic/claude-3-7-sonnet"));
 }
 
@@ -476,8 +466,8 @@ fn test_set_file_value_models() {
     Config::set_file_value(&dir, "models.default", "anthropic/claude-3-7-sonnet").unwrap();
     Config::set_file_value(&dir, "models.guard", "local/qwen2.5-coder:7b").unwrap();
 
+    let file = saved_file(&dir);
     let content = std::fs::read_to_string(dir.join("config.toml")).unwrap();
-    let file: FileConfig = toml::from_str(&content).unwrap();
 
     assert_eq!(file.models.default.as_deref(), Some("anthropic/claude-3-7-sonnet"));
     assert_eq!(file.models.role("guard"), Some("local/qwen2.5-coder:7b"));

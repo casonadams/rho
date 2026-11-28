@@ -63,9 +63,9 @@ pub(crate) fn temp_dir(label: &str) -> TestDir {
     TestDir::with_prefix(&format!("rho-{label}-"))
 }
 
-pub(crate) fn temp_auth_store() -> (tempfile::TempDir, crate::auth::AuthStore) {
-    let dir = tempfile::tempdir().unwrap();
-    let auth_store = crate::auth::AuthStore::load(dir.path().join("auth.json")).unwrap();
+pub(crate) fn temp_auth_store() -> (TestDir, crate::auth::AuthStore) {
+    let dir = TestDir::new();
+    let auth_store = crate::auth::AuthStore::load(dir.join("auth.json")).unwrap();
     (dir, auth_store)
 }
 
@@ -213,9 +213,9 @@ impl crate::auth::token::TokenProvider for ScriptedTokenProvider {
     }
 }
 
-pub(crate) fn sample_search_tree() -> tempfile::TempDir {
-    let dir = tempfile::tempdir().unwrap();
-    let root = dir.path();
+pub(crate) fn sample_search_tree() -> TestDir {
+    let dir = TestDir::new();
+    let root: &std::path::Path = &dir;
     write_file(&root.join("src/main.rs"), "fn main() {}\n");
     write_file(&root.join("src/lib.rs"), "pub mod ui;\n");
     write_file(&root.join("src/ui/widget.rs"), "pub struct Widget;\n");
@@ -225,4 +225,32 @@ pub(crate) fn sample_search_tree() -> tempfile::TempDir {
     write_file(&root.join(".gitignore"), "notes.txt\n");
     std::fs::create_dir_all(root.join(".git")).unwrap();
     dir
+}
+
+pub(crate) fn outside_workspace_file(name: &str, contents: &str) -> TestDir {
+    let dir = TestDir::new();
+    write_file(&dir.join(name), contents);
+    dir
+}
+
+pub(crate) fn assert_invalid_pattern(result: &crate::tools::types::ToolResult, pattern: &str) {
+    assert!(result.is_error);
+    assert!(result.content.contains("invalid pattern"));
+    assert!(result.content.contains(&format!("{pattern:?}")));
+}
+
+pub(crate) fn assert_timeout_error(result: &crate::tools::types::ToolResult) {
+    assert!(result.is_error);
+    assert!(result.content.contains("Search timed out"));
+}
+
+pub(crate) async fn assert_smart_case(
+    search: impl AsyncFn(&str) -> crate::tools::types::ToolResult,
+    [lower, upper, mixed]: [&str; 3],
+    lower_hit: &str,
+    miss: &str,
+) {
+    assert_eq!(search(lower).await.content, lower_hit);
+    assert_eq!(search(upper).await.content, miss);
+    assert_eq!(search(mixed).await.content, miss);
 }

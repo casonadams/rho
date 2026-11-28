@@ -1,4 +1,5 @@
 use super::*;
+use test_case::test_case;
 
 const LIBTEST: &str = "\
 running 3 tests
@@ -145,13 +146,9 @@ AssertionError: expected 4 to be 2 // Object.is equality
 
  Test Files  1 failed (1)";
 
-#[test]
-fn each_framework_reports_its_failing_tests_with_their_key_lines() {
-    let cases = [
-        (
-            "libtest",
-            LIBTEST,
-            "[2 failing tests; details from log]
+#[test_case(
+    LIBTEST,
+    "[2 failing tests; details from log]
 - math::subtracts
     thread 'math::subtracts' panicked at src/math.rs:12:9:
     assertion `left == right` failed
@@ -159,81 +156,72 @@ fn each_framework_reports_its_failing_tests_with_their_key_lines() {
     right: 2
 - io::reads
     thread 'io::reads' panicked at src/io.rs:4:5:
-    missing file",
-        ),
-        (
-            "nextest",
-            NEXTEST,
-            "[1 failing test; details from log]
+    missing file";
+    "libtest"
+)]
+#[test_case(
+    NEXTEST,
+    "[1 failing test; details from log]
 - demo tests::subtracts
     thread 'tests::subtracts' panicked at src/lib.rs:9:9:
     assertion `left == right` failed
     left: 1
-    right: 2",
-        ),
-        (
-            "pytest",
-            PYTEST,
-            "[3 failing tests; details from log]
+    right: 2";
+    "nextest"
+)]
+#[test_case(
+    PYTEST,
+    "[3 failing tests; details from log]
 - tests/test_math.py::test_subtract
     E       assert 2 == 3
     E        +  where 2 = subtract(3, 1)
 - tests/test_cls.py::TestUser::test_name
     E       ValueError: bad name
 - tests/test_misc.py::test_other
-    TimeoutError",
-        ),
-        (
-            "go",
-            GO,
-            "[3 failing tests; details from log]
+    TimeoutError";
+    "pytest"
+)]
+#[test_case(
+    GO,
+    "[3 failing tests; details from log]
 - TestSub
     math_test.go:14: Sub(3, 1) = 4; want 2
     extra context
 - TestTable
 - TestTable/negative
-    table_test.go:22: got -1, want 1",
-        ),
-        (
-            "jest",
-            JEST,
-            "[1 failing test; details from log]
+    table_test.go:22: got -1, want 1";
+    "go"
+)]
+#[test_case(
+    JEST,
+    "[1 failing test; details from log]
 - Math \u{203a} subtracts
     expect(received).toBe(expected) // Object.is equality
     Expected: 2
-    Received: 4",
-        ),
-        (
-            "vitest",
-            VITEST,
-            "[1 failing test; details from log]
+    Received: 4";
+    "jest"
+)]
+#[test_case(
+    VITEST,
+    "[1 failing test; details from log]
 - src/sum.test.ts > math > subtracts
     AssertionError: expected 4 to be 2 // Object.is equality
     - Expected
     + Received
     - 2
-    + 4",
-        ),
-    ];
-    for (framework, output, expected) in cases {
-        assert_eq!(
-            summarize_test_failures(output).as_deref(),
-            Some(expected),
-            "{framework}"
-        );
-    }
+    + 4";
+    "vitest"
+)]
+fn each_framework_reports_its_failing_tests_with_their_key_lines(output: &str, expected: &str) {
+    assert_eq!(summarize_test_failures(output).as_deref(), Some(expected));
 }
 
-#[test]
-fn output_without_failing_tests_has_no_summary() {
-    for output in [
-        "",
-        "running 1 test\ntest math::adds ... ok\n\ntest result: ok. 1 passed",
-        "--- PASS: TestAdd (0.00s)\nPASS\nok  \texample.com/math\t0.002s",
-        "---- math::adds stdout ----\nprinted by a passing test with --show-output",
-    ] {
-        assert_eq!(summarize_test_failures(output), None, "{output}");
-    }
+#[test_case(""; "empty")]
+#[test_case("running 1 test\ntest math::adds ... ok\n\ntest result: ok. 1 passed"; "libtest passing")]
+#[test_case("--- PASS: TestAdd (0.00s)\nPASS\nok  \texample.com/math\t0.002s"; "go passing")]
+#[test_case("---- math::adds stdout ----\nprinted by a passing test with --show-output"; "passing stdout section")]
+fn output_without_failing_tests_has_no_summary(output: &str) {
+    assert_eq!(summarize_test_failures(output), None);
 }
 
 #[test]
@@ -249,26 +237,24 @@ fn detail_lines_that_start_like_a_section_marker_stay_in_the_block() {
     }
 }
 
-#[test]
-fn long_failure_lists_are_capped_and_name_how_many_more_are_in_the_log() {
-    let cases = [(25, 0, 20), (30, 3, 14)];
-    for (count, details, shown) in cases {
-        let output: String = (0..count)
-            .map(|i| {
-                let detail: String = (0..details).map(|d| format!("    t_test.go:{d}: bad\n")).collect();
-                format!("--- FAIL: Test{i} (0.00s)\n{detail}")
-            })
-            .collect();
-        let summary = summarize_test_failures(&output).unwrap();
-        let lines: Vec<&str> = summary.lines().collect();
-        assert!(lines.len() <= MAX_LINES, "{summary}");
-        assert_eq!(lines[0], format!("[{count} failing tests; details from log]"));
-        assert_eq!(lines.iter().filter(|l| l.starts_with("- ")).count(), shown);
-        assert_eq!(
-            lines.last(),
-            Some(&format!("[{} more failing tests in the log]", count - shown).as_str())
-        );
-    }
+#[test_case(25, 0, 20; "names only")]
+#[test_case(30, 3, 14; "with details")]
+fn long_failure_lists_are_capped_and_name_how_many_more_are_in_the_log(count: usize, details: usize, shown: usize) {
+    let output: String = (0..count)
+        .map(|i| {
+            let detail: String = (0..details).map(|d| format!("    t_test.go:{d}: bad\n")).collect();
+            format!("--- FAIL: Test{i} (0.00s)\n{detail}")
+        })
+        .collect();
+    let summary = summarize_test_failures(&output).unwrap();
+    let lines: Vec<&str> = summary.lines().collect();
+    assert!(lines.len() <= MAX_LINES, "{summary}");
+    assert_eq!(lines[0], format!("[{count} failing tests; details from log]"));
+    assert_eq!(lines.iter().filter(|l| l.starts_with("- ")).count(), shown);
+    assert_eq!(
+        lines.last(),
+        Some(&format!("[{} more failing tests in the log]", count - shown).as_str())
+    );
 }
 
 #[test]
@@ -350,16 +336,12 @@ boom b
     );
 }
 
-#[test]
-fn names_merge_only_across_a_path_or_suite_boundary() {
-    for (a, b, merged) in [
-        ("demo tests::it", "tests::it", true),
-        ("tests/t.py::test_a", "test_a", true),
-        ("src/a.test.ts > math > sub", "sub", true),
-        ("a tests::it", "b tests::it", false),
-        ("mytests::it", "tests::it", false),
-        ("xtest_a", "test_a", false),
-    ] {
-        assert_eq!(same_test(a, b), merged, "{a} / {b}");
-    }
+#[test_case("demo tests::it", "tests::it", true; "crate prefix")]
+#[test_case("tests/t.py::test_a", "test_a", true; "python path")]
+#[test_case("src/a.test.ts > math > sub", "sub", true; "js suite")]
+#[test_case("a tests::it", "b tests::it", false; "different crates")]
+#[test_case("mytests::it", "tests::it", false; "no module boundary")]
+#[test_case("xtest_a", "test_a", false; "no name boundary")]
+fn names_merge_only_across_a_path_or_suite_boundary(a: &str, b: &str, merged: bool) {
+    assert_eq!(same_test(a, b), merged);
 }

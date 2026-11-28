@@ -4,6 +4,7 @@ use crate::test_support::TestDir;
 use crate::tools::edit::{EditArgs, EditTool};
 use crate::tools::read::{ReadArgs, ReadTool};
 use crate::tools::write::{WriteArgs, WriteTool};
+use test_case::test_case;
 
 const LIB: &str = "struct Config {\n    fn load() {\n    }\n}\nfn helper() {\n    load();\n}\n";
 
@@ -146,37 +147,28 @@ async fn rename_rewrites_every_file_the_server_names() {
     assert!(definition.content.contains("5:fn assist() {"), "{}", definition.content);
 }
 
+#[test_case(FakeOptions::default(); "push")]
+#[test_case(FakeOptions { unversioned: true, ..FakeOptions::default() }; "unversioned push")]
+#[test_case(FakeOptions { pull: true, ..FakeOptions::default() }; "pull")]
 #[tokio::test(start_paused = true)]
-async fn diagnostics_cover_push_unversioned_and_pull_servers() {
-    for options in [
-        FakeOptions::default(),
-        FakeOptions {
-            unversioned: true,
-            ..FakeOptions::default()
-        },
-        FakeOptions {
-            pull: true,
-            ..FakeOptions::default()
-        },
-    ] {
-        let dir = project();
-        std::fs::write(dir.join("src/bad.rs"), "fn a() {}\nlet x = ERR;\n// WARN\n").unwrap();
-        let (manager, _) = fake_manager(&dir, options);
-        let tool = LspTool::new(&dir, manager);
+async fn diagnostics_cover_push_unversioned_and_pull_servers(options: FakeOptions) {
+    let dir = project();
+    std::fs::write(dir.join("src/bad.rs"), "fn a() {}\nlet x = ERR;\n// WARN\n").unwrap();
+    let (manager, _) = fake_manager(&dir, options);
+    let tool = LspTool::new(&dir, manager);
 
-        let file = run(
-            &tool,
-            LspArgs {
-                path: Some("src/bad.rs".into()),
-                ..args(LspAction::Diagnostics)
-            },
-        )
-        .await;
-        assert_eq!(
-            file.content,
-            "LSP (1 error, 1 warning):\n2:9 error [fake] ERR found\n3:4 warning [fake] WARN found"
-        );
-    }
+    let file = run(
+        &tool,
+        LspArgs {
+            path: Some("src/bad.rs".into()),
+            ..args(LspAction::Diagnostics)
+        },
+    )
+    .await;
+    assert_eq!(
+        file.content,
+        "LSP (1 error, 1 warning):\n2:9 error [fake] ERR found\n3:4 warning [fake] WARN found"
+    );
 }
 
 #[tokio::test]

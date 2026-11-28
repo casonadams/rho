@@ -455,15 +455,15 @@ mod tests {
 
     #[tokio::test]
     async fn test_external_editor_applies_edits_and_reports_spawn_failures() {
-        let temp = tempfile::tempdir().unwrap();
-        let script = temp.path().join("fake-editor.sh");
+        let temp = rho_test_support::TestDir::new();
+        let script = temp.join("fake-editor.sh");
         std::fs::write(&script, "#!/bin/sh\nprintf 'edited draft\\n' > \"$1\"\n").unwrap();
         std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
 
         let (backend, _, _) = FakeTerminal::new(80);
         let mut controller = TerminalController::new(backend, InteractiveState::default()).unwrap();
         let mut batch = LiveBatch::new();
-        let mut history = InteractiveHistory::with_file(10, temp.path().join("history.txt")).unwrap();
+        let mut history = InteractiveHistory::with_file(10, temp.join("history.txt")).unwrap();
         let completions = CompletionSet::from_sources(Default::default());
         let mut input = TerminalInputReader::spawn_dummy();
         controller.state_mut().editor_mut().set_text("draft content");

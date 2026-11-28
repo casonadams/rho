@@ -86,6 +86,7 @@ fn trim_tool_chunks(chunks: &mut Vec<String>) {
 mod tests {
     use super::*;
     use crate::ui::interactive::{Activity, ToolStartRequest, TranscriptItem};
+    use test_case::test_case;
 
     fn output(text: &str) -> PendingUiDrain {
         PendingUiDrain {
@@ -166,19 +167,11 @@ mod tests {
         assert_eq!(merged[0].transcript_items, [TranscriptItem::Notice("done".into())]);
     }
 
-    #[test]
-    fn drains_keep_their_order_where_merging_would_change_it() {
-        type Drains = fn() -> Vec<PendingUiDrain>;
-        let cases: [(&str, Drains); 3] = [
-            ("output after a transcript item", || {
-                vec![notice("first"), output("then")]
-            }),
-            ("a second tool after the first", || vec![tool("read"), tool("bash")]),
-            ("a tool after output", || vec![output("text"), tool("bash")]),
-        ];
-        for (name, drains) in cases {
-            assert_eq!(held(drains()), drains(), "{name}");
-        }
+    #[test_case(|| vec![notice("first"), output("then")]; "output after a transcript item")]
+    #[test_case(|| vec![tool("read"), tool("bash")]; "a second tool after the first")]
+    #[test_case(|| vec![output("text"), tool("bash")]; "a tool after output")]
+    fn drains_keep_their_order_where_merging_would_change_it(drains: fn() -> Vec<PendingUiDrain>) {
+        assert_eq!(held(drains()), drains());
     }
 
     #[test]

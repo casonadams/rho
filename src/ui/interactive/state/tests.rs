@@ -1,12 +1,36 @@
 use super::*;
 use crate::ui::interactive::OptionLayout;
+use test_case::test_case;
+
+fn state_with_text(text: &str) -> InteractiveState {
+    let mut state = InteractiveState::default();
+    state.editor_mut().set_text(text);
+    state
+}
+
+fn numbered_lines(label: &str, count: usize) -> String {
+    (1..=count)
+        .map(|i| format!("{label} {i}"))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn submit_steering(state: &mut InteractiveState) -> QueuedMessage {
+    let UiEffect::Queued(msg) = state.apply(UiAction::Submit(QueueKind::Steering)) else {
+        panic!("expected queued message");
+    };
+    msg
+}
+
+fn bash_tool(command: &str) -> RunningTool {
+    RunningTool::new("bash", serde_json::json!({ "command": command }))
+}
 
 // --- Editor tests ---
 
 #[test]
 fn editor_inserts_and_deletes_at_unicode_boundaries() {
-    let mut state = InteractiveState::default();
-    state.editor_mut().set_text("a界c");
+    let mut state = state_with_text("a界c");
     state.apply(UiAction::MoveLeft);
     state.apply(UiAction::Backspace);
     assert_eq!(state.editor().text(), "ac");
@@ -19,8 +43,7 @@ fn editor_inserts_and_deletes_at_unicode_boundaries() {
 
 #[test]
 fn test_word_navigation() {
-    let mut state = InteractiveState::default();
-    state.editor_mut().set_text("hello world from test");
+    let mut state = state_with_text("hello world from test");
     state.apply(UiAction::MoveWordLeft);
     assert_eq!(state.editor().cursor(), 17);
     state.apply(UiAction::MoveWordLeft);
@@ -31,8 +54,7 @@ fn test_word_navigation() {
 
 #[test]
 fn test_kill_ring_and_undo_operations() {
-    let mut state = InteractiveState::default();
-    state.editor_mut().set_text("hello world from test");
+    let mut state = state_with_text("hello world from test");
     state.editor_mut().move_to_start();
     state.apply(UiAction::MoveWordRight);
     state.apply(UiAction::MoveWordRight);
@@ -182,26 +204,19 @@ fn step_down(state: &mut InteractiveState, width: usize) -> (bool, usize) {
     (moved, state.editor().cursor())
 }
 
-#[test]
-fn vertical_movement_tracks_the_preferred_column_across_lines() {
-    let mut state = InteractiveState::default();
-    state.editor_mut().set_text("abcdef\nx\nabcdef");
-
-    assert_eq!(step_up(&mut state, 20), (true, 8));
-    assert_eq!(step_up(&mut state, 20), (true, 6));
-    assert_eq!(step_up(&mut state, 20), (false, 6));
-    assert_eq!(step_down(&mut state, 20), (true, 8));
-}
-
-#[test]
-fn vertical_movement_uses_visual_wrapped_lines() {
-    let mut state = InteractiveState::default();
-    state.editor_mut().set_text("abcdefghi");
-
-    assert_eq!(step_up(&mut state, 4), (true, 5));
-    assert_eq!(step_up(&mut state, 4), (true, 1));
-    assert_eq!(step_up(&mut state, 4), (false, 1));
-    assert_eq!(step_down(&mut state, 4), (true, 5));
+#[test_case("abcdef\nx\nabcdef", 20, [(true, 8), (true, 6), (false, 6)], (true, 8); "logical lines")]
+#[test_case("abcdefghi", 4, [(true, 5), (true, 1), (false, 1)], (true, 5); "visual wrapped lines")]
+fn vertical_movement_keeps_the_column_until_the_top_is_reached(
+    text: &str,
+    width: usize,
+    ups: [(bool, usize); 3],
+    down: (bool, usize),
+) {
+    let mut state = state_with_text(text);
+    for (i, expected) in ups.into_iter().enumerate() {
+        assert_eq!(step_up(&mut state, width), expected, "up {i}");
+    }
+    assert_eq!(step_down(&mut state, width), down, "down");
 }
 
 #[test]
@@ -236,8 +251,7 @@ fn vertical_movement_preserves_display_column_across_wide_and_short_lines() {
 
 #[test]
 fn small_paste_inserts_text_directly() {
-    let mut state = InteractiveState::default();
-    state.editor_mut().set_text("hello ");
+    let mut state = state_with_text("hello ");
     state.apply(UiAction::Paste("world".to_string()));
     assert_eq!(state.editor().text(), "hello world");
     assert_eq!(state.editor().pastes().len(), 0);
@@ -246,14 +260,11 @@ fn small_paste_inserts_text_directly() {
 #[test]
 fn large_multiline_paste_collapses_to_marker() {
     let mut state = InteractiveState::default();
-    let lines = (1..=15).map(|i| format!("line {i}")).collect::<Vec<_>>().join("\n");
-    state.apply(UiAction::Paste(lines));
+    state.apply(UiAction::Paste(numbered_lines("line", 15)));
     assert_eq!(state.editor().text(), "[paste #1 +15 lines]");
     assert_eq!(state.editor().pastes().len(), 1);
 
-    let UiEffect::Queued(msg) = state.apply(UiAction::Submit(QueueKind::Steering)) else {
-        panic!("expected queued message");
-    };
+    let msg = submit_steering(&mut state);
     assert!(msg.text.contains("line 1") && msg.text.contains("line 15"));
     assert_eq!((state.editor().text(), state.editor().pastes().len()), ("", 0));
 }
@@ -266,18 +277,13 @@ fn large_single_line_paste_collapses_to_char_marker() {
     assert_eq!(state.editor().text(), "[paste #1 1200 chars]");
     assert_eq!(state.editor().pastes().len(), 1);
 
-    let effect = state.apply(UiAction::Submit(QueueKind::Steering));
-    let UiEffect::Queued(msg) = effect else {
-        panic!("expected queued message");
-    };
+    let msg = submit_steering(&mut state);
     assert_eq!(msg.text.len(), 1200);
 }
 
 fn state_with_paste(prefix: &str) -> InteractiveState {
-    let mut state = InteractiveState::default();
-    state.editor_mut().set_text(prefix);
-    let lines = (1..=12).map(|i| format!("code {i}")).collect::<Vec<_>>().join("\n");
-    state.apply(UiAction::Paste(lines));
+    let mut state = state_with_text(prefix);
+    state.apply(UiAction::Paste(numbered_lines("code", 12)));
     state
 }
 
@@ -310,11 +316,9 @@ fn atomic_marker_backspace_deletion() {
 
 fn state_with_two_pastes() -> InteractiveState {
     let mut state = InteractiveState::default();
-    let p1 = (1..=12).map(|i| format!("first {i}")).collect::<Vec<_>>().join("\n");
-    let p2 = (1..=12).map(|i| format!("second {i}")).collect::<Vec<_>>().join("\n");
-    state.apply(UiAction::Paste(p1));
+    state.apply(UiAction::Paste(numbered_lines("first", 12)));
     state.editor_mut().insert(' ');
-    state.apply(UiAction::Paste(p2));
+    state.apply(UiAction::Paste(numbered_lines("second", 12)));
     state
 }
 
@@ -340,18 +344,14 @@ fn multi_paste_submit_expansion() {
     state.apply(UiAction::MoveLeft);
     state.apply(UiAction::Backspace);
 
-    let UiEffect::Queued(msg) = state.apply(UiAction::Submit(QueueKind::Steering)) else {
-        panic!("expected queued message");
-    };
+    let msg = submit_steering(&mut state);
     assert!(msg.text.contains("second 1") && !msg.text.contains("first 1"));
 }
 
 #[test]
 fn paste_undo_restores_prior_text_and_pastes_map() {
-    let mut state = InteractiveState::default();
-    state.editor_mut().set_text("before");
-    let lines = (1..=15).map(|i| format!("row {i}")).collect::<Vec<_>>().join("\n");
-    state.apply(UiAction::Paste(lines));
+    let mut state = state_with_text("before");
+    state.apply(UiAction::Paste(numbered_lines("row", 15)));
 
     assert_eq!(state.editor().text(), "before[paste #1 +15 lines]");
     assert_eq!(state.editor().pastes().len(), 1);
@@ -363,8 +363,7 @@ fn paste_undo_restores_prior_text_and_pastes_map() {
 
 #[test]
 fn path_paste_prepends_space_after_word_char() {
-    let mut state = InteractiveState::default();
-    state.editor_mut().set_text("look");
+    let mut state = state_with_text("look");
     state.apply(UiAction::Paste("/var/log/syslog".to_string()));
     assert_eq!(state.editor().text(), "look /var/log/syslog");
 }
@@ -373,8 +372,7 @@ fn path_paste_prepends_space_after_word_char() {
 
 #[test]
 fn submissions_keep_fifo_order_and_classification() {
-    let mut state = InteractiveState::default();
-    state.editor_mut().set_text(" steer ");
+    let mut state = state_with_text(" steer ");
     assert_eq!(
         state.apply(UiAction::Submit(QueueKind::Steering)),
         UiEffect::Queued(QueuedMessage {
@@ -392,8 +390,7 @@ fn submissions_keep_fifo_order_and_classification() {
 
 #[test]
 fn dequeue_all_extracts_all_queued_messages() {
-    let mut state = InteractiveState::default();
-    state.editor_mut().set_text("first");
+    let mut state = state_with_text("first");
     state.apply(UiAction::Submit(QueueKind::Steering));
     state.editor_mut().set_text("second");
     state.apply(UiAction::Submit(QueueKind::FollowUp));
@@ -413,8 +410,7 @@ fn dequeue_all_extracts_all_queued_messages() {
 
 #[test]
 fn empty_submissions_are_ignored() {
-    let mut state = InteractiveState::default();
-    state.editor_mut().set_text(" \n ");
+    let mut state = state_with_text(" \n ");
     assert_eq!(state.apply(UiAction::Submit(QueueKind::Steering)), UiEffect::None);
     assert_eq!(state.queue_len(), 0);
 }
@@ -445,7 +441,7 @@ fn thinking_toggle_state() {
 
 #[test]
 fn active_tool_chunk_accumulation() {
-    let mut tool = RunningTool::new("bash", serde_json::json!({"command": "cargo test"}));
+    let mut tool = bash_tool("cargo test");
     tool.append_chunk("compiling...\n");
     tool.append_chunk("running 5 tests\n");
     assert_eq!(tool.name, "bash");
@@ -457,7 +453,7 @@ fn active_tool_lifecycle() {
     let mut state = InteractiveState::default();
     assert!(state.active_tool().is_none());
 
-    let mut tool = RunningTool::new("bash", serde_json::json!({"command": "cargo test"}));
+    let mut tool = bash_tool("cargo test");
     tool.append_chunk("compiling...\n");
     state.set_active_tool(Some(tool));
     assert_eq!(state.active_tool().unwrap().output, "compiling...\n");
@@ -487,7 +483,7 @@ fn a_write_card_starts_with_the_file_it_is_writing_as_its_output() {
 
 #[test]
 fn running_tool_rolling_tail_truncation_under_massive_chunks() {
-    let mut tool = RunningTool::new("bash", serde_json::json!({"command": "seq 1 10000"}));
+    let mut tool = bash_tool("seq 1 10000");
     for i in 1..=5000 {
         tool.append_chunk(&format!("line {i:04}: detailed execution log output\n"));
     }
@@ -496,7 +492,7 @@ fn running_tool_rolling_tail_truncation_under_massive_chunks() {
 
 #[test]
 fn running_tool_preserves_utf8_char_and_newline_boundaries() {
-    let mut tool = RunningTool::new("bash", serde_json::json!({"command": "unicode stream"}));
+    let mut tool = bash_tool("unicode stream");
     let line = "🦀 🚀 🔥 ✨ 这是一个很长的多字节测试行 🌟 💫\n";
     for _ in 0..2500 {
         tool.append_chunk(line);
@@ -512,7 +508,7 @@ fn running_tool_preserves_utf8_char_and_newline_boundaries() {
 
 #[test]
 fn running_tool_single_massive_chunk_bounded() {
-    let mut tool = RunningTool::new("bash", serde_json::json!({"command": "massive chunk"}));
+    let mut tool = bash_tool("massive chunk");
     let massive_chunk = "alpha beta gamma delta epsilon\n".repeat(8000);
     tool.append_chunk(&massive_chunk);
 
@@ -523,7 +519,7 @@ fn running_tool_single_massive_chunk_bounded() {
 
 #[test]
 fn running_tool_massive_line_without_newlines_bounded_safely() {
-    let mut tool = RunningTool::new("bash", serde_json::json!({"command": "one line"}));
+    let mut tool = bash_tool("one line");
     let massive_line = "🔥abc🚀def".repeat(15000);
     tool.append_chunk(&massive_line);
 
@@ -533,7 +529,7 @@ fn running_tool_massive_line_without_newlines_bounded_safely() {
 
 #[test]
 fn running_tool_preserves_ansi_escapes_across_chunk_boundaries() {
-    let mut tool = RunningTool::new("bash", serde_json::json!({"command": "test"}));
+    let mut tool = bash_tool("test");
     tool.append_chunk("compiling \x1b[4");
     tool.append_chunk("0mwith fill\x1b[0m done\n");
     assert_eq!(tool.output, "compiling \x1b[40mwith fill\x1b[0m done\n");

@@ -3,19 +3,19 @@ use crate::tools::edit::{EditArgs, EditTool};
 use crate::tools::write::{WriteArgs, WriteTool};
 
 struct Tools {
-    dir: tempfile::TempDir,
+    dir: crate::test_support::TestDir,
     edit: EditTool,
     write: WriteTool,
     undo: UndoTool,
 }
 
 fn tools() -> Tools {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = crate::test_support::TestDir::new();
     let history = EditHistory::default();
     Tools {
-        edit: EditTool::new(dir.path()).with_history(Some(history.clone())),
-        write: WriteTool::new(dir.path()).with_history(Some(history.clone())),
-        undo: UndoTool::new(dir.path(), history),
+        edit: EditTool::new(&dir).with_history(Some(history.clone())),
+        write: WriteTool::new(&dir).with_history(Some(history.clone())),
+        undo: UndoTool::new(&dir, history),
         dir,
     }
 }
@@ -42,14 +42,14 @@ impl Tools {
     }
 
     fn read(&self, path: &str) -> Option<String> {
-        std::fs::read_to_string(self.dir.path().join(path)).ok()
+        std::fs::read_to_string(self.dir.join(path)).ok()
     }
 }
 
 #[tokio::test]
 async fn undo_steps_back_through_edits_and_writes() {
     let t = tools();
-    std::fs::write(t.dir.path().join("a.txt"), "one\ntwo\n").unwrap();
+    std::fs::write(t.dir.join("a.txt"), "one\ntwo\n").unwrap();
     t.edit("two", "2").await;
     t.write("a.txt", "rewritten\n").await;
 
@@ -80,9 +80,9 @@ async fn undoing_a_created_file_deletes_it() {
 #[tokio::test]
 async fn undo_refuses_when_the_file_changed_after_the_tool_wrote_it() {
     let t = tools();
-    std::fs::write(t.dir.path().join("a.txt"), "one\n").unwrap();
+    std::fs::write(t.dir.join("a.txt"), "one\n").unwrap();
     t.edit("one", "1").await;
-    std::fs::write(t.dir.path().join("a.txt"), "1\nuser line\n").unwrap();
+    std::fs::write(t.dir.join("a.txt"), "1\nuser line\n").unwrap();
 
     let refused = t.undo("a.txt").await;
     assert!(refused.is_error);
@@ -136,7 +136,7 @@ fn history_eviction_takes_an_old_revision_of_a_busy_file_before_a_newer_single_f
 async fn undo_of_a_removed_file_says_so_and_keeps_the_history() {
     let t = tools();
     t.write("gone.txt", "x\n").await;
-    std::fs::remove_file(t.dir.path().join("gone.txt")).unwrap();
+    std::fs::remove_file(t.dir.join("gone.txt")).unwrap();
     let result = t.undo("gone.txt").await;
     assert!(result.is_error);
     assert!(result.content.contains("no longer exists"), "{}", result.content);
@@ -153,8 +153,8 @@ async fn undo_of_a_removed_file_says_so_and_keeps_the_history() {
 #[cfg(unix)]
 fn permissions_are_enforced() -> bool {
     use std::os::unix::fs::PermissionsExt;
-    let dir = tempfile::tempdir().unwrap();
-    let file = dir.path().join("probe");
+    let dir = crate::test_support::TestDir::new();
+    let file = dir.join("probe");
     std::fs::write(&file, "x").unwrap();
     std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o000)).unwrap();
     let enforced = std::fs::read(&file).is_err();
@@ -173,9 +173,9 @@ async fn a_failed_restore_changes_nothing_and_keeps_the_revision() {
         return;
     }
     let t = tools();
-    std::fs::write(t.dir.path().join("a.txt"), "one\n").unwrap();
+    std::fs::write(t.dir.join("a.txt"), "one\n").unwrap();
     t.edit("one", "1").await;
-    let mode = |m| std::fs::set_permissions(t.dir.path(), std::fs::Permissions::from_mode(m)).unwrap();
+    let mode = |m| std::fs::set_permissions(&t.dir, std::fs::Permissions::from_mode(m)).unwrap();
     mode(0o555);
     let failed = t.undo("a.txt").await;
     mode(0o755);
@@ -193,14 +193,14 @@ async fn an_unreadable_existing_file_is_not_recorded_so_undo_cannot_delete_it() 
     if !permissions_are_enforced() {
         return;
     }
-    let dir = tempfile::tempdir().unwrap();
-    let file = dir.path().join("secret.txt");
+    let dir = crate::test_support::TestDir::new();
+    let file = dir.join("secret.txt");
     std::fs::write(&file, "keep").unwrap();
     std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o000)).unwrap();
     let before = read_before(&file).await;
     std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o644)).unwrap();
     assert_eq!(before, None);
-    assert_eq!(read_before(&dir.path().join("missing")).await, Some(None));
+    assert_eq!(read_before(&dir.join("missing")).await, Some(None));
 }
 
 #[cfg(unix)]
@@ -211,9 +211,9 @@ async fn an_unreadable_current_file_is_an_error_not_a_missing_one() {
         return;
     }
     let t = tools();
-    std::fs::write(t.dir.path().join("a.txt"), "one\n").unwrap();
+    std::fs::write(t.dir.join("a.txt"), "one\n").unwrap();
     t.edit("one", "1").await;
-    let file = t.dir.path().join("a.txt");
+    let file = t.dir.join("a.txt");
     std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o000)).unwrap();
     let failed = t.undo("a.txt").await;
     std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o644)).unwrap();
@@ -227,19 +227,19 @@ async fn an_unreadable_current_file_is_an_error_not_a_missing_one() {
 async fn undo_restores_a_non_utf8_file_without_a_diff_preview() {
     let t = tools();
     let binary = [0xff, 0xfe, 0x00, 0x80];
-    std::fs::write(t.dir.path().join("b.bin"), binary).unwrap();
+    std::fs::write(t.dir.join("b.bin"), binary).unwrap();
     t.write("b.bin", "text now\n").await;
     let result = t.undo("b.bin").await;
     assert!(!result.is_error, "{}", result.content);
     assert_eq!(result.content, "Restored b.bin to its contents before the last change");
-    assert_eq!(std::fs::read(t.dir.path().join("b.bin")).unwrap(), binary);
+    assert_eq!(std::fs::read(t.dir.join("b.bin")).unwrap(), binary);
 }
 
 #[tokio::test]
 async fn undo_rejects_a_path_outside_the_workspace() {
     let t = tools();
-    let outside = tempfile::tempdir().unwrap();
-    let file = outside.path().join("x.txt");
+    let outside = crate::test_support::TestDir::new();
+    let file = outside.join("x.txt");
     std::fs::write(&file, "keep").unwrap();
     let result = t.undo(file.to_str().unwrap()).await;
     assert!(result.is_error);
@@ -250,20 +250,17 @@ async fn undo_rejects_a_path_outside_the_workspace() {
 #[tokio::test]
 async fn undoing_a_created_file_removes_the_empty_directories_write_created_but_no_others() {
     let t = tools();
-    std::fs::create_dir(t.dir.path().join("old")).unwrap();
+    std::fs::create_dir(t.dir.join("old")).unwrap();
     t.write("old/new/deep/a.rs", "x").await;
     t.write("old/new/b.rs", "y").await;
 
     let first = t.undo("old/new/deep/a.rs").await;
     assert!(!first.is_error, "{}", first.content);
     assert!(first.content.contains("1 empty directory"), "{}", first.content);
-    assert!(!t.dir.path().join("old/new/deep").exists());
-    assert!(t.dir.path().join("old/new/b.rs").exists());
+    assert!(!t.dir.join("old/new/deep").exists());
+    assert!(t.dir.join("old/new/b.rs").exists());
 
     t.write("old/c.rs", "z").await;
     assert!(!t.undo("old/c.rs").await.is_error);
-    assert!(
-        t.dir.path().join("old").is_dir(),
-        "a directory that already existed stays"
-    );
+    assert!(t.dir.join("old").is_dir(), "a directory that already existed stays");
 }

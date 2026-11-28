@@ -218,7 +218,7 @@ mod tests {
             ("run.sh", "echo\n"),
         ]);
         write(&root, "notes.md", "mine, uncommitted\n");
-        let store = WorktreeStore::new(dir.path().join("store"));
+        let store = WorktreeStore::new(dir.join("store"));
         let wt = store.create(&root, "agent", None).await.unwrap().unwrap();
         write(&wt.path, "a.rs", "1\nAGENT\n3\n");
         write(&wt.path, "new.rs", "n\n");

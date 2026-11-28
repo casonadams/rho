@@ -12,6 +12,7 @@ use rho_harness_core::model::{ChatMessage, ToolCall, ToolFunction};
 use rho_harness_core::presentation::ToolStreamPort;
 use serde_json::json;
 use std::sync::atomic::AtomicUsize;
+use test_case::test_case;
 
 #[tokio::test]
 async fn a_subagent_that_overflows_its_context_compacts_and_finishes_the_round() {
@@ -99,25 +100,25 @@ async fn a_subagent_with_nothing_to_compact_runs_on_instead_of_stopping_early() 
     assert_eq!(adapter.requests().len(), 3, "no summary request, no failed request");
 }
 
+#[test_case(Some("task-7"); "task")]
+#[test_case(None; "own round")]
 #[tokio::test]
-async fn a_subagent_conversation_is_identified_by_its_task_or_else_its_own_round() {
-    for task in [Some("task-7"), None] {
-        let adapter = MockAdapter::from_turns([tool_call_turn(&[("read", "a")]), text_turn("Done.")]);
-        let mut runner = SubagentRunner::new(Arc::new(adapter.clone()), SubagentRole::Scout, &[named_tool("read")], 5);
-        if let Some(task) = task {
-            runner = runner.with_task_id(task);
-        }
+async fn a_subagent_conversation_is_identified_by_its_task_or_else_its_own_round(task: Option<&str>) {
+    let adapter = MockAdapter::from_turns([tool_call_turn(&[("read", "a")]), text_turn("Done.")]);
+    let mut runner = SubagentRunner::new(Arc::new(adapter.clone()), SubagentRole::Scout, &[named_tool("read")], 5);
+    if let Some(task) = task {
+        runner = runner.with_task_id(task);
+    }
 
-        runner.run_round(Vec::new(), round::RoundInput::Prompt("look")).await;
+    runner.run_round(Vec::new(), round::RoundInput::Prompt("look")).await;
 
-        let ids: Vec<Option<String>> = adapter.requests().into_iter().map(|r| r.conversation_id).collect();
-        assert_eq!(ids.len(), 2);
-        assert_eq!(ids[0], ids[1], "{task:?}");
-        let id = ids[0].clone().unwrap();
-        match task {
-            Some(task) => assert_eq!(id, task),
-            None => assert!(id.starts_with("subagent-"), "{id}"),
-        }
+    let ids: Vec<Option<String>> = adapter.requests().into_iter().map(|r| r.conversation_id).collect();
+    assert_eq!(ids.len(), 2);
+    assert_eq!(ids[0], ids[1]);
+    let id = ids[0].clone().unwrap();
+    match task {
+        Some(task) => assert_eq!(id, task),
+        None => assert!(id.starts_with("subagent-"), "{id}"),
     }
 }
 

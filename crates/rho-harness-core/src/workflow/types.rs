@@ -240,6 +240,7 @@ impl Workflow {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use test_case::test_case;
 
     fn workflow() -> Workflow {
         Workflow {
@@ -271,19 +272,11 @@ mod tests {
             .collect()
     }
 
-    #[test]
-    fn binds_positional_named_and_default_inputs() {
-        let cases: [(&[&str], BTreeMap<String, String>); 3] = [
-            (&["security"], map(&[("profile", "security"), ("rounds", "6")])),
-            (&["review", "2"], map(&[("profile", "review"), ("rounds", "2")])),
-            (
-                &["rounds=3", "security"],
-                map(&[("profile", "security"), ("rounds", "3")]),
-            ),
-        ];
-        for (args, expected) in cases {
-            assert_eq!(workflow().bind_inputs(args).unwrap(), expected, "{args:?}");
-        }
+    #[test_case(&["security"], map(&[("profile", "security"), ("rounds", "6")]); "positional with default")]
+    #[test_case(&["review", "2"], map(&[("profile", "review"), ("rounds", "2")]); "all positional")]
+    #[test_case(&["rounds=3", "security"], map(&[("profile", "security"), ("rounds", "3")]); "named before positional")]
+    fn binds_positional_named_and_default_inputs(args: &[&str], expected: BTreeMap<String, String>) {
+        assert_eq!(workflow().bind_inputs(args).unwrap(), expected);
     }
 
     #[test]

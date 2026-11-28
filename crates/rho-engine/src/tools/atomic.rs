@@ -28,6 +28,8 @@ pub(crate) async fn atomic_write(path: &Path, content: &[u8]) -> std::io::Result
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(unix)]
+    use test_case::test_case;
 
     #[tokio::test]
     async fn test_atomic_write_creates_and_overwrites() {
@@ -42,21 +44,23 @@ mod tests {
     }
 
     #[cfg(unix)]
+    #[test_case(0o600; "owner read write")]
+    #[test_case(0o640; "group readable")]
+    #[test_case(0o755; "executable")]
+    #[test_case(0o400; "read only")]
     #[tokio::test]
-    async fn an_existing_files_mode_is_kept_from_the_first_byte_written() {
+    async fn an_existing_files_mode_is_kept_from_the_first_byte_written(mode: u32) {
         use std::os::unix::fs::PermissionsExt;
         let dir = rho_test_support::TestDir::new();
-        for mode in [0o600, 0o640, 0o755, 0o400] {
-            let target = dir.join(format!("f{mode:o}"));
-            std::fs::write(&target, "old").unwrap();
-            std::fs::set_permissions(&target, std::fs::Permissions::from_mode(mode)).unwrap();
+        let target = dir.join(format!("f{mode:o}"));
+        std::fs::write(&target, "old").unwrap();
+        std::fs::set_permissions(&target, std::fs::Permissions::from_mode(mode)).unwrap();
 
-            atomic_write(&target, b"new secret").await.unwrap();
+        atomic_write(&target, b"new secret").await.unwrap();
 
-            assert_eq!(std::fs::read(&target).unwrap(), b"new secret");
-            let kept = std::fs::metadata(&target).unwrap().permissions().mode() & 0o7777;
-            assert_eq!(kept, mode, "mode {mode:o}");
-        }
+        assert_eq!(std::fs::read(&target).unwrap(), b"new secret");
+        let kept = std::fs::metadata(&target).unwrap().permissions().mode() & 0o7777;
+        assert_eq!(kept, mode);
     }
 
     #[tokio::test]

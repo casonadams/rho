@@ -93,9 +93,9 @@ mod tests {
 
     #[test]
     fn test_resolve_resume_target_continue() {
-        let temp = tempfile::tempdir().unwrap();
+        let temp = rho_test_support::TestDir::new();
         let config = Config {
-            sessions_dir: temp.path().to_path_buf(),
+            sessions_dir: temp.to_path_buf(),
             ..Default::default()
         };
 
@@ -111,9 +111,9 @@ mod tests {
 
     #[test]
     fn test_resolve_resume_target_picker_empty() {
-        let temp = tempfile::tempdir().unwrap();
+        let temp = rho_test_support::TestDir::new();
         let config = Config {
-            sessions_dir: temp.path().to_path_buf(),
+            sessions_dir: temp.to_path_buf(),
             ..Default::default()
         };
 
@@ -124,8 +124,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_resolve_export_target_id() {
-        let temp = tempfile::tempdir().unwrap();
-        let sessions_dir = temp.path();
+        let temp = rho_test_support::TestDir::new();
+        let sessions_dir = &temp;
 
         let target = resolve_export_target_id(Some("explicit-id".to_string()), sessions_dir)
             .await
@@ -143,11 +143,11 @@ mod tests {
 
     #[tokio::test]
     async fn test_write_export_contains_session_id() {
-        let temp = tempfile::tempdir().unwrap();
-        let store = SessionManager::new(temp.path(), None).unwrap();
+        let temp = rho_test_support::TestDir::new();
+        let store = SessionManager::new(&temp, None).unwrap();
         let tree = store.load_tree().await.unwrap();
 
-        let md = temp.path().join("export.md");
+        let md = temp.join("export.md");
         write_export(&md, &tree, &store.session_id, ExportFormat::Markdown)
             .await
             .unwrap();
@@ -158,7 +158,7 @@ mod tests {
                 .contains(&store.session_id)
         );
 
-        let html = temp.path().join("export.html");
+        let html = temp.join("export.html");
         write_export(&html, &tree, &store.session_id, ExportFormat::Html)
             .await
             .unwrap();
@@ -172,8 +172,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_write_export_file() {
-        let temp = tempfile::tempdir().unwrap();
-        let file_path = temp.path().join("nested").join("sub").join("output.txt");
+        let temp = rho_test_support::TestDir::new();
+        let file_path = temp.join("nested").join("sub").join("output.txt");
         let tree = rho_harness_core::session::tree::SessionTree::new();
         write_export(&file_path, &tree, "sess", ExportFormat::Markdown)
             .await
@@ -187,16 +187,16 @@ mod tests {
 
     #[tokio::test]
     async fn test_export_session_end_to_end() {
-        let temp = tempfile::tempdir().unwrap();
+        let temp = rho_test_support::TestDir::new();
         let config = Config {
-            sessions_dir: temp.path().join("sessions"),
+            sessions_dir: temp.join("sessions"),
             ..Default::default()
         };
         let store = SessionManager::new(&config.sessions_dir, None).unwrap();
         let session_id = store.session_id.clone();
         drop(store);
 
-        let export_md = temp.path().join("out").join("exported.md");
+        let export_md = temp.join("out").join("exported.md");
         export_session(export_md.to_str().unwrap(), Some(session_id.clone()), &config)
             .await
             .unwrap();

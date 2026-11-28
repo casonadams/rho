@@ -17,6 +17,7 @@ use rho_harness_core::presentation::types::InteractionResponse;
 use rho_harness_core::presentation::{InteractionOption, InteractionPrompt, OptionLayout};
 use rho_harness_core::rpc::protocol::{RpcCommand, RpcEvent, RpcResponse};
 use rho_harness_core::rpc::transport::{JsonLinesReader, JsonLinesWriter};
+use test_case::test_case;
 
 #[test]
 fn test_parse_tool_decision_mappings() {
@@ -42,17 +43,23 @@ fn test_parse_tool_decision_mappings() {
     );
 }
 
+#[test_case("reject"; "reject")]
+#[test_case("no"; "no")]
+#[test_case("nope"; "nope")]
+#[test_case(""; "empty")]
+#[test_case("  "; "blank")]
+#[test_case("1"; "index one")]
+#[test_case("3"; "index three")]
+#[test_case("allow!"; "allow with punctuation")]
+#[test_case("yes"; "yes")]
+#[test_case("edit"; "edit without text")]
+#[test_case("deny-ish"; "deny suffix")]
+fn unknown_tool_decisions_never_approve(decision: &str) {
+    assert_eq!(parse_tool_decision(decision), InteractionResponse::Cancelled);
+}
+
 #[test]
-fn unknown_tool_decisions_never_approve() {
-    for decision in [
-        "reject", "no", "nope", "", "  ", "1", "3", "allow!", "yes", "edit", "deny-ish",
-    ] {
-        assert_eq!(
-            parse_tool_decision(decision),
-            InteractionResponse::Cancelled,
-            "{decision:?}"
-        );
-    }
+fn padded_uppercase_allow_approves() {
     assert_eq!(parse_tool_decision("  ALLOW "), InteractionResponse::Selected(0));
 }
 
@@ -856,43 +863,36 @@ async fn test_handle_create_session_workspace_target() {
     assert_eq!(ctx.config.read().await.sessions_dir, workspace.join(".rho/sessions"));
 }
 
+#[test_case(false, None; "saved")]
+#[test_case(true, Some("Failed to read auth file"); "save blocked")]
 #[tokio::test]
-async fn test_handle_set_api_key_cmd_outcomes() {
-    let cases = [
-        ("saved", false, None),
-        ("save_blocked", true, Some("Failed to read auth file")),
-    ];
-    for (name, blocked, expected_error) in cases {
-        let (mut client_reader, mut writer, temp_dir) = rpc_fixture("rpc_set_api_key_test");
-        std::fs::create_dir_all(&temp_dir).unwrap();
-        let path = temp_dir.join("auth-under-test.json");
-        let store = AuthStore::load(&path).unwrap();
-        if blocked {
-            std::fs::create_dir(&path).unwrap();
-        }
-        let mut active_turn = None;
-        let mut ctx = setup_test_rpc_context(&mut writer, &temp_dir, &mut active_turn).await;
-        *ctx.auth_store.write().await = store;
+async fn test_handle_set_api_key_cmd_outcomes(blocked: bool, expected_error: Option<&str>) {
+    let (mut client_reader, mut writer, temp_dir) = rpc_fixture("rpc_set_api_key_test");
+    std::fs::create_dir_all(&temp_dir).unwrap();
+    let path = temp_dir.join("auth-under-test.json");
+    let store = AuthStore::load(&path).unwrap();
+    if blocked {
+        std::fs::create_dir(&path).unwrap();
+    }
+    let mut active_turn = None;
+    let mut ctx = setup_test_rpc_context(&mut writer, &temp_dir, &mut active_turn).await;
+    *ctx.auth_store.write().await = store;
 
-        handle_set_api_key_cmd(
-            "anthropic".to_string(),
-            "sk-ant-testkey".to_string(),
-            Some("req-key".to_string()),
-            &mut ctx,
-        )
-        .await
-        .unwrap();
+    handle_set_api_key_cmd(
+        "anthropic".to_string(),
+        "sk-ant-testkey".to_string(),
+        Some("req-key".to_string()),
+        &mut ctx,
+    )
+    .await
+    .unwrap();
 
-        let resp = read_response(&mut client_reader).await;
-        assert_eq!(resp.command, "set_api_key", "{name}");
-        assert_eq!(resp.success, expected_error.is_none(), "{name}");
-        match expected_error {
-            Some(needle) => assert!(resp.error.unwrap().contains(needle), "{name}"),
-            None => assert!(
-                ctx.auth_store.read().await.get_credential("anthropic").is_some(),
-                "{name}"
-            ),
-        }
+    let resp = read_response(&mut client_reader).await;
+    assert_eq!(resp.command, "set_api_key");
+    assert_eq!(resp.success, expected_error.is_none());
+    match expected_error {
+        Some(needle) => assert!(resp.error.unwrap().contains(needle)),
+        None => assert!(ctx.auth_store.read().await.get_credential("anthropic").is_some()),
     }
 }
 
@@ -1156,43 +1156,36 @@ async fn exiting_during_a_turn_ends_it_as_cancelled_once() {
     assert_eq!(run_summary_statuses(&ctx).await, vec![serde_json::json!("cancelled")]);
 }
 
+#[test_case(RpcCommand::Abort; "abort")]
+#[test_case(RpcCommand::Exit; "exit")]
 #[tokio::test(start_paused = true)]
-async fn a_stop_is_read_while_events_wait_on_a_slow_client() {
-    for command in [RpcCommand::Abort, RpcCommand::Exit] {
-        let (_unread_client, server_out) = duplex(1024);
-        let mut writer = JsonLinesWriter::new(server_out);
-        let temp_dir = rho_test_support::TestDir::new();
-        let mut active_turn = None;
-        let mut ctx = setup_test_rpc_context(&mut writer, &temp_dir, &mut active_turn).await;
-        let turn_dropped = start_stalled_turn(&mut ctx, &temp_dir).await;
-        let (client_in, server_in) = duplex(4096);
-        let mut reader = JsonLinesReader::new(tokio::io::BufReader::new(server_in));
-        JsonLinesWriter::new(client_in)
-            .write_message(&rho_harness_core::rpc::protocol::RpcRequest {
-                id: Some("stop-1".to_string()),
-                command: command.clone(),
-            })
-            .await
-            .unwrap();
-        let events = [RpcEvent::TextChunk {
-            content: "x".repeat(4096),
-        }];
+async fn a_stop_is_read_while_events_wait_on_a_slow_client(command: RpcCommand) {
+    let (_unread_client, server_out) = duplex(1024);
+    let mut writer = JsonLinesWriter::new(server_out);
+    let temp_dir = rho_test_support::TestDir::new();
+    let mut active_turn = None;
+    let mut ctx = setup_test_rpc_context(&mut writer, &temp_dir, &mut active_turn).await;
+    let turn_dropped = start_stalled_turn(&mut ctx, &temp_dir).await;
+    let (client_in, server_in) = duplex(4096);
+    let mut reader = JsonLinesReader::new(tokio::io::BufReader::new(server_in));
+    JsonLinesWriter::new(client_in)
+        .write_message(&rho_harness_core::rpc::protocol::RpcRequest {
+            id: Some("stop-1".to_string()),
+            command: command.clone(),
+        })
+        .await
+        .unwrap();
+    let events = [RpcEvent::TextChunk {
+        content: "x".repeat(4096),
+    }];
 
-        let write = super::loop_runner::write_events_while_reading(&mut reader, &mut ctx, &events);
-        let pending = tokio::time::timeout(std::time::Duration::from_secs(1), write).await;
+    let write = super::loop_runner::write_events_while_reading(&mut reader, &mut ctx, &events);
+    let pending = tokio::time::timeout(std::time::Duration::from_secs(1), write).await;
 
-        assert!(
-            pending.is_err(),
-            "{command:?}: the client never reads, so the write stays pending"
-        );
-        assert!(
-            turn_ended(turn_dropped).await,
-            "{command:?}: the turn is aborted without waiting for the write"
-        );
-        assert_eq!(
-            run_summary_statuses(&ctx).await,
-            vec![serde_json::json!("cancelled")],
-            "{command:?}"
-        );
-    }
+    assert!(pending.is_err(), "the client never reads, so the write stays pending");
+    assert!(
+        turn_ended(turn_dropped).await,
+        "the turn is aborted without waiting for the write"
+    );
+    assert_eq!(run_summary_statuses(&ctx).await, vec![serde_json::json!("cancelled")]);
 }

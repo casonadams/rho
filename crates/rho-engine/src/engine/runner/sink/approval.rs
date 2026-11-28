@@ -453,6 +453,7 @@ mod tests {
     use rho_harness_core::presentation::{SessionStatus, WelcomeDisplay};
     use std::sync::Arc;
     use std::sync::atomic::{AtomicUsize, Ordering};
+    use test_case::test_case;
 
     struct TrackingPresenter {
         idle_count: Arc<AtomicUsize>,
@@ -623,29 +624,24 @@ mod tests {
         assert_eq!(metrics.tool_errors, 1);
     }
 
-    #[test]
-    fn reasoning_deltas_are_joined_verbatim() {
-        let cases = [
-            (["src/ui/thinking.", "rs is next"], "src/ui/thinking.rs is next"),
-            (["version 3.", "14"], "version 3.14"),
-            (["e.g.", ", this"], "e.g., this"),
-            (["Done.", " Next"], "Done. Next"),
-        ];
-        for (deltas, expected) in cases {
-            let temp = crate::test_support::TestDir::new();
-            let thinking = Arc::new(Mutex::new(Vec::new()));
-            let presenter: Arc<dyn Presenter> = Arc::new(TrackingPresenter {
-                idle_count: Arc::default(),
-                active_tools: Arc::default(),
-                thinking: thinking.clone(),
-            });
-            let sink = new_test_sink(&temp, &presenter);
-            for delta in deltas {
-                sink.emit_reasoning(delta);
-            }
-            sink.flush_reasoning();
-            assert_eq!(*thinking.lock().unwrap(), vec![expected.to_string()]);
+    #[test_case(["src/ui/thinking.", "rs is next"], "src/ui/thinking.rs is next"; "file extension")]
+    #[test_case(["version 3.", "14"], "version 3.14"; "version number")]
+    #[test_case(["e.g.", ", this"], "e.g., this"; "abbreviation")]
+    #[test_case(["Done.", " Next"], "Done. Next"; "sentence end")]
+    fn reasoning_deltas_are_joined_verbatim(deltas: [&str; 2], expected: &str) {
+        let temp = crate::test_support::TestDir::new();
+        let thinking = Arc::new(Mutex::new(Vec::new()));
+        let presenter: Arc<dyn Presenter> = Arc::new(TrackingPresenter {
+            idle_count: Arc::default(),
+            active_tools: Arc::default(),
+            thinking: thinking.clone(),
+        });
+        let sink = new_test_sink(&temp, &presenter);
+        for delta in deltas {
+            sink.emit_reasoning(delta);
         }
+        sink.flush_reasoning();
+        assert_eq!(*thinking.lock().unwrap(), vec![expected.to_string()]);
     }
 
     #[test]

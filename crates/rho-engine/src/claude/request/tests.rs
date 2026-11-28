@@ -5,6 +5,7 @@ use rho_harness_core::model::{
     AssistantContent, ChatMessage, ImageContent, Reasoning, ReasoningContent, ToolCall, ToolFunction, UserContent,
 };
 use serde_json::json;
+use test_case::test_case;
 
 fn dummy_tool(name: &str) -> ModelToolDefinition {
     ModelToolDefinition {
@@ -168,8 +169,11 @@ fn api_key_requests_omit_claude_code_identity() {
     assert_eq!(body["system"][0]["cache_control"]["type"], "ephemeral");
 }
 
-#[test]
-fn cache_retention_sets_the_ttl_of_every_breakpoint() {
+#[test_case(CacheRetention::Short, ClaudeAuth::Login, None; "short login")]
+#[test_case(CacheRetention::Long, ClaudeAuth::ApiKey, Some("1h"); "long api key")]
+#[test_case(CacheRetention::Auto, ClaudeAuth::Login, Some("1h"); "auto login")]
+#[test_case(CacheRetention::Auto, ClaudeAuth::ApiKey, None; "auto api key")]
+fn cache_retention_sets_the_ttl_of_every_breakpoint(retention: CacheRetention, auth: ClaudeAuth, ttl: Option<&str>) {
     let mut req = sample_request_with_tools(vec![dummy_tool("bash")]);
     req.prompt = String::new();
     req.messages = vec![
@@ -178,25 +182,17 @@ fn cache_retention_sets_the_ttl_of_every_breakpoint() {
         ChatMessage::user("Turn 2 prompt"),
     ]
     .into();
-    let cases = [
-        (CacheRetention::Short, ClaudeAuth::Login, None),
-        (CacheRetention::Long, ClaudeAuth::ApiKey, Some("1h")),
-        (CacheRetention::Auto, ClaudeAuth::Login, Some("1h")),
-        (CacheRetention::Auto, ClaudeAuth::ApiKey, None),
+    let body = build_request_body("claude-opus-5-5", None, &req, auth, retention).unwrap();
+    assert_eq!(count_cache_breakpoints(&body), 4);
+    let controls = [
+        &body["system"].as_array().unwrap().last().unwrap()["cache_control"],
+        &body["tools"][0]["cache_control"],
+        &body["messages"][1]["content"][0]["cache_control"],
+        &body["messages"][2]["content"][0]["cache_control"],
     ];
-    for (retention, auth, ttl) in cases {
-        let body = build_request_body("claude-opus-5-5", None, &req, auth, retention).unwrap();
-        assert_eq!(count_cache_breakpoints(&body), 4, "{retention} {auth:?}");
-        let controls = [
-            &body["system"].as_array().unwrap().last().unwrap()["cache_control"],
-            &body["tools"][0]["cache_control"],
-            &body["messages"][1]["content"][0]["cache_control"],
-            &body["messages"][2]["content"][0]["cache_control"],
-        ];
-        for control in controls {
-            assert_eq!(control["type"], "ephemeral", "{retention} {auth:?}");
-            assert_eq!(control.get("ttl").and_then(Value::as_str), ttl, "{retention} {auth:?}");
-        }
+    for control in controls {
+        assert_eq!(control["type"], "ephemeral");
+        assert_eq!(control.get("ttl").and_then(Value::as_str), ttl);
     }
 }
 
@@ -396,26 +392,21 @@ fn calculate_max_tokens_adaptive_cases() {
     assert_eq!(calculate_max_tokens(Some(5000), Some(6000), false, None), 7024);
 }
 
-#[test]
-fn from_claude_tool_name_mapping() {
-    let cases = [
-        ("mcp__rho__custom_tool", "custom_tool"),
-        ("Read", "read"),
-        ("READ", "read"),
-        ("Write", "write"),
-        ("Edit", "edit"),
-        ("Bash", "bash"),
-        ("Glob", "glob"),
-        ("Grep", "grep"),
-        ("WebFetch", "web_fetch"),
-        ("webfetch", "web_fetch"),
-        ("web_fetch", "web_fetch"),
-        ("WebSearch", "web_search"),
-        ("websearch", "web_search"),
-        ("web_search", "web_search"),
-        ("unknown_tool", "unknown_tool"),
-    ];
-    for (input, expected) in cases {
-        assert_eq!(from_claude_tool_name(input), expected);
-    }
+#[test_case("mcp__rho__custom_tool", "custom_tool"; "mcp prefixed")]
+#[test_case("Read", "read"; "read pascal case")]
+#[test_case("READ", "read"; "read upper case")]
+#[test_case("Write", "write"; "write")]
+#[test_case("Edit", "edit"; "edit")]
+#[test_case("Bash", "bash"; "bash")]
+#[test_case("Glob", "glob"; "glob")]
+#[test_case("Grep", "grep"; "grep")]
+#[test_case("WebFetch", "web_fetch"; "web fetch pascal case")]
+#[test_case("webfetch", "web_fetch"; "web fetch lower case")]
+#[test_case("web_fetch", "web_fetch"; "web fetch snake case")]
+#[test_case("WebSearch", "web_search"; "web search pascal case")]
+#[test_case("websearch", "web_search"; "web search lower case")]
+#[test_case("web_search", "web_search"; "web search snake case")]
+#[test_case("unknown_tool", "unknown_tool"; "unknown tool")]
+fn from_claude_tool_name_mapping(input: &str, expected: &str) {
+    assert_eq!(from_claude_tool_name(input), expected);
 }

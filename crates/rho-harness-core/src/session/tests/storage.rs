@@ -1,6 +1,7 @@
 use super::{SessionManager, temp_dir};
 use crate::model::ChatMessage;
 use std::io::Write;
+use test_case::test_case;
 
 #[cfg(unix)]
 fn assert_mode(path: &std::path::Path, expected: u32) {
@@ -46,37 +47,37 @@ fn session_storage_protects_bad_file_permissions() {
     assert_mode(&bad_path, 0o600);
 }
 
-#[test]
-fn resume_requires_supported_versioned_header() {
+#[test_case("legacy", r#"{"id":"old"}\n"#, "legacy session"; "legacy")]
+#[test_case(
+    "missing",
+    r#"{"record_type":"header","session_id":"missing"}\n"#,
+    "mandatory version";
+    "missing version"
+)]
+#[test_case(
+    "wrong",
+    r#"{"record_type":"header","version":1,"session_id":"wrong","created_at":"2025-01-01T00:00:00Z"}\n"#,
+    "unsupported session version";
+    "old version"
+)]
+#[test_case(
+    "future",
+    r#"{"record_type":"header","version":4,"session_id":"future","created_at":"2025-01-01T00:00:00Z"}\n"#,
+    "unsupported session version 4: written by a newer rho";
+    "future version"
+)]
+#[test_case(
+    "mismatch",
+    r#"{"record_type":"header","version":2,"session_id":"someone-else","created_at":"2025-01-01T00:00:00Z"}\n"#,
+    "does not match its file name";
+    "mismatched session id"
+)]
+fn resume_requires_supported_versioned_header(id: &str, body: &str, expected: &str) {
     let dir = temp_dir();
     std::fs::create_dir_all(&dir).unwrap();
-    for (id, body, expected) in [
-        ("legacy", r#"{"id":"old"}\n"#, "legacy session"),
-        (
-            "missing",
-            r#"{"record_type":"header","session_id":"missing"}\n"#,
-            "mandatory version",
-        ),
-        (
-            "wrong",
-            r#"{"record_type":"header","version":1,"session_id":"wrong","created_at":"2025-01-01T00:00:00Z"}\n"#,
-            "unsupported session version",
-        ),
-        (
-            "future",
-            r#"{"record_type":"header","version":4,"session_id":"future","created_at":"2025-01-01T00:00:00Z"}\n"#,
-            "unsupported session version 4: written by a newer rho",
-        ),
-        (
-            "mismatch",
-            r#"{"record_type":"header","version":2,"session_id":"someone-else","created_at":"2025-01-01T00:00:00Z"}\n"#,
-            "does not match its file name",
-        ),
-    ] {
-        std::fs::write(dir.join(format!("{id}.jsonl")), body.replace("\\n", "\n")).unwrap();
-        let error = SessionManager::new(&dir, Some(id)).unwrap_err().to_string();
-        assert!(error.contains(expected), "{error}");
-    }
+    std::fs::write(dir.join(format!("{id}.jsonl")), body.replace("\\n", "\n")).unwrap();
+    let error = SessionManager::new(&dir, Some(id)).unwrap_err().to_string();
+    assert!(error.contains(expected), "{error}");
 }
 
 #[test]
@@ -189,28 +190,20 @@ async fn cwd_for_session_tracks_latest_relocated_workspace() {
 
 type IndexFixture = fn(&std::path::Path);
 
+#[test_case(|index| std::fs::write(index, "{not json").unwrap(); "corrupt json")]
+#[test_case(|index| std::fs::create_dir_all(index).unwrap(); "index is directory")]
 #[tokio::test]
-async fn last_session_lookup_reports_unreadable_or_corrupt_index() {
-    let cases: &[(&str, IndexFixture)] = &[
-        ("corrupt_json", |index| std::fs::write(index, "{not json").unwrap()),
-        ("index_is_directory", |index| std::fs::create_dir_all(index).unwrap()),
-    ];
-    for (name, prepare) in cases {
-        let sessions_dir = temp_dir();
-        std::fs::create_dir_all(&sessions_dir).unwrap();
-        prepare(&sessions_dir.join(".last_sessions.json"));
-        let project = temp_dir();
-        assert!(
-            SessionManager::last_session_for_cwd(&sessions_dir, &project).is_err(),
-            "{name}"
-        );
-        assert!(
-            SessionManager::last_session_for_cwd_async(&sessions_dir, &project)
-                .await
-                .is_err(),
-            "{name}"
-        );
-    }
+async fn last_session_lookup_reports_unreadable_or_corrupt_index(prepare: IndexFixture) {
+    let sessions_dir = temp_dir();
+    std::fs::create_dir_all(&sessions_dir).unwrap();
+    prepare(&sessions_dir.join(".last_sessions.json"));
+    let project = temp_dir();
+    assert!(SessionManager::last_session_for_cwd(&sessions_dir, &project).is_err());
+    assert!(
+        SessionManager::last_session_for_cwd_async(&sessions_dir, &project)
+            .await
+            .is_err()
+    );
 }
 
 #[tokio::test]

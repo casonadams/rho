@@ -18,7 +18,8 @@ fn test_resolve_env_with_indirection() {
 #[tokio::test]
 async fn test_spawn_mcp_process() {
     let config = McpServerConfig::stdio("/bin/sh", vec!["-c".to_string(), "sleep 30 & wait".to_string()]);
-    let (_stdin, _stdout, handle) = McpProcess::spawn(&config, &std::env::temp_dir()).unwrap();
+    let dir = crate::test_support::TestDir::new();
+    let (_stdin, _stdout, handle) = McpProcess::spawn(&config, &dir).unwrap();
     let pid = handle.id().expect("handle has pid");
     assert!(pid > 1);
     drop(handle);

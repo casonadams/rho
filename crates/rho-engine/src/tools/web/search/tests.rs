@@ -3,19 +3,15 @@ use super::query::{
 };
 use super::result::{SearchResult, deduplicate_results};
 use super::*;
+use test_case::test_case;
 
-#[test]
-fn test_normalize_domain() {
-    let cases = [
-        ("https://www.github.com/path", Some("github.com".to_string())),
-        ("http://docs.rs:443", Some("docs.rs".to_string())),
-        ("-www.bad-site.org/", Some("bad-site.org".to_string())),
-        ("invalid domain!", None),
-        ("", None),
-    ];
-    for (input, expected) in cases {
-        assert_eq!(normalize_domain(input), expected);
-    }
+#[test_case("https://www.github.com/path", Some("github.com"); "url with www and path")]
+#[test_case("http://docs.rs:443", Some("docs.rs"); "url with port")]
+#[test_case("-www.bad-site.org/", Some("bad-site.org"); "blocked prefix")]
+#[test_case("invalid domain!", None; "invalid")]
+#[test_case("", None; "empty")]
+fn test_normalize_domain(input: &str, expected: Option<&str>) {
+    assert_eq!(normalize_domain(input).as_deref(), expected);
 }
 
 #[test]
@@ -31,20 +27,15 @@ fn test_normalize_domain_filters() {
     assert_eq!(blocked, vec!["spam.com", "bad.org"]);
 }
 
-#[test]
-fn test_matches_domain_filters() {
+#[test_case("github.com", true; "allowed")]
+#[test_case("raw.github.com", true; "allowed subdomain")]
+#[test_case("blog.github.com", false; "blocked subdomain")]
+#[test_case("spam.com", false; "blocked")]
+#[test_case("other.org", false; "not allowed")]
+fn test_matches_domain_filters(domain: &str, expected: bool) {
     let allowed = vec!["github.com".to_string(), "docs.rs".to_string()];
     let blocked = vec!["blog.github.com".to_string(), "spam.com".to_string()];
-    let cases = [
-        ("github.com", true),
-        ("raw.github.com", true),
-        ("blog.github.com", false),
-        ("spam.com", false),
-        ("other.org", false),
-    ];
-    for (domain, expected) in cases {
-        assert_eq!(matches_domain_filters(domain, &allowed, &blocked), expected);
-    }
+    assert_eq!(matches_domain_filters(domain, &allowed, &blocked), expected);
 }
 
 #[test]
@@ -173,33 +164,23 @@ async fn relaxed_attempt_error_is_reported() {
     assert!(error.to_string().contains("timeout"));
 }
 
-#[test]
-fn an_empty_search_reports_relaxed_results_then_the_first_error() {
-    let found = || Ok(Some(ToolResult::success("relaxed hits")));
-    let failed = |why: &str| AppError::Tool(why.to_string());
-    let cases = [
-        (
-            "relaxed hits win",
-            found(),
-            Some(failed("first")),
-            "relaxed hits",
-            false,
-        ),
-        (
-            "first error before the retry's",
-            Err(failed("retry")),
-            Some(failed("first")),
-            "first",
-            true,
-        ),
-        ("retry error alone", Err(failed("retry")), None, "retry", true),
-        ("nothing found", Ok(None), None, "No search results found", false),
-    ];
-    for (case, relaxed, last_error, expected, is_error) in cases {
-        let result = empty_search_result("q", "2026-11-27", relaxed, last_error);
-        assert!(result.content.contains(expected), "{case}: {}", result.content);
-        assert_eq!(result.is_error, is_error, "{case}");
-    }
+fn failed(why: &str) -> AppError {
+    AppError::Tool(why.to_string())
+}
+
+#[test_case(Ok(Some(ToolResult::success("relaxed hits"))), Some(failed("first")), "relaxed hits", false; "relaxed hits win")]
+#[test_case(Err(failed("retry")), Some(failed("first")), "first", true; "first error before the retry")]
+#[test_case(Err(failed("retry")), None, "retry", true; "retry error alone")]
+#[test_case(Ok(None), None, "No search results found", false; "nothing found")]
+fn an_empty_search_reports_relaxed_results_then_the_first_error(
+    relaxed: Result<Option<ToolResult>, AppError>,
+    last_error: Option<AppError>,
+    expected: &str,
+    is_error: bool,
+) {
+    let result = empty_search_result("q", "2026-11-27", relaxed, last_error);
+    assert!(result.content.contains(expected), "{}", result.content);
+    assert_eq!(result.is_error, is_error);
 }
 
 #[tokio::test]

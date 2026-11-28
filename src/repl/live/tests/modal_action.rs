@@ -5,6 +5,7 @@ use crate::ui::interactive::NullBackend;
 use crate::ui::interactive::TerminalController;
 use rho_harness_core::config::ModelRole;
 use rho_harness_core::provider::ModelRoute;
+use test_case::test_case;
 
 pub(super) async fn setup_modal_action_harness(
     temp: &std::path::Path,
@@ -33,8 +34,8 @@ pub(super) async fn setup_modal_action_harness(
 
 #[tokio::test]
 async fn test_modal_action_handled_and_not_handled() {
-    let temp = tempfile::tempdir().unwrap();
-    let (mut controller, mut batch, mut session, mut engine, mut input) = setup_modal_action_harness(temp.path()).await;
+    let temp = rho_test_support::TestDir::new();
+    let (mut controller, mut batch, mut session, mut engine, mut input) = setup_modal_action_harness(&temp).await;
 
     let ctx = ModalActionContext {
         controller: &mut controller,
@@ -63,8 +64,8 @@ async fn test_modal_action_handled_and_not_handled() {
 
 #[tokio::test]
 async fn test_modal_action_menu_openers() {
-    let temp = tempfile::tempdir().unwrap();
-    let (mut controller, mut batch, mut session, mut engine, mut input) = setup_modal_action_harness(temp.path()).await;
+    let temp = rho_test_support::TestDir::new();
+    let (mut controller, mut batch, mut session, mut engine, mut input) = setup_modal_action_harness(&temp).await;
 
     let ctx = ModalActionContext {
         controller: &mut controller,
@@ -132,8 +133,8 @@ async fn test_modal_action_menu_openers() {
 
 #[tokio::test]
 async fn test_modal_action_guard_model_selected() {
-    let temp = tempfile::tempdir().unwrap();
-    let (mut controller, mut batch, mut session, mut engine, mut input) = setup_modal_action_harness(temp.path()).await;
+    let temp = rho_test_support::TestDir::new();
+    let (mut controller, mut batch, mut session, mut engine, mut input) = setup_modal_action_harness(&temp).await;
 
     let ctx = ModalActionContext {
         controller: &mut controller,
@@ -180,8 +181,8 @@ async fn test_modal_action_guard_model_selected() {
 
 #[tokio::test]
 async fn test_modal_action_search_help_and_login_results() {
-    let temp = tempfile::tempdir().unwrap();
-    let (mut controller, mut batch, mut session, mut engine, mut input) = setup_modal_action_harness(temp.path()).await;
+    let temp = rho_test_support::TestDir::new();
+    let (mut controller, mut batch, mut session, mut engine, mut input) = setup_modal_action_harness(&temp).await;
     let mut tctx = ModalTestCtx {
         controller: &mut controller,
         session: &mut session,
@@ -221,8 +222,8 @@ async fn test_modal_action_search_help_and_login_results() {
 
 #[tokio::test]
 async fn test_modal_action_tool_settings_toggled() {
-    let temp = tempfile::tempdir().unwrap();
-    let (mut controller, mut batch, mut session, mut engine, mut input) = setup_modal_action_harness(temp.path()).await;
+    let temp = rho_test_support::TestDir::new();
+    let (mut controller, mut batch, mut session, mut engine, mut input) = setup_modal_action_harness(&temp).await;
 
     let actions = [
         ModalKeyResult::WebSearchToggled { enabled: true },
@@ -253,8 +254,8 @@ async fn test_modal_action_tool_settings_toggled() {
 
 #[tokio::test]
 async fn test_modal_action_ui_settings_toggled() {
-    let temp = tempfile::tempdir().unwrap();
-    let (mut controller, mut batch, mut session, mut engine, mut input) = setup_modal_action_harness(temp.path()).await;
+    let temp = rho_test_support::TestDir::new();
+    let (mut controller, mut batch, mut session, mut engine, mut input) = setup_modal_action_harness(&temp).await;
 
     session.config.mcp.servers.insert(
         "test_srv".to_string(),
@@ -285,8 +286,8 @@ async fn test_modal_action_ui_settings_toggled() {
 
 #[tokio::test]
 async fn test_modal_action_session_operations() {
-    let temp = tempfile::tempdir().unwrap();
-    let (mut controller, mut batch, mut session, mut engine, mut input) = setup_modal_action_harness(temp.path()).await;
+    let temp = rho_test_support::TestDir::new();
+    let (mut controller, mut batch, mut session, mut engine, mut input) = setup_modal_action_harness(&temp).await;
 
     let node_action = ModalKeyResult::TreeNodeSelected {
         node_id: "nonexistent-node".to_string(),
@@ -348,8 +349,8 @@ async fn test_modal_action_session_operations() {
 
 #[tokio::test]
 async fn test_modal_action_selection_operations() {
-    let temp = tempfile::tempdir().unwrap();
-    let (mut controller, mut batch, mut session, mut engine, mut input) = setup_modal_action_harness(temp.path()).await;
+    let temp = rho_test_support::TestDir::new();
+    let (mut controller, mut batch, mut session, mut engine, mut input) = setup_modal_action_harness(&temp).await;
 
     let model_action = ModalKeyResult::ModelSelected {
         model: "claude-3-5-sonnet-20241022".to_string(),
@@ -436,8 +437,8 @@ impl<'a> ModalTestCtx<'a> {
 
 #[tokio::test]
 async fn test_settings_and_models_modal_stack_preservation_and_updates() {
-    let temp = tempfile::tempdir().unwrap();
-    let (mut controller, mut batch, mut session, mut engine, mut input) = setup_modal_action_harness(temp.path()).await;
+    let temp = rho_test_support::TestDir::new();
+    let (mut controller, mut batch, mut session, mut engine, mut input) = setup_modal_action_harness(&temp).await;
 
     crate::repl::live::modal::open_settings_selector(Some("initial-model"), None, Some("off"), &mut controller);
     assert_eq!(controller.state().modal_depth(), 1);
@@ -508,8 +509,8 @@ async fn test_settings_and_models_modal_stack_preservation_and_updates() {
 
 #[tokio::test]
 async fn test_role_model_selection_updates_models_menu_in_place() {
-    let temp = tempfile::tempdir().unwrap();
-    let (mut controller, mut batch, mut session, mut engine, mut input) = setup_modal_action_harness(temp.path()).await;
+    let temp = rho_test_support::TestDir::new();
+    let (mut controller, mut batch, mut session, mut engine, mut input) = setup_modal_action_harness(&temp).await;
 
     crate::repl::live::modal::open_models_selector(&session, &mut controller);
     assert_eq!(controller.state().modal_depth(), 1);
@@ -554,8 +555,8 @@ async fn test_role_model_selection_updates_models_menu_in_place() {
 
 #[tokio::test]
 async fn test_tools_and_permissions_modal_stack_preservation_and_updates() {
-    let temp = tempfile::tempdir().unwrap();
-    let (mut controller, mut batch, mut session, mut engine, mut input) = setup_modal_action_harness(temp.path()).await;
+    let temp = rho_test_support::TestDir::new();
+    let (mut controller, mut batch, mut session, mut engine, mut input) = setup_modal_action_harness(&temp).await;
 
     crate::repl::live::modal::open_settings_selector(Some("default-model"), None, Some("off"), &mut controller);
     assert_eq!(controller.state().modal_depth(), 1);
@@ -612,10 +613,14 @@ async fn test_tools_and_permissions_modal_stack_preservation_and_updates() {
     assert_eq!(tctx.controller.state().modal_depth(), 0);
 }
 
+#[test_case(ModalKeyResult::OpenModelsMenu; "models menu")]
+#[test_case(ModalKeyResult::OpenRoleModelSelector { role: ModelRole::GUARD }; "guard role")]
+#[test_case(ModalKeyResult::OpenRoleModelSelector { role: ModelRole::SMOL }; "smol role")]
+#[test_case(ModalKeyResult::OpenRoleModelSelector { role: ModelRole::SLOW }; "slow role")]
 #[tokio::test]
-async fn test_modal_action_model_role_openers_open_their_selectors() {
-    let temp = tempfile::tempdir().unwrap();
-    let (mut controller, mut batch, mut session, mut engine, mut input) = setup_modal_action_harness(temp.path()).await;
+async fn test_modal_action_model_role_openers_open_their_selectors(res: ModalKeyResult) {
+    let temp = rho_test_support::TestDir::new();
+    let (mut controller, mut batch, mut session, mut engine, mut input) = setup_modal_action_harness(&temp).await;
     let mut tctx = ModalTestCtx {
         controller: &mut controller,
         session: &mut session,
@@ -623,22 +628,35 @@ async fn test_modal_action_model_role_openers_open_their_selectors() {
         input: &mut input,
         batch: &mut batch,
     };
-    for res in [
-        ModalKeyResult::OpenModelsMenu,
-        ModalKeyResult::OpenRoleModelSelector { role: ModelRole::GUARD },
-        ModalKeyResult::OpenRoleModelSelector { role: ModelRole::SMOL },
-        ModalKeyResult::OpenRoleModelSelector { role: ModelRole::SLOW },
-    ] {
-        assert!(tctx.dispatch(res).await);
-        assert!(tctx.controller.state().active_modal().is_some());
-        tctx.controller.state_mut().pop_modal();
-    }
+    assert!(tctx.dispatch(res).await);
+    assert!(tctx.controller.state().active_modal().is_some());
 }
 
+#[test_case(ModelRole::SMOL, ModelRoute::new("anthropic", "haiku"), "smol", "anthropic/haiku"; "smol anthropic")]
+#[test_case(ModelRole::SLOW, ModelRoute::new("anthropic", "opus"), "slow", "anthropic/opus"; "slow anthropic")]
+#[test_case(
+    ModelRole::SLOW,
+    ModelRoute::new("openrouter", "anthropic/claude-3.7-sonnet"),
+    "slow",
+    "openrouter/anthropic/claude-3.7-sonnet";
+    "slow openrouter nested model"
+)]
+#[test_case(
+    ModelRole::SMOL,
+    ModelRoute::new("claude:me@work.com", "claude:me@work.com/haiku"),
+    "smol",
+    "claude:me@work.com/haiku";
+    "smol account qualified model"
+)]
 #[tokio::test]
-async fn test_modal_action_remaining_role_model_selections_update_config() {
-    let temp = tempfile::tempdir().unwrap();
-    let (mut controller, mut batch, mut session, mut engine, mut input) = setup_modal_action_harness(temp.path()).await;
+async fn test_modal_action_remaining_role_model_selections_update_config(
+    role: ModelRole,
+    route: ModelRoute,
+    role_name: &str,
+    expected: &str,
+) {
+    let temp = rho_test_support::TestDir::new();
+    let (mut controller, mut batch, mut session, mut engine, mut input) = setup_modal_action_harness(&temp).await;
     let mut tctx = ModalTestCtx {
         controller: &mut controller,
         session: &mut session,
@@ -646,50 +664,18 @@ async fn test_modal_action_remaining_role_model_selections_update_config() {
         input: &mut input,
         batch: &mut batch,
     };
-    let cases = [
-        (
-            ModalKeyResult::RoleModelSelected {
-                role: ModelRole::SMOL,
-                model: Some(ModelRoute::new("anthropic", "haiku")),
-            },
-            "smol",
-            Some("anthropic/haiku"),
-        ),
-        (
-            ModalKeyResult::RoleModelSelected {
-                role: ModelRole::SLOW,
-                model: Some(ModelRoute::new("anthropic", "opus")),
-            },
-            "slow",
-            Some("anthropic/opus"),
-        ),
-        (
-            ModalKeyResult::RoleModelSelected {
-                role: ModelRole::SLOW,
-                model: Some(ModelRoute::new("openrouter", "anthropic/claude-3.7-sonnet")),
-            },
-            "slow",
-            Some("openrouter/anthropic/claude-3.7-sonnet"),
-        ),
-        (
-            ModalKeyResult::RoleModelSelected {
-                role: ModelRole::SMOL,
-                model: Some(ModelRoute::new("claude:me@work.com", "claude:me@work.com/haiku")),
-            },
-            "smol",
-            Some("claude:me@work.com/haiku"),
-        ),
-    ];
-    for (res, role, expected) in cases {
-        assert!(tctx.dispatch(res).await);
-        assert_eq!(tctx.session.config.role_model(role), expected);
-    }
+    let res = ModalKeyResult::RoleModelSelected {
+        role,
+        model: Some(route),
+    };
+    assert!(tctx.dispatch(res).await);
+    assert_eq!(tctx.session.config.role_model(role_name), Some(expected));
 }
 
 #[tokio::test]
 async fn test_modal_action_ui_setting_toggles_update_config() {
-    let temp = tempfile::tempdir().unwrap();
-    let (mut controller, mut batch, mut session, mut engine, mut input) = setup_modal_action_harness(temp.path()).await;
+    let temp = rho_test_support::TestDir::new();
+    let (mut controller, mut batch, mut session, mut engine, mut input) = setup_modal_action_harness(&temp).await;
     let mut tctx = ModalTestCtx {
         controller: &mut controller,
         session: &mut session,
@@ -726,14 +712,14 @@ async fn test_modal_action_ui_setting_toggles_update_config() {
         .await
     );
     assert_eq!(tctx.session.config.ui.cursor.as_deref(), Some("block"));
-    assert!(temp.path().join("config.toml").exists());
+    assert!(temp.join("config.toml").exists());
 }
 
 #[tokio::test]
 async fn test_modal_action_failed_saves_keep_in_memory_settings() {
-    let temp = tempfile::tempdir().unwrap();
-    let (mut controller, mut batch, mut session, mut engine, mut input) = setup_modal_action_harness(temp.path()).await;
-    let blocker = temp.path().join("not-a-dir");
+    let temp = rho_test_support::TestDir::new();
+    let (mut controller, mut batch, mut session, mut engine, mut input) = setup_modal_action_harness(&temp).await;
+    let blocker = temp.join("not-a-dir");
     std::fs::write(&blocker, "").unwrap();
     session.config.config_dir = blocker.clone();
     let mut tctx = ModalTestCtx {

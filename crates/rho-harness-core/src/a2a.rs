@@ -183,6 +183,7 @@ impl Task {
 mod tests {
     use super::*;
     use serde_json::json;
+    use test_case::test_case;
 
     #[test]
     fn tasks_serialize_with_the_spec_field_names_and_enum_values() {
@@ -226,20 +227,15 @@ mod tests {
         assert_eq!(serde_json::from_value::<Task>(encoded).unwrap(), task);
     }
 
-    #[test]
-    fn only_completed_failed_canceled_and_rejected_are_terminal() {
-        let cases = [
-            (TaskState::Submitted, false),
-            (TaskState::Working, false),
-            (TaskState::InputRequired, false),
-            (TaskState::AuthRequired, false),
-            (TaskState::Completed, true),
-            (TaskState::Failed, true),
-            (TaskState::Canceled, true),
-            (TaskState::Rejected, true),
-        ];
-        for (state, terminal) in cases {
-            assert_eq!(state.is_terminal(), terminal, "{state:?}");
-        }
+    #[test_case(TaskState::Submitted, false; "submitted")]
+    #[test_case(TaskState::Working, false; "working")]
+    #[test_case(TaskState::InputRequired, false; "input required")]
+    #[test_case(TaskState::AuthRequired, false; "auth required")]
+    #[test_case(TaskState::Completed, true; "completed")]
+    #[test_case(TaskState::Failed, true; "failed")]
+    #[test_case(TaskState::Canceled, true; "canceled")]
+    #[test_case(TaskState::Rejected, true; "rejected")]
+    fn only_completed_failed_canceled_and_rejected_are_terminal(state: TaskState, terminal: bool) {
+        assert_eq!(state.is_terminal(), terminal);
     }
 }

@@ -378,6 +378,7 @@ impl InlineStreamTracker {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use test_case::test_case;
 
     #[test]
     fn stream_word_wrapper_wraps_across_chunks() {
@@ -436,20 +437,15 @@ mod tests {
         }
     }
 
-    #[test]
-    fn handle_newline_commits_the_word_and_drops_trailing_spaces() {
-        let cases = [
-            ("hello\nworld", "hello\nworld"),
-            ("ab  \ncd", "ab\ncd"),
-            ("ab\n", "ab\n"),
-            ("\n\n", "\n\n"),
-        ];
-        for (input, expected) in cases {
-            let mut wrapper = StreamWordWrapper::new(20);
-            let mut output = wrapper.process_chunk(input);
-            output.push_str(&wrapper.flush());
-            assert_eq!(output, expected, "input {input:?}");
-        }
+    #[test_case("hello\nworld", "hello\nworld"; "two words")]
+    #[test_case("ab  \ncd", "ab\ncd"; "trailing spaces")]
+    #[test_case("ab\n", "ab\n"; "final newline")]
+    #[test_case("\n\n", "\n\n"; "only newlines")]
+    fn handle_newline_commits_the_word_and_drops_trailing_spaces(input: &str, expected: &str) {
+        let mut wrapper = StreamWordWrapper::new(20);
+        let mut output = wrapper.process_chunk(input);
+        output.push_str(&wrapper.flush());
+        assert_eq!(output, expected);
     }
 
     fn render_split(text: &str, split: usize) -> String {
@@ -462,39 +458,29 @@ mod tests {
         out
     }
 
-    #[test]
-    fn inline_markers_render_the_same_at_every_chunk_boundary() {
-        let cases = [
-            ("an *italic* word", "an italic word"),
-            ("ends *italic*", "ends italic"),
-            ("a **bold** word", "a bold word"),
-            ("math 2 * 3 and a* star", "math 2 * 3 and a* star"),
-            ("*lead* then *x* end", "lead then x end"),
-            ("mixed **bold** and *it* and `co*de`", "mixed bold and it and co*de"),
-        ];
-        for (text, plain) in cases {
-            let whole = render_split(text, 0);
-            assert_eq!(crate::ui::block::strip_ansi(&whole), plain, "{text:?}");
-            for split in 1..text.len() {
-                assert_eq!(render_split(text, split), whole, "{text:?} split at {split}");
-            }
+    #[test_case("an *italic* word", "an italic word"; "italic")]
+    #[test_case("ends *italic*", "ends italic"; "trailing italic")]
+    #[test_case("a **bold** word", "a bold word"; "bold")]
+    #[test_case("math 2 * 3 and a* star", "math 2 * 3 and a* star"; "literal stars")]
+    #[test_case("*lead* then *x* end", "lead then x end"; "leading italic")]
+    #[test_case("mixed **bold** and *it* and `co*de`", "mixed bold and it and co*de"; "mixed markers")]
+    fn inline_markers_render_the_same_at_every_chunk_boundary(text: &str, plain: &str) {
+        let whole = render_split(text, 0);
+        assert_eq!(crate::ui::block::strip_ansi(&whole), plain);
+        for split in 1..text.len() {
+            assert_eq!(render_split(text, split), whole, "split at {split}");
         }
     }
 
-    #[test]
-    fn flush_resets_wrap_state_before_the_next_segment() {
-        let cases = [
-            ("\x1b[1mab", "cdefghij", "cdefg\nhij"),
-            ("ab ", "cd", "cd"),
-            ("abc", "de", "de"),
-        ];
-        for (first, second, expected) in cases {
-            let mut wrapper = StreamWordWrapper::new(5);
-            wrapper.process_chunk(first);
-            wrapper.flush();
-            let mut output = wrapper.process_chunk(second);
-            output.push_str(&wrapper.flush());
-            assert_eq!(output, expected, "segment {second:?}");
-        }
+    #[test_case("\x1b[1mab", "cdefghij", "cdefg\nhij"; "styled partial word")]
+    #[test_case("ab ", "cd", "cd"; "trailing space")]
+    #[test_case("abc", "de", "de"; "partial word")]
+    fn flush_resets_wrap_state_before_the_next_segment(first: &str, second: &str, expected: &str) {
+        let mut wrapper = StreamWordWrapper::new(5);
+        wrapper.process_chunk(first);
+        wrapper.flush();
+        let mut output = wrapper.process_chunk(second);
+        output.push_str(&wrapper.flush());
+        assert_eq!(output, expected);
     }
 }

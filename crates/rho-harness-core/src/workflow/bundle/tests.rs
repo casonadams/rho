@@ -1,4 +1,5 @@
 use super::*;
+use test_case::test_case;
 
 fn write(path: &Path, text: &str) {
     std::fs::create_dir_all(path.parent().unwrap()).unwrap();
@@ -112,10 +113,10 @@ fn mutual_call_cycles_are_reported_not_loaded() {
     assert!(errors.contains("a -> b -> c -> a"), "{errors}");
 }
 
-#[test]
-fn prompt_files_cannot_escape_the_workflow_directory() {
+#[test_case("../secret"; "parent traversal")]
+#[test_case("/etc/passwd"; "absolute path")]
+#[test_case(""; "empty path")]
+fn prompt_files_cannot_escape_the_workflow_directory(path: &str) {
     let root = temp_root("escape");
-    for path in ["../secret", "/etc/passwd", ""] {
-        assert!(read_relative(&root, path).is_err(), "{path}");
-    }
+    assert!(read_relative(&root, path).is_err());
 }

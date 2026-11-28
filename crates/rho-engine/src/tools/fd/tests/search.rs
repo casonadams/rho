@@ -1,4 +1,5 @@
 use super::{find, fixture};
+use crate::test_support::assert_smart_case;
 use crate::tools::fd::{FdArgs, FdTool};
 
 #[tokio::test]
@@ -15,14 +16,13 @@ async fn matches_unanchored_against_workspace_relative_paths() {
 #[tokio::test]
 async fn pattern_is_smart_case() {
     let dir = fixture();
-    let upper = find(&dir, "WIDGET", |_| {}).await;
-    assert_eq!(upper.content, "No paths found");
-
-    let lower = find(&dir, "widget", |_| {}).await;
-    assert_eq!(lower.content, "1 path\n\nsrc/ui/\n  widget.rs");
-
-    let mixed = find(&dir, "Widget", |_| {}).await;
-    assert_eq!(mixed.content, "No paths found");
+    assert_smart_case(
+        async |pattern| find(&dir, pattern, |_| {}).await,
+        ["widget", "WIDGET", "Widget"],
+        "1 path\n\nsrc/ui/\n  widget.rs",
+        "No paths found",
+    )
+    .await;
 }
 
 #[tokio::test]
@@ -91,7 +91,7 @@ async fn quoted_boolean_and_integer_arguments_are_accepted() {
     use crate::tools::engine_tool::EngineTool;
     let dir = fixture();
     let args = serde_json::json!({ "pattern": "hidden", "hidden": "true", "limit": "5" });
-    let result = EngineTool::execute(&FdTool::new(dir.path()), args).await.unwrap();
+    let result = EngineTool::execute(&FdTool::new(&dir), args).await.unwrap();
     assert!(!result.is_error, "{}", result.content);
     assert_eq!(result.content, "1 path\n\n./\n  .hidden_file");
 }
@@ -99,7 +99,7 @@ async fn quoted_boolean_and_integer_arguments_are_accepted() {
 #[tokio::test]
 async fn no_pattern_or_empty_pattern_matches_all_files() {
     let dir = fixture();
-    let no_pat = FdTool::new(dir.path()).execute(FdArgs::default()).await.unwrap();
+    let no_pat = FdTool::new(&dir).execute(FdArgs::default()).await.unwrap();
     assert!(!no_pat.is_error);
     assert!(no_pat.content.contains("src/ui/\n  widget.rs"));
     assert!(no_pat.content.contains("  README.md"));

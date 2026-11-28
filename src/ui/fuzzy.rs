@@ -10,20 +10,16 @@ pub(crate) fn fuzzy_score(query: &str, target: &str) -> Option<i64> {
 #[cfg(test)]
 mod tests {
     use super::fuzzy_score;
+    use test_case::test_case;
 
-    #[test]
-    fn matches_ordered_subsequences_case_insensitively() {
-        let cases = [
-            ("", "anything", true),
-            ("cl", "claude", true),
-            ("CL", "claude", true),
-            ("c3o", "claude-3-opus", true),
-            ("xyz", "claude", false),
-            ("longerthan", "short", false),
-        ];
-        for (query, target, matches) in cases {
-            assert_eq!(fuzzy_score(query, target).is_some(), matches, "{query:?} in {target:?}");
-        }
+    #[test_case("", "anything", true; "empty query")]
+    #[test_case("cl", "claude", true; "prefix")]
+    #[test_case("CL", "claude", true; "uppercase query")]
+    #[test_case("c3o", "claude-3-opus", true; "subsequence")]
+    #[test_case("xyz", "claude", false; "absent chars")]
+    #[test_case("longerthan", "short", false; "query longer than target")]
+    fn matches_ordered_subsequences_case_insensitively(query: &str, target: &str, matches: bool) {
+        assert_eq!(fuzzy_score(query, target).is_some(), matches);
     }
 
     #[test]

@@ -246,8 +246,8 @@ mod tests {
 
     #[test]
     fn test_cache_roundtrip_and_invalidation() {
-        let temp = tempfile::tempdir().unwrap();
-        let cache_file = temp.path().join("mcp-cache.json");
+        let temp = crate::test_support::TestDir::new();
+        let cache_file = temp.join("mcp-cache.json");
 
         let mut cache = McpCache::default();
         let cfg = McpServerConfig::stdio("test", vec!["1".to_string()]);
@@ -291,8 +291,8 @@ mod tests {
 
     #[test]
     fn test_corrupted_cache_file_falls_back() {
-        let temp = tempfile::tempdir().unwrap();
-        let cache_file = temp.path().join("mcp-cache.json");
+        let temp = crate::test_support::TestDir::new();
+        let cache_file = temp.join("mcp-cache.json");
         std::fs::write(&cache_file, "INVALID JSON").unwrap();
 
         let loaded = McpCache::load_from_path(&cache_file);

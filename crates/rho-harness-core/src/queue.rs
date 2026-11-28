@@ -112,6 +112,7 @@ impl<T> Default for PendingMessageQueue<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use test_case::test_case;
 
     #[test]
     fn test_queue_mode_from_str() {
@@ -120,28 +121,24 @@ mod tests {
         assert!("invalid".parse::<QueueMode>().is_err());
     }
 
-    #[test]
-    fn config_files_accept_the_same_queue_mode_spellings_as_the_cli() {
+    #[test_case("one-at-a-time"; "kebab one at a time")]
+    #[test_case("one_at_a_time"; "snake one at a time")]
+    #[test_case("one"; "one")]
+    #[test_case("ONE"; "uppercase one")]
+    #[test_case("all"; "all")]
+    #[test_case("All"; "capitalized all")]
+    #[test_case("invalid"; "invalid")]
+    #[test_case(""; "empty")]
+    fn config_files_accept_the_same_queue_mode_spellings_as_the_cli(spelling: &str) {
         #[derive(Deserialize)]
         struct File {
             mode: QueueMode,
         }
-        for spelling in [
-            "one-at-a-time",
-            "one_at_a_time",
-            "one",
-            "ONE",
-            "all",
-            "All",
-            "invalid",
-            "",
-        ] {
-            let from_cli = spelling.parse::<QueueMode>();
-            let from_file = toml::from_str::<File>(&format!("mode = {spelling:?}")).map(|file| file.mode);
-            assert_eq!(from_file.as_ref().ok(), from_cli.as_ref().ok(), "{spelling}");
-            if let Err(error) = from_cli {
-                assert!(from_file.unwrap_err().to_string().contains(&error), "{spelling}");
-            }
+        let from_cli = spelling.parse::<QueueMode>();
+        let from_file = toml::from_str::<File>(&format!("mode = {spelling:?}")).map(|file| file.mode);
+        assert_eq!(from_file.as_ref().ok(), from_cli.as_ref().ok());
+        if let Err(error) = from_cli {
+            assert!(from_file.unwrap_err().to_string().contains(&error));
         }
     }
 
