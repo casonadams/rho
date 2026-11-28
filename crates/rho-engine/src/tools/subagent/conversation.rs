@@ -1,4 +1,6 @@
-use super::handoff::{WORKTREE_ARTIFACT, WorktreeRecord, changed_since, moved_note, pending_note, settle};
+use super::handoff::{
+    SettledRound, WORKTREE_ARTIFACT, WorktreeRecord, changed_since, moved_note, pending_note, run_in_worktree,
+};
 use super::round::{Round, RoundEnd, RoundInput};
 use super::runner::SubagentRunner;
 use super::runtime::{BusyClaim, BusyContexts};
@@ -258,13 +260,10 @@ impl Exchange {
         reference: Option<&str>,
     ) -> Outcome {
         self.send(input, reference.filter(|_| !self.continues_question));
-        let runner = match self.current_worktree() {
-            Some(worktree) => runner.clone().in_worktree(&worktree.path),
-            None => runner.clone(),
-        }
-        .with_task_id(&self.task.id);
-        let lsp_guard = runner.worktree_lsp_guard();
-        let root = runner.workspace_root();
+        let runner = runner.clone().with_task_id(&self.task.id);
+        let root = self
+            .current_worktree()
+            .map_or_else(|| runner.workspace_root(), |worktree| worktree.path.clone());
         let stale = stale_paths(&root, &self.versions).await;
         let others = self.other_changes(&root, &stale).await;
         let noted = format!(
@@ -279,16 +278,15 @@ impl Exchange {
             RoundInput::Prompt(&noted)
         };
         let transcript = std::mem::take(&mut self.transcript);
-        let round = runner.run_round(transcript, round_input).await;
-        lsp_guard.close_unless_cancelled(round.end == RoundEnd::Cancelled).await;
-        let tracked: BTreeSet<String> = self.versions.keys().chain(&round.touched_files).cloned().collect();
+        let run = run_in_worktree(&runner, self.worktree.take(), transcript, round_input).await;
+        let tracked: BTreeSet<String> = self.versions.keys().chain(&run.round.touched_files).cloned().collect();
         let file_versions = versions(&root, tracked).await;
-        let worktree = match self.current_worktree() {
-            Some(worktree) => Some(settle(worktree).await),
-            None => None,
-        };
-        let worktree_held = self.worktree.take().map(WorktreeLease::release);
-        let (record, worktree_error) = match worktree {
+        let SettledRound {
+            round,
+            record,
+            worktree,
+        } = run.settle().await;
+        let (record, worktree_error) = match record {
             Some(Ok(record)) => (Some(record), None),
             Some(Err(error)) => (None, Some(error)),
             None => (None, None),
@@ -309,7 +307,7 @@ impl Exchange {
             save_error: saved.err().map(|e| e.to_string()),
             stale,
             others,
-            worktree: worktree_held.filter(|_| record.as_ref().is_some_and(|r| !r.removed)),
+            worktree: worktree.filter(|_| record.as_ref().is_some_and(|r| !r.removed)),
             record,
             worktree_error,
         }

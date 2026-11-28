@@ -15,6 +15,7 @@ mod round_tests;
 pub mod runner;
 mod runtime;
 mod snapshot;
+mod stream;
 mod tasks;
 #[cfg(test)]
 mod test_repo;
@@ -55,23 +56,6 @@ pub struct SubagentTool {
     direnv: crate::tools::bash::DirenvOptions,
     fresh_session_state: Option<FreshSessionState>,
     background: background::Backgrounding,
-}
-
-#[derive(serde::Deserialize)]
-struct RawSubagentArgs {
-    #[serde(default)]
-    prompt: String,
-    task_id: Option<String>,
-    inspect: Option<bool>,
-    name: Option<String>,
-    agent: Option<String>,
-    persona: Option<String>,
-    role: Option<String>,
-    context_slice: Option<String>,
-    model: Option<String>,
-    #[serde(alias = "max_turns")]
-    turns: Option<usize>,
-    inherit_context: Option<bool>,
 }
 
 pub(crate) struct RunnerSpec<'a> {
@@ -250,7 +234,7 @@ impl SubagentTool {
     }
 
     async fn attach_worktree(&self, exchange: conversation::Exchange) -> Result<conversation::Exchange, String> {
-        let label = format!("subagent {}", exchange.settings().name.as_deref().unwrap_or("task"));
+        let label = types::subagent_label(exchange.settings().name.as_deref().unwrap_or("task"));
         let owner = self.ctx.session.as_ref().map(|s| s.session_id.clone());
         match (&self.worktrees, &self.ctx.project) {
             (Some(store), Some(project)) => {
@@ -426,7 +410,7 @@ impl SubagentTool {
         }
     }
 
-    fn compose_context(&self, args: &RawSubagentArgs) -> Option<String> {
+    fn compose_context(&self, args: &SubagentArgs) -> Option<String> {
         let parent = args
             .inherit_context
             .unwrap_or(false)
@@ -492,7 +476,7 @@ impl EngineTool for SubagentTool {
     }
 
     async fn execute(&self, args: serde_json::Value) -> Result<ToolResult, AppError> {
-        let args: RawSubagentArgs = match crate::tools::types::parse_tool_args("subagent", args, || self.parameters()) {
+        let args: SubagentArgs = match crate::tools::types::parse_tool_args("subagent", args, || self.parameters()) {
             Ok(parsed) => parsed,
             Err(e) => return Ok(e),
         };
@@ -515,7 +499,7 @@ impl EngineTool for SubagentTool {
 
     fn concurrency_safe(&self, args: &serde_json::Value) -> bool {
         let args = crate::tools::types::normalize_tool_arguments(args.clone());
-        let Ok(parsed) = crate::tools::types::try_parse_tool_args::<RawSubagentArgs>(&args) else {
+        let Ok(parsed) = crate::tools::types::try_parse_tool_args::<SubagentArgs>(&args) else {
             return false;
         };
         if parsed.inspect.unwrap_or(false) || self.isolated() {
@@ -524,10 +508,11 @@ impl EngineTool for SubagentTool {
         if parsed.task_id.is_some() {
             return false;
         }
-        let Ok(target) = self.resolve_target(parsed.agent.as_deref().or(parsed.role.as_deref()), &[]) else {
+        let Ok(target) = self.resolve_target(parsed.target_name(), &[]) else {
             return false;
         };
         let tools = target_tools(&self.tools, &target);
-        !tools.is_empty() && tools.iter().all(|t| runner::READ_ONLY_TOOLS.contains(&t.name()))
+        let read_only = SubagentRole::Scout.allowed_tools();
+        !tools.is_empty() && tools.iter().all(|t| read_only.contains(&t.name()))
     }
 }

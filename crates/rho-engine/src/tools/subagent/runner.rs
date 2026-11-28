@@ -12,23 +12,21 @@ use super::presenter::AgentPresenter;
 use super::recovery::{attempt_recovery_synthesis, partial_result};
 use super::round::{Round, RoundEnd, RoundInput, build_subagent_prompt, ended_with_question};
 use super::snapshot::Snapshot;
+use super::stream::Tally;
+use super::types;
 use crate::engine::compactor::llm::ModelHandle;
 use crate::engine::compactor::{MadeRoom, TurnCompaction, compact_messages};
 use crate::engine::metrics::RunTracker;
 use crate::engine::runner::history::without_unanswered_tool_calls;
 use crate::engine::runner::sink::{TerminalApprovalSink, TerminalSinkConfig};
 use crate::engine::runner::turn::MemoryStore;
-use crate::engine::runner::turn::runner::{
-    AgentRunner, EMPTY_RESPONSE_ERROR, MultiTurnStreamItem, StreamEvent, ToolObserver,
-};
-use crate::engine::runner::turn::streaming_tool::StreamingToolTracker;
+use crate::engine::runner::turn::runner::{AgentRunner, EMPTY_RESPONSE_ERROR, ToolObserver};
 use crate::engine::runner::turn::types::{CancellationSignal, unless_cancelled};
 use crate::engine::tracking::{ContextBudget, ContextPolicy};
 use crate::mailbox::{AgentId, Mailbox};
 use crate::tools::engine_tool::{EngineTool, TurnToolContext};
 use crate::tools::subagent::types::SubagentRole;
 use crate::tools::types::ToolResult;
-use futures::StreamExt;
 use rho_harness_core::agents::{AgentEvent, AgentHandle, AgentStatus};
 use rho_harness_core::error::AppError;
 use rho_harness_core::model::ChatMessage;
@@ -37,9 +35,7 @@ use rho_harness_core::provider::ModelRoute;
 use std::convert::Infallible;
 use std::sync::Arc;
 
-pub(crate) const RUN_FOOTER_PREFIX: &str = "\n\n[subagent";
 const DEFAULT_MONITOR_GROUP: &str = "subagents";
-pub(crate) const READ_ONLY_TOOLS: [&str; 6] = ["read", "fd", "rg", "lsp", "web_fetch", "web_search"];
 const ASK_PARENT_GUIDANCE: &str = "If you cannot proceed without a decision or information only the delegating agent has, call ask_parent with a specific question instead of guessing; your work so far is kept while you wait.\n\n";
 const REPLY_HEADING: &str = "Reply from the delegating agent";
 
@@ -61,9 +57,9 @@ pub struct SubagentRunner {
     model: ModelHandle,
     instructions: String,
     tools: Vec<Arc<dyn EngineTool>>,
-    max_turns: usize,
-    ctx: TurnToolContext,
-    label: String,
+    pub(super) max_turns: usize,
+    pub(super) ctx: TurnToolContext,
+    name: Option<String>,
     monitor_group: String,
     monitor_label: String,
     position: Option<String>,
@@ -84,27 +80,10 @@ pub struct SubagentRunner {
 
 /// How the turn loop finished: with the model's final text, stopped by the round's stop signal, or
 /// with an error.
-enum Finish {
+pub(super) enum Finish {
     Done(String),
     Stopped,
     Failed(AppError),
-}
-
-/// What a round's stream has shown so far: the tools of the model call in progress, and the tool
-/// call whose arguments are streaming into a preview card.
-#[derive(Default)]
-struct Shown {
-    pending_names: Vec<String>,
-    streaming_tool: StreamingToolTracker,
-}
-
-/// What the round's turns added up to.
-#[derive(Default)]
-struct Tally {
-    turns: usize,
-    tool_calls: usize,
-    tokens: u64,
-    cached_tokens: u64,
 }
 
 /// A round in progress across runs of the turn loop (one per compaction).
@@ -188,7 +167,7 @@ impl SubagentRunner {
             tools,
             max_turns,
             ctx: TurnToolContext::default(),
-            label: "subagent".to_string(),
+            name: None,
             monitor_group: DEFAULT_MONITOR_GROUP.to_string(),
             monitor_label: "subagent".to_string(),
             position: None,
@@ -265,14 +244,14 @@ impl SubagentRunner {
 
     #[must_use]
     pub fn with_label(mut self, name: &str) -> Self {
-        self.label = format!("subagent {name}");
+        self.name = Some(name.to_string());
         self.monitor_label = name.to_string();
         self
     }
 
     #[must_use]
     pub fn with_task_name(mut self, name: &str) -> Self {
-        self.label = format!("subagent {name}");
+        self.name = Some(name.to_string());
         self.monitor_label = format!("{name} · {}", self.monitor_label);
         self
     }
@@ -407,6 +386,12 @@ impl SubagentRunner {
         }
     }
 
+    pub(super) fn label(&self) -> String {
+        self.name
+            .as_deref()
+            .map_or_else(|| "subagent".to_string(), types::subagent_label)
+    }
+
     /// The run footer, e.g. `[subagent audit: 3 turns, 5 tool calls, 900 tokens (600 cached), acme/smol]`;
     /// `detail` follows the name.
     pub(crate) fn footer(&self, round: &Round, detail: &str) -> String {
@@ -419,8 +404,8 @@ impl SubagentRunner {
             cached => format!(" ({cached} cached)"),
         };
         format!(
-            "{RUN_FOOTER_PREFIX}{}{detail}: {incomplete}{problems}{} turns, {} tool calls, {} tokens{cached}, {}]",
-            self.label.strip_prefix("subagent").unwrap_or_default(),
+            "\n\n[{}{detail}: {incomplete}{problems}{} turns, {} tool calls, {} tokens{cached}, {}]",
+            self.label(),
             round.turns,
             round.tool_calls,
             round.tokens,
@@ -741,97 +726,6 @@ impl SubagentRunner {
         }
     }
 
-    /// Reads the turn loop's stream to its end: shows its output, releases its display barriers, and
-    /// adds its turns, tool calls, and tokens to `tally`. Stops early when `stop` fires.
-    async fn consume(
-        &self,
-        agent: AgentRunner,
-        sink: &Arc<TerminalApprovalSink>,
-        tracker: Option<&AgentHandle>,
-        stop: &CancellationSignal,
-        tally: &mut Tally,
-    ) -> Finish {
-        let mut stream = agent.stream();
-        let mut shown = Shown::default();
-        let mut output = None;
-        loop {
-            let Some(item) = unless_cancelled(Some(stop), stream.next()).await else {
-                sink.flush_display();
-                return Finish::Stopped;
-            };
-            match item {
-                None => break,
-                Some(Err(error)) => {
-                    sink.flush_display();
-                    return Finish::Failed(error);
-                }
-                Some(Ok(MultiTurnStreamItem::FinalResponse(resp))) => output = Some(resp.output),
-                Some(Ok(item)) => self.show(item, sink, tracker, tally, &mut shown),
-            }
-        }
-        sink.flush_display();
-        match output {
-            Some(text) => Finish::Done(text),
-            None if stop.is_cancelled() => Finish::Stopped,
-            None => Finish::Failed(AppError::Other(anyhow::anyhow!("the turn ended unexpectedly"))),
-        }
-    }
-
-    fn show(
-        &self,
-        item: MultiTurnStreamItem,
-        sink: &Arc<TerminalApprovalSink>,
-        tracker: Option<&AgentHandle>,
-        tally: &mut Tally,
-        shown: &mut Shown,
-    ) {
-        shown.streaming_tool.observe_boundary(&item, sink);
-        match item {
-            MultiTurnStreamItem::StreamAssistantItem(StreamEvent::Text(text)) => sink.emit_text(&text),
-            MultiTurnStreamItem::StreamAssistantItem(StreamEvent::Reasoning(text)) => sink.emit_reasoning(&text),
-            MultiTurnStreamItem::StreamAssistantItem(StreamEvent::Arguments { id, name, json }) => {
-                sink.flush_reasoning();
-                shown.streaming_tool.handle_delta(&id, &name, &json, sink);
-            }
-            MultiTurnStreamItem::ToolCall { tool_call } => {
-                tally.tool_calls += 1;
-                shown.pending_names.push(tool_call.function.name);
-            }
-            MultiTurnStreamItem::ModelTurnRetried(retry) => {
-                tally.tool_calls = tally.tool_calls.saturating_sub(retry.discarded_tool_calls);
-                shown.pending_names.clear();
-                sink.flush_display();
-            }
-            MultiTurnStreamItem::CompletionCall(call) => {
-                tally.turns += 1;
-                let cached = call.usage.cached_input_tokens.unwrap_or(0);
-                let written = call.usage.cache_creation_input_tokens.unwrap_or(0);
-                tally.tokens += call.usage.input_tokens + cached + written + call.usage.output_tokens;
-                tally.cached_tokens += cached;
-                sink.flush_display();
-                if let Some(tracker) = tracker {
-                    tracker.turn(tally.turns);
-                }
-                if !shown.pending_names.is_empty() {
-                    self.report_progress(tally.turns, &shown.pending_names);
-                    shown.pending_names.clear();
-                }
-            }
-            MultiTurnStreamItem::DisplayBarrier(drained) => {
-                sink.flush_display();
-                drained.notify_one();
-            }
-            MultiTurnStreamItem::MessagesDelivered(messages) => {
-                if let Some(tracker) = tracker {
-                    for message in messages {
-                        tracker.event(AgentEvent::Task(message));
-                    }
-                }
-            }
-            MultiTurnStreamItem::ToolExecutionCommitted | MultiTurnStreamItem::FinalResponse(_) => {}
-        }
-    }
-
     fn start_tracking(&self, input: &str) -> Option<AgentHandle> {
         self.ctx.monitor.as_ref().map(|monitor| {
             let handle = monitor.start(
@@ -855,15 +749,6 @@ impl SubagentRunner {
             RoundEnd::Partial(_) | RoundEnd::Failed(_) => AgentStatus::Failed,
             RoundEnd::Cancelled => AgentStatus::Cancelled,
         }
-    }
-
-    fn report_progress(&self, turn: usize, names: &[String]) {
-        self.ctx.progress.stream_chunk(&format!(
-            "{} turn {turn}/{}: {}\n",
-            self.label,
-            self.max_turns,
-            names.join(", ")
-        ));
     }
 
     fn partial(reason: &str, transcript: &[ChatMessage]) -> RoundEnd {

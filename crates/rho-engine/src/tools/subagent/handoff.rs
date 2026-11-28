@@ -1,5 +1,8 @@
+use super::round::{Round, RoundEnd, RoundInput};
+use super::runner::SubagentRunner;
 use super::workspace::WorkspaceChange;
-use crate::worktree::{FileChange, Worktree, git};
+use crate::worktree::{FileChange, Worktree, WorktreeLease, git};
+use rho_harness_core::model::ChatMessage;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
@@ -30,6 +33,56 @@ pub(crate) async fn settle(worktree: &Worktree) -> Result<WorktreeRecord, String
         changes: settled.changes,
         removed: settled.removed,
     })
+}
+
+/// A round run in its worktree, which stays leased until `settle`: settling removes a worktree with no
+/// changes, so the files the round touched are read first.
+pub(crate) struct WorktreeRound {
+    pub round: Round,
+    lease: Option<WorktreeLease>,
+}
+
+/// A round whose worktree is settled and released.
+pub(crate) struct SettledRound {
+    pub round: Round,
+    /// The worktree's record, or the error settling it; `None` when the round had no worktree.
+    pub record: Option<Result<WorktreeRecord, String>>,
+    /// The released worktree.
+    pub worktree: Option<Worktree>,
+}
+
+impl WorktreeRound {
+    /// Settles the worktree and releases its lease. A settle error is returned beside the round, which
+    /// still stands.
+    pub(crate) async fn settle(self) -> SettledRound {
+        let record = match &self.lease {
+            Some(lease) => Some(settle(lease.worktree()).await),
+            None => None,
+        };
+        SettledRound {
+            round: self.round,
+            record,
+            worktree: self.lease.map(WorktreeLease::release),
+        }
+    }
+}
+
+/// Runs `input` from `transcript` in the worktree `lease` holds, or in the runner's own workspace without
+/// one, with the worktree's language servers stopped afterwards.
+pub(crate) async fn run_in_worktree(
+    runner: &SubagentRunner,
+    lease: Option<WorktreeLease>,
+    transcript: Vec<ChatMessage>,
+    input: RoundInput<'_>,
+) -> WorktreeRound {
+    let runner = match &lease {
+        Some(lease) => runner.clone().in_worktree(&lease.worktree().path),
+        None => runner.clone(),
+    };
+    let lsp_guard = runner.worktree_lsp_guard();
+    let round = runner.run_round(transcript, input).await;
+    lsp_guard.close_unless_cancelled(round.end == RoundEnd::Cancelled).await;
+    WorktreeRound { round, lease }
 }
 
 /// Files that differ from `last_head`, the commit the agent last saw. `now` is the commit it starts from

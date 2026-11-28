@@ -669,6 +669,29 @@ fn worktree_setup(turns: Vec<Vec<ModelStreamEvent>>) -> WorktreeSetup {
 }
 
 #[tokio::test]
+async fn a_worktree_that_cannot_settle_keeps_the_round_and_is_still_released() {
+    let s = worktree_setup(vec![text("done")]);
+    let lease = s
+        .store
+        .create(&s.root, "fixer", None)
+        .await
+        .unwrap()
+        .map(WorktreeLease::new)
+        .unwrap();
+    std::fs::remove_dir_all(&lease.worktree().path).unwrap();
+    let runner = SubagentRunner::new_custom(Arc::new(s.adapter.clone()), "instructions".to_string(), Vec::new(), 5);
+
+    let settled = run_in_worktree(&runner, Some(lease), Vec::new(), RoundInput::Prompt("go"))
+        .await
+        .settle()
+        .await;
+
+    assert!(matches!(&settled.round.end, RoundEnd::Answered(text) if text == "done"));
+    assert!(matches!(settled.record, Some(Err(_))));
+    assert!(settled.worktree.is_some());
+}
+
+#[tokio::test]
 async fn inspecting_an_unmerged_worktree_task_checks_files_in_its_worktree() {
     let s = worktree_setup(vec![write_turn("a.rs", "agent\n"), text("wrote a.rs")]);
     let first = ask(

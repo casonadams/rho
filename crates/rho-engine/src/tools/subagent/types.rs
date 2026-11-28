@@ -36,6 +36,12 @@ pub fn task_name(raw: &str) -> Option<String> {
     Some(name.chars().take(MAX_TASK_NAME_CHARS).collect())
 }
 
+/// The label a named subagent run is shown under, e.g. `subagent performanceAudit`.
+#[must_use]
+pub(super) fn subagent_label(name: &str) -> String {
+    format!("subagent {name}")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

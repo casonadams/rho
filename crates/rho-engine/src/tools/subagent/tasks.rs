@@ -1,7 +1,7 @@
 //! A subagent task's lifecycle: starting one, continuing or steering it, inspecting saved tasks,
 //! and running each round in the foreground or background.
 
-use super::{RawSubagentArgs, RunnerSpec, SubagentRunner, SubagentTool, round};
+use super::{RunnerSpec, SubagentArgs, SubagentRunner, SubagentTool, round};
 use super::{background, conversation, inspect, types, workspace};
 use crate::mailbox::{AgentId, SendError};
 use crate::tools::types::ToolResult;
@@ -61,10 +61,10 @@ impl SubagentTool {
         )
     }
 
-    pub(super) async fn start_task(&self, args: &RawSubagentArgs) -> Result<ToolResult, String> {
+    pub(super) async fn start_task(&self, args: &SubagentArgs) -> Result<ToolResult, String> {
         let settings = conversation::ConversationSettings {
             name: args.name.as_deref().and_then(types::task_name),
-            agent: args.agent.clone().or_else(|| args.role.clone()),
+            agent: args.target_name().map(str::to_string),
             model: args.model.clone(),
             agent_file: None,
             persona: args.persona.clone(),
@@ -84,7 +84,7 @@ impl SubagentTool {
         Ok(self.converse(slot, exchange, runner, input, None).await)
     }
 
-    pub(super) async fn continue_task(&self, args: &RawSubagentArgs, task_id: &str) -> Result<ToolResult, String> {
+    pub(super) async fn continue_task(&self, args: &SubagentArgs, task_id: &str) -> Result<ToolResult, String> {
         let session = self
             .ctx
             .session
@@ -142,10 +142,7 @@ impl SubagentTool {
         };
         let task_id = AgentId::from(exchange.task_id());
         let settings = exchange.settings();
-        let label = format!(
-            "subagent {}",
-            settings.name.as_deref().unwrap_or(settings.agent_or_role())
-        );
+        let label = types::subagent_label(settings.name.as_deref().unwrap_or(settings.agent_or_role()));
         let runner = runner.with_parent_channel();
         let owner = AgentId::from(session.session_id.as_str());
         let task = background::BackgroundTask {
@@ -173,17 +170,12 @@ impl SubagentTool {
 /// Refuses a role, agent, or persona that differs from the one the task already runs as.
 fn check_continuation(
     settings: &conversation::ConversationSettings,
-    args: &RawSubagentArgs,
+    args: &SubagentArgs,
     task_id: &str,
 ) -> Result<(), String> {
     let differs = |requested: &str, current: Option<&str>| !current.is_some_and(|c| c.eq_ignore_ascii_case(requested));
     let agent = settings.agent_or_role();
-    if let Some(requested) = args
-        .agent
-        .as_deref()
-        .or(args.role.as_deref())
-        .filter(|r| differs(r, Some(agent)))
-    {
+    if let Some(requested) = args.target_name().filter(|r| differs(r, Some(agent))) {
         return Err(format!(
             "task '{task_id}' runs as '{agent}', not '{requested}'; omit role and agent when continuing a task"
         ));

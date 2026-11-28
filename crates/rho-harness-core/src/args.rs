@@ -403,7 +403,8 @@ pub struct SubagentArgs {
     pub name: Option<String>,
     /// Role profile for the subagent ('scout', 'critic', 'planner', 'general'; default: scout). Only 'general' can write, edit, or run bash
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub role: Option<SubagentRole>,
+    #[schemars(with = "Option<SubagentRole>")]
+    pub role: Option<String>,
     /// Custom subagent name to invoke (e.g. defined in .claude/agents/ or .agents/agents/)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent: Option<String>,
@@ -428,6 +429,14 @@ pub struct SubagentArgs {
     /// Share the recent parent conversation (text only) with the subagent; the subagent's model provider will see it
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub inherit_context: Option<bool>,
+}
+
+impl SubagentArgs {
+    /// The custom agent named, else the role named; an unknown name is for the caller to reject.
+    #[must_use]
+    pub fn target_name(&self) -> Option<&str> {
+        self.agent.as_deref().or(self.role.as_deref())
+    }
 }
 
 #[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
@@ -660,13 +669,38 @@ mod tests {
     fn test_subagent_args_serde() {
         let json = r#"{"role":"scout","prompt":"find main.rs","max_turns":5,"model":"slow"}"#;
         let parsed: SubagentArgs = serde_json::from_str(json).expect("valid json");
-        assert_eq!(parsed.role, Some(SubagentRole::Scout));
+        assert_eq!(parsed.role.as_deref(), Some("scout"));
         assert_eq!(parsed.prompt, "find main.rs");
         assert_eq!(parsed.turns, Some(5));
         assert_eq!(parsed.model.as_deref(), Some("slow"));
 
         let serialized = serde_json::to_string(&parsed).expect("can serialize");
         assert!(serialized.contains(r#""role":"scout""#));
+    }
+
+    #[test]
+    fn subagent_schema_enumerates_every_role() {
+        let schema = serde_json::to_string(&schemars::schema_for!(SubagentArgs)).unwrap();
+        let roles: Vec<&str> = SubagentRole::ALL.iter().map(SubagentRole::as_str).collect();
+        assert!(
+            schema.contains(&format!("\"enum\":{}", serde_json::json!(roles))),
+            "{schema}"
+        );
+    }
+
+    #[test]
+    fn subagent_target_prefers_agent_and_keeps_unknown_role_names() {
+        let target = |json: &str| {
+            let parsed: SubagentArgs = serde_json::from_str(json).expect("valid json");
+            parsed.target_name().map(str::to_string)
+        };
+        assert_eq!(
+            target(r#"{"agent":"reviewer","role":"critic"}"#).as_deref(),
+            Some("reviewer")
+        );
+        assert_eq!(target(r#"{"role":"critic"}"#).as_deref(), Some("critic"));
+        assert_eq!(target(r#"{"role":"scuot"}"#).as_deref(), Some("scuot"));
+        assert_eq!(target(r#"{"prompt":"x"}"#), None);
     }
 
     #[test]

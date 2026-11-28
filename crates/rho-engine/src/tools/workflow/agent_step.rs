@@ -4,7 +4,7 @@ use super::resume::step_key;
 use crate::engine::runner::turn::types::unless_cancelled;
 use crate::provider::adapter::ModelCompletionRequest;
 use crate::tools::subagent::conversation::{ConversationSettings, Exchange};
-use crate::tools::subagent::handoff::settle;
+use crate::tools::subagent::handoff::{SettledRound, run_in_worktree};
 use crate::tools::subagent::round::{Round, RoundEnd, RoundInput};
 use crate::tools::subagent::runner::SubagentRunner;
 use crate::tools::subagent::{RoundSlot, RunnerSpec};
@@ -232,7 +232,7 @@ impl Executor<'_> {
         let _slot = self.round_slot().await?;
         let label = format!("workflow {position}");
         let Some(session) = &self.ctx().session else {
-            return self.unsaved_round(runner, &label, prompt).await;
+            return self.unsaved_round(runner, position, &label, prompt).await;
         };
         let mut outcome = self
             .attached(Exchange::start(settings), &label, session)
@@ -269,7 +269,8 @@ impl Executor<'_> {
             None => self.log.task(position, &outcome.task.id, state),
         }
         if let Some(error) = &outcome.worktree_error {
-            return Err(format!("{position}'s worktree could not be committed: {error}"));
+            self.log
+                .warn(format!("{position}'s worktree could not be committed: {error}"));
         }
         Ok(AgentRun {
             task_id: outcome.continuable_id().map(str::to_string),
@@ -290,23 +291,33 @@ impl Executor<'_> {
         }
     }
 
-    async fn unsaved_round(&self, runner: &SubagentRunner, label: &str, prompt: &str) -> Result<AgentRun, String> {
+    async fn unsaved_round(
+        &self,
+        runner: &SubagentRunner,
+        position: &str,
+        label: &str,
+        prompt: &str,
+    ) -> Result<AgentRun, String> {
         let lease = match self.subagents.worktrees() {
             Some(store) => store.create(self.base_dir, label, None).await?.map(WorktreeLease::new),
             None => None,
         };
-        let runner = match &lease {
-            Some(lease) => runner.clone().in_worktree(&lease.worktree().path),
-            None => runner.clone(),
-        };
-        let lsp_guard = runner.worktree_lsp_guard();
-        let round = runner.run_round(Vec::new(), RoundInput::Prompt(prompt)).await;
-        lsp_guard.close_unless_cancelled(round.end == RoundEnd::Cancelled).await;
-        let worktree = match lease {
-            Some(lease) => {
-                let record = settle(lease.worktree()).await?;
-                let worktree = lease.release();
-                (!record.removed).then_some((worktree, record.head))
+        let SettledRound {
+            round,
+            record,
+            worktree,
+        } = run_in_worktree(runner, lease, Vec::new(), RoundInput::Prompt(prompt))
+            .await
+            .settle()
+            .await;
+        let worktree = match record {
+            Some(Ok(record)) => worktree
+                .filter(|_| !record.removed)
+                .map(|worktree| (worktree, record.head)),
+            Some(Err(error)) => {
+                self.log
+                    .warn(format!("{position}'s worktree could not be committed: {error}"));
+                None
             }
             None => None,
         };
