@@ -37,7 +37,7 @@ impl SubagentTool {
             return ToolResult::error("inspecting subagent tasks needs a saved session");
         };
         let Some(task_id) = task_id.filter(|id| !id.is_empty()) else {
-            let mut listing = inspect::render_list(&session.subagent_contexts().await);
+            let mut listing = inspect::render_list(&session.subagent_summaries().await);
             let unused = self.unused_pins();
             if !unused.is_empty() {
                 listing.push_str(&format!(

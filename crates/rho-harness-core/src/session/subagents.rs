@@ -21,6 +21,13 @@ impl SubagentContext {
     }
 }
 
+/// What a listing shows of one subagent conversation, without its transcript.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SubagentContextSummary {
+    pub latest_task: Task,
+    pub task_count: usize,
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct SubagentContexts {
     contexts: BTreeMap<String, SubagentContext>,
@@ -48,8 +55,16 @@ impl SubagentContexts {
             .find(|context| context.tasks.iter().any(|t| t.id == task_id))
     }
 
-    fn all(&self) -> Vec<SubagentContext> {
-        self.contexts.values().cloned().collect()
+    fn summaries(&self) -> Vec<SubagentContextSummary> {
+        self.contexts
+            .values()
+            .filter_map(|context| {
+                Some(SubagentContextSummary {
+                    latest_task: context.latest_task()?.clone(),
+                    task_count: context.tasks.len(),
+                })
+            })
+            .collect()
     }
 }
 
@@ -90,8 +105,8 @@ impl SessionManager {
         self.state.lock().await.subagents.context_of_task(task_id).cloned()
     }
 
-    pub async fn subagent_contexts(&self) -> Vec<SubagentContext> {
-        self.state.lock().await.subagents.all()
+    pub async fn subagent_summaries(&self) -> Vec<SubagentContextSummary> {
+        self.state.lock().await.subagents.summaries()
     }
 }
 
@@ -140,7 +155,13 @@ mod tests {
         assert_eq!(context.transcript, [first, second].concat());
         assert_eq!(reopened.subagent_context("t2").await, Some(context));
         assert!(reopened.subagent_context("missing").await.is_none());
-        assert_eq!(reopened.subagent_contexts().await.len(), 2);
+        let latest: Vec<_> = reopened
+            .subagent_summaries()
+            .await
+            .into_iter()
+            .map(|summary| (summary.latest_task.id, summary.task_count))
+            .collect();
+        assert_eq!(latest, [("t2".to_string(), 2), ("other".to_string(), 1)]);
     }
 
     #[tokio::test]

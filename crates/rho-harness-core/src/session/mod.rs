@@ -44,7 +44,7 @@ pub(crate) use fs::{
     validate_session_id,
 };
 pub use prune::{prune_empty_sessions_async, prune_expired_sessions_async};
-pub use subagents::{SubagentContext, SubagentContexts};
+pub use subagents::{SubagentContext, SubagentContextSummary, SubagentContexts};
 pub use summary::{SessionSummary, delete_session_async, list_session_summaries_async};
 pub use tree::{SessionTree, TitleSource, TreeNodeData, TreeNodeKind};
 pub use turns::ConversationTurn;
@@ -87,7 +87,6 @@ fn empty_store_state() -> StoreState {
         next_sequence: 1,
         messages: Vec::new(),
         checkpoint: None,
-        events: Vec::new(),
         tree: SessionTree::new(),
         subagents: SubagentContexts::default(),
         integrity: CanonicalHistory::new(),

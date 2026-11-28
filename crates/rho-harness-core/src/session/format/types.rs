@@ -129,7 +129,6 @@ pub struct StoreState {
     pub next_sequence: u64,
     pub messages: Vec<ChatMessage>,
     pub checkpoint: Option<Vec<ChatMessage>>,
-    pub events: Vec<SessionEvent>,
     pub tree: SessionTree,
     pub subagents: super::super::subagents::SubagentContexts,
     pub(crate) integrity: CanonicalHistory,

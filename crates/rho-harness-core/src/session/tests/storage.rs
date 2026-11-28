@@ -252,7 +252,7 @@ async fn every_write_path_rejects_secrets_without_echoing_or_persisting_them() {
     }
     let on_disk = std::fs::read_to_string(&store.file_path).unwrap();
     assert!(!on_disk.contains(SECRET));
-    assert!(store.subagent_contexts().await.is_empty());
+    assert!(store.subagent_summaries().await.is_empty());
     assert_eq!(store.load_checkpoint().await.unwrap().unwrap().len(), 1);
 }
 

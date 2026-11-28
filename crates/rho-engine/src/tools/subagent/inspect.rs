@@ -5,7 +5,7 @@ use super::conversation::{
 use super::evidence::{ToolOutcome, clip, outcome_line};
 use super::workspace::{Fingerprint, WorkspaceChange, stale_paths};
 use rho_harness_core::a2a::{Role, Task};
-use rho_harness_core::session::SubagentContext;
+use rho_harness_core::session::{SubagentContext, SubagentContextSummary};
 use rho_harness_core::text::clip_chars;
 use serde::de::DeserializeOwned;
 use std::collections::BTreeMap;
@@ -146,11 +146,8 @@ pub(crate) async fn render_task(context: &SubagentContext, task_id: &str, root: 
 
 /// The latest task of every saved subagent conversation, newest first.
 #[must_use]
-pub(crate) fn render_list(contexts: &[SubagentContext]) -> String {
-    let mut latest: Vec<(&Task, usize)> = contexts
-        .iter()
-        .filter_map(|c| c.latest_task().map(|t| (t, c.tasks.len())))
-        .collect();
+pub(crate) fn render_list(contexts: &[SubagentContextSummary]) -> String {
+    let mut latest: Vec<(&Task, usize)> = contexts.iter().map(|c| (&c.latest_task, c.task_count)).collect();
     if latest.is_empty() {
         return "No subagent tasks are saved in this session.".to_string();
     }

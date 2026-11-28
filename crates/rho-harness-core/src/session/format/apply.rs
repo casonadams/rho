@@ -129,7 +129,6 @@ fn apply_checkpoint_promoted(
 /// leaves `state.messages` stale until rebuilt from the tree.
 fn apply_tree_record(state: &mut StoreState, record: SessionRecord) -> bool {
     match record {
-        SessionRecord::AuditEvent { event, .. } => state.events.push(event),
         SessionRecord::ActiveLeafChanged { active_leaf_id, .. } => {
             state.tree.set_active_leaf(active_leaf_id);
             return true;
