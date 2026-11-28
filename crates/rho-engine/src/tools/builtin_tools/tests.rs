@@ -25,16 +25,7 @@ async fn a_subagent_cannot_undo_the_parents_edits_and_the_parent_cannot_undo_the
         &SubagentRuntime::default(),
     )
     .unwrap();
-    let spec = RunnerSpec {
-        agent: Some("general"),
-        local_agents: &[],
-        turns: None,
-        model: None,
-        position: None,
-        task_name: None,
-        persona: None,
-    };
-    let runner = subagent.runner_for(spec).await.unwrap();
+    let runner = subagent.runner_for(general_agent()).await.unwrap();
     let child = |name: &str| runner.tool(name).unwrap().clone();
     run(named(&tools, "write"), json!({ "path": "parent.txt", "content": "p" })).await;
     run(&child("write"), json!({ "path": "child.txt", "content": "c" })).await;
@@ -53,19 +44,94 @@ async fn a_subagent_cannot_undo_the_parents_edits_and_the_parent_cannot_undo_the
     );
 }
 
-#[test]
-fn fresh_session_bash_keeps_the_configured_direnv_options() {
-    let dir = TestDir::new();
-    let parent = build_builtin_tools(&dir, &Config::default(), None).unwrap().tools;
-    let configured = crate::tools::bash::DirenvOptions {
-        enabled: false,
-        timeout_ms: 1234,
+#[derive(Clone, Copy, Debug)]
+enum BashOrigin {
+    Parent,
+    Subagent,
+    SubagentWorktree,
+}
+
+fn general_agent() -> RunnerSpec<'static> {
+    RunnerSpec {
+        agent: Some("general"),
+        local_agents: &[],
+        turns: None,
+        model: None,
+        position: None,
+        task_name: None,
+        persona: None,
+    }
+}
+
+async fn bash_from(origin: BashOrigin, workspace: &Path, worktree: &Path, config: &Config) -> Arc<dyn EngineTool> {
+    let model: crate::engine::compactor::llm::ModelHandle = Arc::new(MockAdapter::text("x"));
+    let (tools, subagent) = build_builtin_toolset(
+        workspace,
+        config,
+        Some(model),
+        None,
+        ToolsetServices::default(),
+        &SubagentRuntime::default(),
+    )
+    .unwrap();
+    let runner = match origin {
+        BashOrigin::Parent => return named(&tools, "bash").clone(),
+        BashOrigin::Subagent => subagent.runner_for(general_agent()).await.unwrap(),
+        BashOrigin::SubagentWorktree => subagent
+            .runner_for(general_agent())
+            .await
+            .unwrap()
+            .in_worktree(worktree),
     };
+    runner.tool("bash").unwrap().clone()
+}
 
-    let fresh = fresh_session_tools(&parent, &dir, None, configured);
+#[cfg(unix)]
+fn put_fake_direnv_on_path(dir: &Path, calls: &Path) -> rho_test_support::EnvVarGuard {
+    use std::os::unix::fs::PermissionsExt;
+    let bin = dir.join("bin");
+    std::fs::create_dir_all(&bin).unwrap();
+    let direnv = bin.join("direnv");
+    let script = format!("#!/bin/sh\npwd -P >> '{}'\nprintf '{{}}'\n", calls.display());
+    std::fs::write(&direnv, script).unwrap();
+    std::fs::set_permissions(&direnv, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let path = format!("{}:{}", bin.display(), std::env::var("PATH").unwrap_or_default());
+    rho_test_support::EnvVarGuard::set_all(&[("PATH", Some(&path))])
+}
 
-    assert_eq!(fresh.bash.direnv, configured);
-    assert!(fresh.tools.iter().any(|tool| tool.name() == "bash"));
+#[cfg(unix)]
+#[tokio::test]
+async fn tools_bash_direnv_reaches_the_parent_and_subagent_bash() {
+    let dir = TestDir::new();
+    let calls = dir.join("direnv-calls");
+    let _path = put_fake_direnv_on_path(&dir, &calls);
+    for origin in [BashOrigin::Parent, BashOrigin::Subagent, BashOrigin::SubagentWorktree] {
+        for enabled in [true, false] {
+            let case = dir.join(format!("{origin:?}-{enabled}"));
+            let (workspace, worktree) = (case.join("workspace"), case.join("worktree"));
+            for root in [&workspace, &worktree] {
+                std::fs::create_dir_all(root).unwrap();
+                std::fs::write(root.join(".envrc"), "").unwrap();
+            }
+            let mut config = Config::default();
+            config.tools.bash.direnv = enabled;
+            let bash = bash_from(origin, &workspace, &worktree, &config).await;
+
+            let result = run(&bash, json!({ "command": "true" })).await;
+
+            assert!(!result.is_error, "{origin:?}: {}", result.content);
+            let root = match origin {
+                BashOrigin::SubagentWorktree => &worktree,
+                BashOrigin::Parent | BashOrigin::Subagent => &workspace,
+            };
+            let root = root.canonicalize().unwrap();
+            let called = std::fs::read_to_string(&calls)
+                .unwrap_or_default()
+                .lines()
+                .any(|line| Path::new(line) == root);
+            assert_eq!(called, enabled, "{origin:?} with tools.bash.direnv = {enabled}");
+        }
+    }
 }
 
 fn names_without_memory(tools: &[Arc<dyn EngineTool>]) -> Vec<&str> {
@@ -225,17 +291,6 @@ async fn ask_tool_is_registered_only_with_interactive_presenter_and_omitted_from
     .unwrap();
     assert!(interactive_tools.iter().any(|t| t.name() == "ask"));
 
-    let runner = subagent
-        .runner_for(RunnerSpec {
-            agent: Some("general"),
-            local_agents: &[],
-            turns: None,
-            model: None,
-            position: None,
-            task_name: None,
-            persona: None,
-        })
-        .await
-        .unwrap();
+    let runner = subagent.runner_for(general_agent()).await.unwrap();
     assert!(runner.tool("ask").is_none());
 }

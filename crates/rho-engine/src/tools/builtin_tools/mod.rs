@@ -27,16 +27,11 @@ use rho_harness_core::error::Result;
 use std::path::Path;
 use std::sync::Arc;
 
-struct WorkspaceNativeTools {
-    bash: Arc<BashTool>,
-    tools: Vec<Arc<dyn EngineTool>>,
-}
-
 fn build_workspace_native_tools(
     workspace: crate::tools::WorkspaceDir,
     lsp: Option<Arc<LspManager>>,
     direnv: crate::tools::bash::DirenvOptions,
-) -> WorkspaceNativeTools {
+) -> Vec<Arc<dyn EngineTool>> {
     let base_dir = workspace.get();
     let history = EditHistory::default();
     let write = Arc::new(
@@ -74,7 +69,7 @@ fn build_workspace_native_tools(
         write as Arc<dyn EngineTool>,
         edit as Arc<dyn EngineTool>,
         undo as Arc<dyn EngineTool>,
-        bash.clone() as Arc<dyn EngineTool>,
+        bash as Arc<dyn EngineTool>,
         fd as Arc<dyn EngineTool>,
         rg as Arc<dyn EngineTool>,
     ];
@@ -85,7 +80,7 @@ fn build_workspace_native_tools(
                 .with_history(Some(history)),
         ) as Arc<dyn EngineTool>);
     }
-    WorkspaceNativeTools { bash, tools }
+    tools
 }
 
 /// The built-in tools and the subagent runtime their `subagent` tool runs under. An engine built
@@ -137,7 +132,7 @@ pub(crate) fn build_builtin_toolset(
         timeout_ms: config.tools.bash.direnv_timeout_ms,
     };
     let workspace = crate::tools::WorkspaceDir::new(base_dir);
-    let mut tools = build_workspace_native_tools(workspace.clone(), services.lsp, direnv).tools;
+    let mut tools = build_workspace_native_tools(workspace.clone(), services.lsp, direnv);
     if config.tools.web.search.enabled || config.tools.web.fetch.enabled {
         let http = HttpClient::new(config.allow_private_network)?;
         if config.tools.web.search.enabled {
@@ -252,26 +247,14 @@ pub(crate) fn fresh_session_state(
     lsp: Option<Arc<LspManager>>,
     direnv: crate::tools::bash::DirenvOptions,
 ) -> Vec<Arc<dyn EngineTool>> {
-    fresh_session_tools(tools, root, lsp, direnv).tools
-}
-
-fn fresh_session_tools(
-    tools: &[Arc<dyn EngineTool>],
-    root: &Path,
-    lsp: Option<Arc<LspManager>>,
-    direnv: crate::tools::bash::DirenvOptions,
-) -> WorkspaceNativeTools {
     let native = build_workspace_native_tools(crate::tools::WorkspaceDir::new(root), lsp, direnv);
     let fresh = tools
         .iter()
-        .filter_map(|tool| match native.tools.iter().find(|n| n.name() == tool.name()) {
+        .filter_map(|tool| match native.iter().find(|n| n.name() == tool.name()) {
             Some(native) => Some(native.clone()),
             None if matches!(tool.name(), "lsp" | "ask") => None,
             None => Some(tool.clone()),
         })
         .collect();
-    WorkspaceNativeTools {
-        bash: native.bash,
-        tools: crate::tools::subagent::lsp::restrict_lsp(fresh),
-    }
+    crate::tools::subagent::lsp::restrict_lsp(fresh)
 }

@@ -31,7 +31,7 @@ pub struct BashTool {
     log_dir: PathBuf,
     /// The agent whose mailbox hears about commands this tool moves to the background.
     owner: Option<crate::mailbox::Mailbox>,
-    pub(crate) direnv: DirenvOptions,
+    direnv: DirenvOptions,
     /// Where the output of a running command goes as it is produced.
     progress: ToolStreamPort,
 }
