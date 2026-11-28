@@ -1,6 +1,6 @@
 use super::*;
 use rho_harness_core::auth::StoredCredential;
-use rho_test_support::TestFile;
+use rho_test_support::{EnvVarGuard, TestFile};
 use std::collections::HashMap;
 
 #[test]
@@ -113,7 +113,7 @@ fn new_logins_keep_existing_accounts_and_reuse_their_keys() {
 
 #[tokio::test]
 async fn env_references_in_api_keys_are_expanded() {
-    unsafe { std::env::set_var("RHO_ENV_TEST_KEY", "env_secret_123") };
+    let _env = EnvVarGuard::set("RHO_ENV_TEST_KEY", "env_secret_123");
     let (_file, store) = store_with("custom", StoredCredential::api_key("$RHO_ENV_TEST_KEY".to_string()));
 
     assert_eq!(store.get_key_sync("custom").unwrap().as_deref(), Some("env_secret_123"));

@@ -404,9 +404,7 @@ fn modal_test_env() -> (TerminalController<NullBackend>, crate::repl::live::batc
 
 #[tokio::test]
 async fn model_selector_selection_applies_model_switch_without_rebuild() {
-    unsafe {
-        std::env::set_var("ANTHROPIC_API_KEY", "test-key-not-real");
-    }
+    let _env = rho_test_support::EnvVarGuard::set("ANTHROPIC_API_KEY", "test-key-not-real");
     let temp = tempfile::tempdir().unwrap();
     let (mut session, mut engine) = setup_model_switch_env(temp.path()).await;
     let (mut controller, mut batch) = modal_test_env();

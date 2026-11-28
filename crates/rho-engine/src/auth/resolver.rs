@@ -227,7 +227,7 @@ mod tests {
 
     #[test]
     fn expands_environment_variables() {
-        unsafe { std::env::set_var("RHO_TEST_SECRET_KEY", "secret_val_42") };
+        let _env = rho_test_support::EnvVarGuard::set("RHO_TEST_SECRET_KEY", "secret_val_42");
         assert_eq!(resolve_secret_value("$RHO_TEST_SECRET_KEY").unwrap(), "secret_val_42");
         assert_eq!(resolve_secret_value("${RHO_TEST_SECRET_KEY}").unwrap(), "secret_val_42");
     }

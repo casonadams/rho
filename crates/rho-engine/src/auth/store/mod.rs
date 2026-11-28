@@ -301,12 +301,13 @@ async fn resolve_env_key_async(provider: &str) -> Result<Option<String>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rho_test_support::EnvVarGuard;
     use std::cell::Cell;
 
     #[tokio::test]
     async fn env_secret_command_does_not_block_the_runtime() {
         let provider = "rho-test-async-env";
-        unsafe { std::env::set_var("RHO_TEST_ASYNC_ENV_API_KEY", "!echo async_env_secret") };
+        let _env = EnvVarGuard::set("RHO_TEST_ASYNC_ENV_API_KEY", "!echo async_env_secret");
         let mut store = AuthStore::default();
         let done = Cell::new(false);
         let ticks = Cell::new(0u32);
@@ -322,7 +323,6 @@ mod tests {
             }
         };
         let (key, ()) = tokio::join!(resolve, ticker);
-        unsafe { std::env::remove_var("RHO_TEST_ASYNC_ENV_API_KEY") };
         assert_eq!(key.unwrap().as_deref(), Some("async_env_secret"));
         assert!(ticks.get() > 0);
     }

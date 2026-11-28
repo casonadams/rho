@@ -4,6 +4,7 @@ use crate::test_support::temp_auth_store;
 use rho_harness_core::config::{Config, ProviderConfig};
 use rho_harness_core::error::Result;
 use rho_harness_core::provider::{ModelRoute, ProviderId};
+use rho_test_support::EnvVarGuard;
 use std::collections::BTreeMap;
 
 fn config_with_provider(name: &str, spec: ProviderConfig, allow_private: bool) -> Config {
@@ -88,11 +89,7 @@ fn custom_provider_builds_client_from_each_source() {
         ),
     ];
     for (config, model, env, stored_key, expected) in cases {
-        if let Some((var, value)) = env {
-            unsafe {
-                std::env::set_var(var, value);
-            }
-        }
+        let _env = env.map(|(var, value)| EnvVarGuard::set(var, value));
         let (_dir, mut auth_store) = temp_auth_store();
         if let Some((provider, key)) = stored_key {
             auth_store.set_key(provider, key).unwrap();
@@ -100,12 +97,6 @@ fn custom_provider_builds_client_from_each_source() {
 
         let handle = create_model_for_config(&config, model, &auth_store).unwrap();
         assert_eq!(handle.provider_name(), expected);
-
-        if let Some((var, _)) = env {
-            unsafe {
-                std::env::remove_var(var);
-            }
-        }
     }
 }
 

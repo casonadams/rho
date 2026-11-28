@@ -426,6 +426,7 @@ mod tests {
     use crate::repl::input_reader::TerminalInputReader;
     use crate::ui::interactive::InteractiveState;
     use crate::ui::interactive::controller::tests::fake::FakeTerminal;
+    use rho_test_support::EnvVarGuard;
     use std::os::unix::fs::PermissionsExt;
 
     #[test]
@@ -457,9 +458,7 @@ mod tests {
         let mut input = TerminalInputReader::spawn_dummy();
         controller.state_mut().editor_mut().set_text("draft content");
 
-        unsafe {
-            std::env::set_var("VISUAL", &script);
-        }
+        let visual = EnvVarGuard::set("VISUAL", script.to_str().unwrap());
         let mut resources = EditorResources {
             history: &mut history,
             completions: &completions,
@@ -475,9 +474,8 @@ mod tests {
         .unwrap();
         assert_eq!(controller.state().editor().text(), "edited draft");
 
-        unsafe {
-            std::env::set_var("VISUAL", "rho-missing-editor");
-        }
+        drop(visual);
+        let _visual = EnvVarGuard::set("VISUAL", "rho-missing-editor");
         handle_misc_action(
             &mut controller,
             &InputAction::ExternalEditor,
@@ -494,9 +492,5 @@ mod tests {
                 .system_message()
                 .is_some_and(|message| message.contains("Could not start editor 'rho-missing-editor'"))
         );
-
-        unsafe {
-            std::env::remove_var("VISUAL");
-        }
     }
 }

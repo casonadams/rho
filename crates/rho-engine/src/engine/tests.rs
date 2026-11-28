@@ -4,6 +4,7 @@ use crate::mailbox::AgentId;
 use crate::mcp::load_mcp_tools;
 use crate::test_support::temp_dir;
 use rho_harness_core::config::{Config, McpConfig, McpServerConfig};
+use rho_test_support::EnvVarGuard;
 use std::collections::BTreeMap;
 use std::path::Path;
 
@@ -19,10 +20,8 @@ fn test_config(label: &str) -> (Config, crate::test_support::TestDir) {
 
 // Engine construction goes through ProviderFactory; a dummy key is fine because
 // client construction never contacts the network.
-fn with_dummy_provider_key() {
-    unsafe {
-        std::env::set_var("ANTHROPIC_API_KEY", "test-key-not-real");
-    }
+fn with_dummy_provider_key() -> EnvVarGuard {
+    EnvVarGuard::set("ANTHROPIC_API_KEY", "test-key-not-real")
 }
 
 fn mock_mcp_server(workspace: &Path) -> (String, String) {
@@ -138,7 +137,6 @@ struct BuiltinEngine {
 }
 
 async fn builtin_engine(label: &str) -> BuiltinEngine {
-    with_dummy_provider_key();
     let (config, dir) = test_config(label);
     let auth_store = AuthStore::load(&config.auth_file).unwrap_or_default();
     let base_dir = std::env::temp_dir();
@@ -167,6 +165,7 @@ async fn builtin_engine(label: &str) -> BuiltinEngine {
 
 #[tokio::test]
 async fn rebuild_preserves_session_history_and_reattaches_tools() {
+    let _env = with_dummy_provider_key();
     let BuiltinEngine {
         engine,
         config,
@@ -205,7 +204,7 @@ async fn setup_mcp_engine(config: Config, workspace: &std::path::Path, auth_stor
 #[cfg(unix)]
 #[tokio::test]
 async fn rebuild_respawns_mcp_tools_and_reaps_previous_children() {
-    with_dummy_provider_key();
+    let _env = with_dummy_provider_key();
     let (config, dir) = test_config("mcp_rebuild");
     let workspace = dir.join("workspace");
     std::fs::create_dir_all(&workspace).unwrap();
@@ -226,7 +225,7 @@ async fn rebuild_respawns_mcp_tools_and_reaps_previous_children() {
 #[cfg(unix)]
 #[tokio::test]
 async fn repeated_rebuilds_do_not_leak_mcp_children() {
-    with_dummy_provider_key();
+    let _env = with_dummy_provider_key();
     let (config, dir) = test_config("mcp_no_leak");
     let workspace = dir.join("workspace");
     std::fs::create_dir_all(&workspace).unwrap();
@@ -250,7 +249,7 @@ async fn repeated_rebuilds_do_not_leak_mcp_children() {
 
 #[tokio::test]
 async fn builder_attaches_dynamic_tools() {
-    with_dummy_provider_key();
+    let _env = with_dummy_provider_key();
     let (config, _dir) = test_config("custom_tools");
     let auth_store = AuthStore::load(&config.auth_file).unwrap_or_default();
     let base_dir = std::env::temp_dir();
@@ -281,7 +280,7 @@ async fn builder_attaches_dynamic_tools() {
 
 #[tokio::test]
 async fn refresh_quota_non_antigravity_is_noop() {
-    with_dummy_provider_key();
+    let _env = with_dummy_provider_key();
     let (config, _dir) = test_config("quota_noop");
     let auth_store = AuthStore::load(&config.auth_file).unwrap_or_default();
     let engine = builder::AgentEngineBuilder::new(config.clone(), auth_store.clone())
@@ -535,6 +534,7 @@ async fn explicit_model_prevents_silent_fallback_to_configured_provider() {
 
 #[tokio::test]
 async fn switch_model_updates_model_and_preserves_tools() {
+    let _env = with_dummy_provider_key();
     let BuiltinEngine {
         mut engine,
         config,
