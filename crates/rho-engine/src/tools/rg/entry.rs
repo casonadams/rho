@@ -9,7 +9,7 @@ use crate::tools::truncate::GREP_MAX_LINE_LENGTH;
 use crate::tools::types::ToolResult;
 use rho_harness_core::args::RgOutputMode;
 
-pub const RG_COLLECTION_CEILING: usize = 20_000;
+pub(crate) const RG_COLLECTION_CEILING: usize = 20_000;
 
 const BY_FILE: Layout = Layout {
     blank_between_groups: true,
@@ -18,7 +18,7 @@ const BY_FILE: Layout = Layout {
 };
 
 #[derive(Debug, Clone)]
-pub struct LineMatch {
+pub(crate) struct LineMatch {
     pub path: String,
     pub block: MatchBlock,
 }
@@ -45,12 +45,12 @@ impl Row for LineMatch {
     }
 }
 
-pub fn line_order(a: &LineMatch, b: &LineMatch) -> Ordering {
+pub(crate) fn line_order(a: &LineMatch, b: &LineMatch) -> Ordering {
     (&a.path, a.block.first_line()).cmp(&(&b.path, b.block.first_line()))
 }
 
 #[derive(Debug, Clone)]
-pub struct FileHit {
+pub(crate) struct FileHit {
     pub path: String,
     pub count: usize,
     pub show_count: bool,
@@ -69,16 +69,16 @@ impl Row for FileHit {
     }
 }
 
-pub fn file_order(a: &FileHit, b: &FileHit) -> Ordering {
+pub(crate) fn file_order(a: &FileHit, b: &FileHit) -> Ordering {
     directory_order(&a.path, &b.path)
 }
 
-pub struct RgTotals {
+pub(crate) struct RgTotals {
     pub matches: usize,
     pub files: usize,
 }
 
-pub fn format_lines(collected: &Collected<LineMatch>, totals: &RgTotals, request: PageRequest) -> ToolResult {
+pub(crate) fn format_lines(collected: &Collected<LineMatch>, totals: &RgTotals, request: PageRequest) -> ToolResult {
     if collected.items.is_empty() {
         return ToolResult::success("No matches found");
     }
@@ -100,7 +100,7 @@ pub fn format_lines(collected: &Collected<LineMatch>, totals: &RgTotals, request
     render_page(&listing, request)
 }
 
-pub fn format_files(
+pub(crate) fn format_files(
     collected: &Collected<FileHit>,
     totals: &RgTotals,
     mode: RgOutputMode,

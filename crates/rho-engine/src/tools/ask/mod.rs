@@ -17,21 +17,21 @@ use std::time::Duration;
 mod answers;
 mod modal;
 
-pub const MAX_QUESTIONS: usize = 5;
-pub const MAX_CHOICES: usize = 4;
-pub const ASK_SURFACE_ID: &str = "rho:ask";
+pub(crate) const MAX_QUESTIONS: usize = 5;
+pub(crate) const MAX_CHOICES: usize = 4;
+pub(crate) const ASK_SURFACE_ID: &str = "rho:ask";
 const ASK_TOOL_NAME: &str = "ask";
 const DEFAULT_DECISION_TIMEOUT: Duration = Duration::from_millis(600);
 const RECOMMENDED_SUFFIX: &str = " (Recommended)";
 
 #[derive(Debug, Clone, Deserialize, JsonSchema)]
-pub struct AskArgs {
+pub(crate) struct AskArgs {
     /// 1 to 5 questions to present to the user in a structured modal.
     pub questions: Vec<AskQuestionArg>,
 }
 
 #[derive(Debug, Clone, Deserialize, JsonSchema)]
-pub struct AskQuestionArg {
+pub(crate) struct AskQuestionArg {
     /// Optional stable identifier for this question (defaults to "q1", "q2", ...).
     #[serde(default)]
     pub id: Option<String>,
@@ -55,7 +55,7 @@ pub struct AskQuestionArg {
 }
 
 #[derive(Debug, Clone, Deserialize, JsonSchema)]
-pub struct AskChoiceArg {
+pub(crate) struct AskChoiceArg {
     /// Display label for the choice.
     pub label: String,
     /// Optional supporting description for the choice.
@@ -86,7 +86,7 @@ struct PreparedQuestion {
     recommended_index: Option<usize>,
 }
 
-pub struct AskTool {
+pub(crate) struct AskTool {
     presenter: Arc<dyn Presenter>,
     decision: Option<DecisionHandle>,
     decision_timeout: Duration,
@@ -101,13 +101,14 @@ impl AskTool {
         }
     }
 
-    pub fn with_decision(mut self, decision: DecisionHandle) -> Self {
-        self.decision = Some(decision);
+    #[cfg(test)]
+    pub(crate) fn with_decision_timeout(mut self, timeout: Duration) -> Self {
+        self.decision_timeout = timeout;
         self
     }
 
-    pub fn with_decision_timeout(mut self, timeout: Duration) -> Self {
-        self.decision_timeout = timeout;
+    pub(crate) fn with_decision(mut self, decision: DecisionHandle) -> Self {
+        self.decision = Some(decision);
         self
     }
 

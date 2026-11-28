@@ -4,7 +4,6 @@ mod stats;
 #[cfg(test)]
 mod tests;
 
-pub use entry::{FD_COLLECTION_CEILING, FdEntry, FdFormat, compare_entries, format_results};
 use query::FdQuery;
 pub use rho_harness_core::args::{FdArgs, FdSort};
 use rho_harness_core::error::AppError;
@@ -17,9 +16,9 @@ use crate::tools::traversal::{build_type_matcher, is_smart_case_insensitive, run
 use crate::tools::types::ToolResult;
 use regex::Regex;
 
-pub const MAX_FD_DEPTH: usize = 10;
+pub(crate) const MAX_FD_DEPTH: usize = 10;
 
-pub struct FdTool {
+pub(crate) struct FdTool {
     base_dir: crate::tools::WorkspaceDir,
 }
 
@@ -83,7 +82,7 @@ impl FdTool {
         }
     }
 
-    pub fn with_workspace_dir(mut self, base_dir: crate::tools::WorkspaceDir) -> Self {
+    pub(crate) fn with_workspace_dir(mut self, base_dir: crate::tools::WorkspaceDir) -> Self {
         self.base_dir = base_dir;
         self
     }

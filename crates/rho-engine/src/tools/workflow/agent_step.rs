@@ -199,9 +199,8 @@ impl Executor<'_> {
         Ok((value, detail))
     }
 
-    /// Merges a finished agent's worktree into the workflow's working tree; overlapping edits from
-    /// agents that ran at the same time stop the workflow with conflict markers left to resolve.
-    /// Returns whether the agent changed any files.
+    /// Merges a finished agent's worktree into the workflow tree; overlapping concurrent edits stop the workflow
+    /// with conflict markers to resolve. Returns whether the agent changed any files.
     async fn land(&self, position: &str, worktree: &Worktree, head: &str) -> Result<bool, String> {
         let outcome = worktree.merge_head_into(head, self.base_dir).await?;
         let files: Vec<&str> = outcome.changed.iter().map(|c| c.path.as_str()).collect();

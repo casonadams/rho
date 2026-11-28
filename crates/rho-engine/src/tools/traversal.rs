@@ -10,7 +10,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
-pub const DEFAULT_TRAVERSAL_TIMEOUT_SECS: u64 = 30;
+pub(crate) const DEFAULT_TRAVERSAL_TIMEOUT_SECS: u64 = 30;
 
 struct CancelOnDrop(Arc<AtomicBool>);
 
@@ -21,7 +21,7 @@ impl Drop for CancelOnDrop {
 }
 
 /// Runs `job` on a blocking thread with the default timeout, and stops it if this future is dropped.
-pub async fn run_blocking_search(
+pub(crate) async fn run_blocking_search(
     label: &str,
     job: impl FnOnce(Arc<AtomicBool>, Duration) -> ToolResult + Send + 'static,
 ) -> Result<ToolResult, AppError> {
@@ -40,7 +40,7 @@ pub async fn run_blocking_search(
 }
 
 /// A pattern with no uppercase letter matches case-insensitively.
-pub fn is_smart_case_insensitive(pattern: &str) -> bool {
+pub(crate) fn is_smart_case_insensitive(pattern: &str) -> bool {
     !pattern.chars().any(char::is_uppercase)
 }
 
@@ -65,10 +65,9 @@ fn should_quit_traversal(
     false
 }
 
-/// Runs `builder` across threads, giving each thread a visitor from
-/// `make_visitor`, until a visitor quits, `cancellation` fires, or `timeout`
-/// (default `DEFAULT_TRAVERSAL_TIMEOUT_SECS`) elapses.
-pub fn run_parallel_walk<'s, V>(
+/// Runs `builder` across threads until a visitor quits, `cancellation` fires, or `timeout` elapses
+/// (default `DEFAULT_TRAVERSAL_TIMEOUT_SECS`).
+pub(crate) fn run_parallel_walk<'s, V>(
     builder: &WalkBuilder,
     timeout: Option<Duration>,
     cancellation: Option<&'s AtomicBool>,
@@ -96,10 +95,9 @@ where
     Ok(())
 }
 
-/// Builds a workspace-scoped walker: ignore rules (.gitignore, .ignore, the
-/// global gitignore, .git/info/exclude) and hidden entries are respected
-/// unless `include_hidden`, and symlinks are never followed.
-pub fn walker_builder(search_root: &Path, include_hidden: bool, types: Option<&Types>) -> WalkBuilder {
+/// Builds a workspace-scoped walker that respects ignore files and hidden entries unless `include_hidden`;
+/// symlinks are never followed.
+pub(crate) fn walker_builder(search_root: &Path, include_hidden: bool, types: Option<&Types>) -> WalkBuilder {
     let mut builder = WalkBuilder::new(search_root);
     if let Some(types) = types {
         builder.types(types.clone());
@@ -135,7 +133,7 @@ pub fn list_workspace_files(root: &Path, max_files: usize) -> Vec<String> {
 
 /// Selects a default file-type definition (e.g. 'rust', 'py'); unknown names
 /// are rejected with the existing fd/rg error phrasing.
-pub fn build_type_matcher(file_type: Option<&str>) -> Result<Option<Types>, String> {
+pub(crate) fn build_type_matcher(file_type: Option<&str>) -> Result<Option<Types>, String> {
     let Some(file_type) = file_type.map(str::trim).filter(|value| !value.is_empty()) else {
         return Ok(None);
     };
@@ -149,7 +147,7 @@ pub fn build_type_matcher(file_type: Option<&str>) -> Result<Option<Types>, Stri
 
 /// Resolves the optional `path` argument to an absolute search root,
 /// rejecting paths that do not exist.
-pub async fn search_root(workspace: &Workspace, path: Option<&str>) -> Result<PathBuf, String> {
+pub(crate) async fn search_root(workspace: &Workspace, path: Option<&str>) -> Result<PathBuf, String> {
     let Some(raw) = path.map(str::trim).filter(|raw| !raw.is_empty()) else {
         return Ok(workspace.root().to_path_buf());
     };
@@ -162,7 +160,7 @@ pub async fn search_root(workspace: &Workspace, path: Option<&str>) -> Result<Pa
     }
 }
 
-pub fn resolve_relative_path(
+pub(crate) fn resolve_relative_path(
     path: &Path,
     workspace_root: &Path,
     search_root: &Path,

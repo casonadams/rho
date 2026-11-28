@@ -1,7 +1,7 @@
 use futures::StreamExt;
 use rho_harness_core::error::{AppError, Result};
 
-pub struct ReadLimitedParams<'a> {
+pub(crate) struct ReadLimitedParams<'a> {
     pub response: reqwest::Response,
     pub content_type: &'a str,
     pub max_bytes: usize,
@@ -29,7 +29,7 @@ fn check_declared_length(response: &reqwest::Response, limit: usize) -> Result<(
     Ok(())
 }
 
-pub async fn read_limited(params: ReadLimitedParams<'_>) -> Result<Vec<u8>> {
+pub(crate) async fn read_limited(params: ReadLimitedParams<'_>) -> Result<Vec<u8>> {
     let mut limit = determine_limit(params.content_type, params.max_bytes, params.pdf_max_bytes);
     check_declared_length(&params.response, limit)?;
 
@@ -54,7 +54,11 @@ pub async fn read_limited(params: ReadLimitedParams<'_>) -> Result<Vec<u8>> {
     Ok(body)
 }
 
-pub async fn read_limited_until<F>(response: reqwest::Response, max_bytes: usize, mut stop_when: F) -> Result<Vec<u8>>
+pub(crate) async fn read_limited_until<F>(
+    response: reqwest::Response,
+    max_bytes: usize,
+    mut stop_when: F,
+) -> Result<Vec<u8>>
 where
     F: FnMut(&[u8]) -> bool,
 {

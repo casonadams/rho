@@ -3,12 +3,11 @@ use serde::{Deserialize, Serialize};
 mod args;
 mod schema;
 
-pub use args::{normalize_tool_arguments, parse_tool_args, resolve_tool_path, try_parse_tool_args};
-pub use schema::{generated_schema, normalize_schema};
+pub(crate) use args::{normalize_tool_arguments, parse_tool_args, resolve_tool_path, try_parse_tool_args};
+pub(crate) use schema::{generated_schema, normalize_schema};
 
-/// An inline image attached to a successful tool result. The turn runner keeps it
-/// for providers that serialize tool-result images and replaces
-/// it with an omission note for everyone else.
+/// An inline image on a successful tool result. Providers that serialize tool-result images keep it;
+/// everyone else gets an omission note.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ToolImage {
     /// Base64-encoded image data.
@@ -52,7 +51,7 @@ impl ToolResult {
 
     /// Successful result whose model-visible output is `content` followed by an
     /// inline image block.
-    pub fn success_with_image(content: impl Into<String>, image: ToolImage) -> Self {
+    pub(crate) fn success_with_image(content: impl Into<String>, image: ToolImage) -> Self {
         Self {
             image: Some(Box::new(image)),
             ..Self::success(content)
@@ -63,7 +62,7 @@ impl ToolResult {
         Self::new(content, true)
     }
 
-    pub fn with_metadata(self, metadata: serde_json::Value) -> Self {
+    pub(crate) fn with_metadata(self, metadata: serde_json::Value) -> Self {
         Self {
             metadata: Some(metadata),
             ..self

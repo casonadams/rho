@@ -11,7 +11,7 @@ const MAX_BASH_PATHS: usize = 50;
 pub(crate) type Fingerprint = Option<String>;
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
-pub struct WorkspaceChange {
+pub(crate) struct WorkspaceChange {
     pub path: String,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub deleted: bool,

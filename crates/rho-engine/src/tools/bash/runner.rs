@@ -343,7 +343,7 @@ where
     }
 }
 
-pub async fn run_command_streaming_with_direnv<F>(
+pub(crate) async fn run_command_streaming_with_direnv<F>(
     base_dir: &Path,
     log_dir: &Path,
     owner: Option<&Mailbox>,

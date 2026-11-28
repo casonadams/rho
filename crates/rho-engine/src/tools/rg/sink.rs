@@ -3,7 +3,7 @@ use grep_searcher::{Searcher, Sink, SinkContext, SinkContextKind, SinkMatch};
 
 /// One line of a match block: `:` marks a matching line, `-` a context line (ripgrep's convention).
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct HitLine {
+pub(crate) struct HitLine {
     pub number: u64,
     pub marker: char,
     pub text: String,
@@ -12,7 +12,7 @@ pub struct HitLine {
 /// A match with the context lines that belong to it. `detached` is set when lines were skipped
 /// between this block and the previous one in the same file.
 #[derive(Debug, Clone, Default)]
-pub struct MatchBlock {
+pub(crate) struct MatchBlock {
     pub lines: Vec<HitLine>,
     pub detached: bool,
     pub truncated: bool,
@@ -28,7 +28,7 @@ impl MatchBlock {
 }
 
 /// Collects a file's matches as blocks; context lines join the match they precede or follow.
-pub struct BlockSink {
+pub(crate) struct BlockSink {
     pub keep_lines: bool,
     pub stop_at_first: bool,
     pub count: usize,

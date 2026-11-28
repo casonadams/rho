@@ -1,6 +1,5 @@
-//! Built-in tools and shared plumbing. Each tool directory owns its argument
-//! schema (`rho_harness_core::args`), execution, and truncation behavior;
-//! `registry` wires declarations into the model-facing tool list.
+//! Built-in tools and shared plumbing. Each tool directory owns its argument schema, execution, and
+//! truncation; `registry` wires declarations into the model-facing tool list.
 
 pub mod artifact;
 pub mod ask;
@@ -31,37 +30,37 @@ pub mod workflow;
 pub mod worktree_tool;
 pub mod write;
 
-pub use artifact::{cleanup_artifacts, format_artifact_notice, spill_artifact};
-pub use ask::AskTool;
+pub(crate) use ask::AskTool;
 pub use bash::{BashArgs, BashTool};
-pub use builtin_tools::{BuiltinToolDeclaration, BuiltinToolKind, BuiltinTools, DECLARATIONS, build_builtin_tools};
-pub use edit::{EditArgs, EditTool};
-pub use engine_tool::{EngineTool, GenericTool};
-pub use fd::{FdArgs, FdSort, FdTool};
+pub use builtin_tools::{BuiltinTools, build_builtin_tools};
+pub use edit::EditArgs;
+#[cfg(test)]
+pub(crate) use edit::EditTool;
+pub use engine_tool::EngineTool;
+pub(crate) use engine_tool::GenericTool;
+pub use fd::{FdArgs, FdSort};
 pub use jobs::{BackgroundJobInfo, JobManager, JobStatus};
-pub use memory::MemoryTool;
-pub use read::{ReadArgs, ReadTool};
+pub(crate) use memory::MemoryTool;
+pub use read::ReadArgs;
 pub use registry::ToolRegistry;
-pub use rg::{RgArgs, RgTool};
+pub use rg::RgArgs;
 pub use rho_harness_core::args::{WebFetchArgs, WebSearchArgs};
 pub use rho_harness_core::net::HttpRequest;
 pub use subagent::{SubagentArgs, SubagentRole, SubagentRunner, SubagentTool};
-pub use todo::TodoTool;
+#[cfg(test)]
+pub(crate) use todo::TodoTool;
 pub use traversal::list_workspace_files;
-pub use types::{ToolResult, generated_schema, normalize_schema};
-pub use web::{
-    FetchCache, HttpClient, SearchRateLimiter, WebFetchConfig, WebFetchTool, WebSearchConfig, WebSearchTool,
-};
+pub use types::ToolResult;
+pub(crate) use types::normalize_schema;
+pub use web::{HttpClient, WebFetchConfig, WebSearchConfig};
 pub use workflow::{WorkflowRun, WorkflowRunner};
-pub use worktree_tool::WorktreeTool;
-pub use write::{WriteArgs, WriteTool};
+pub(crate) use worktree_tool::WorktreeTool;
+pub use write::WriteArgs;
+#[cfg(test)]
+pub(crate) use write::WriteTool;
 
-/// Shared, dynamically-relocatable workspace root for a session's tools.
-///
-/// Built-in tools for a session share one `WorkspaceDir` handle so that
-/// `worktree(action="create")` takes effect immediately on the very next tool
-/// call within the same turn. Subagents always receive their own independent
-/// `WorkspaceDir::new(...)` so relocating the parent never moves a running subagent.
+/// Workspace root shared by a session's tools and relocatable mid-turn (`worktree(action="create")`).
+/// Each subagent gets its own handle, so relocating the parent never moves a running subagent.
 #[derive(Clone, Debug)]
 pub struct WorkspaceDir(std::sync::Arc<std::sync::RwLock<std::path::PathBuf>>);
 

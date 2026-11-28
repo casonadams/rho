@@ -5,7 +5,7 @@ const MAX_ROWS: usize = 50;
 const MAX_COLS: usize = 20;
 const MAX_CELL_CHARS: usize = 200;
 
-pub fn extract_json(raw: &str) -> String {
+pub(crate) fn extract_json(raw: &str) -> String {
     if let Ok(val) = serde_json::from_str::<serde_json::Value>(raw) {
         serde_json::to_string_pretty(&val).unwrap_or_else(|_| raw.to_string())
     } else {
@@ -60,7 +60,7 @@ fn format_notes(total_rows: usize, shown_rows: usize, orig_cols: usize, col_coun
     (!notes.is_empty()).then(|| format!("\n[Truncated: {}]", notes.join("; ")))
 }
 
-pub fn extract_csv(raw: &str, delimiter: u8) -> String {
+pub(crate) fn extract_csv(raw: &str, delimiter: u8) -> String {
     let mut all_rows = parse_csv_rows(raw, delimiter);
     if all_rows.is_empty() {
         return "Empty CSV/TSV content.".to_string();
@@ -129,7 +129,7 @@ fn ensure_bounded_inflation(bytes: &[u8], stream_cap: u64, total_cap: u64) -> Re
     Ok(())
 }
 
-pub async fn extract_pdf_bytes(bytes: Vec<u8>) -> Result<String> {
+pub(crate) async fn extract_pdf_bytes(bytes: Vec<u8>) -> Result<String> {
     tokio::task::spawn_blocking(move || {
         ensure_bounded_inflation(&bytes, MAX_PDF_STREAM_BYTES, MAX_PDF_TOTAL_INFLATED_BYTES)?;
         pdf_extract::extract_text_from_mem(&bytes).map_err(|e| AppError::Tool(format!("PDF extraction error: {e}")))

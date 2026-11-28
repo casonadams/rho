@@ -4,12 +4,10 @@ mod sink;
 #[cfg(test)]
 mod tests;
 
-pub use entry::{FileHit, LineMatch, RG_COLLECTION_CEILING, RgTotals, format_files, format_lines};
-pub use query::{MAX_RG_FILE_BYTES, RgQuery};
+pub(crate) use query::RgQuery;
 pub use rho_harness_core::args::{RgArgs, RgOutputMode};
-pub use sink::{HitLine, MatchBlock};
 
-pub const MAX_RG_CONTEXT: usize = 10;
+pub(crate) const MAX_RG_CONTEXT: usize = 10;
 
 use crate::tools::engine_tool::TypedTool;
 use crate::tools::listing::PageRequest;
@@ -20,7 +18,7 @@ use rho_harness_core::error::AppError;
 use rho_harness_core::workspace::Workspace;
 use std::path::{Path, PathBuf};
 
-pub struct RgTool {
+pub(crate) struct RgTool {
     base_dir: crate::tools::WorkspaceDir,
 }
 
@@ -49,7 +47,7 @@ impl RgTool {
         }
     }
 
-    pub fn with_workspace_dir(mut self, base_dir: crate::tools::WorkspaceDir) -> Self {
+    pub(crate) fn with_workspace_dir(mut self, base_dir: crate::tools::WorkspaceDir) -> Self {
         self.base_dir = base_dir;
         self
     }

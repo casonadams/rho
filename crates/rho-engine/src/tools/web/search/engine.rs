@@ -42,11 +42,11 @@ impl From<SearchEngine> for EngineKind {
     }
 }
 
-pub fn default_engine_chain() -> Vec<EngineKind> {
+pub(crate) fn default_engine_chain() -> Vec<EngineKind> {
     vec![EngineKind::Brave, EngineKind::DuckDuckGoLite, EngineKind::Yahoo]
 }
 
-pub fn resolve_engine_chain(default: &str, fallback: &[String]) -> Result<Vec<EngineKind>, AppError> {
+pub(crate) fn resolve_engine_chain(default: &str, fallback: &[String]) -> Result<Vec<EngineKind>, AppError> {
     let mut engines = vec![parse_engine(default)?];
     for item in fallback {
         let engine = parse_engine(item)?;
@@ -62,7 +62,7 @@ fn parse_engine(name: &str) -> Result<EngineKind, AppError> {
     Ok(engine.into())
 }
 
-pub struct EngineRequest<'a> {
+pub(crate) struct EngineRequest<'a> {
     pub http: &'a HttpClient,
     pub timeout_sec: u64,
     pub region: &'a str,
@@ -74,7 +74,11 @@ pub struct EngineRequest<'a> {
     pub auth_file: Option<&'a Path>,
 }
 
-pub async fn fetch_results_page(req: &EngineRequest<'_>, url: &str, user_agent: &str) -> Result<String, AppError> {
+pub(crate) async fn fetch_results_page(
+    req: &EngineRequest<'_>,
+    url: &str,
+    user_agent: &str,
+) -> Result<String, AppError> {
     let resp = req
         .http
         .get_text(HttpRequest {
@@ -88,7 +92,7 @@ pub async fn fetch_results_page(req: &EngineRequest<'_>, url: &str, user_agent: 
     Ok(resp.body)
 }
 
-pub struct MultiEngineParams<'a> {
+pub(crate) struct MultiEngineParams<'a> {
     pub http: &'a HttpClient,
     pub rate_limiter: &'a SearchRateLimiter,
     pub region: &'a str,
@@ -139,7 +143,7 @@ async fn query_engine_filtered(
         .collect())
 }
 
-pub struct MultiEngineOutcome {
+pub(crate) struct MultiEngineOutcome {
     pub results: Vec<SearchResult>,
     pub last_error: Option<AppError>,
 }

@@ -1,6 +1,5 @@
-//! Tools a subagent's turn runs through: each call is recorded as evidence for its result (outcome,
-//! files read and changed, what changed while a bash command ran), and `ask_parent` puts a question
-//! to the delegating agent.
+//! Tools a subagent's turn runs through: each call is recorded as evidence for its result, and
+//! `ask_parent` puts a question to the delegating agent.
 
 use super::evidence::{OutcomeStatus, ToolOutcome};
 use super::snapshot::Snapshot;
@@ -258,10 +257,8 @@ impl EngineTool for RecordedTool {
     }
 }
 
-/// Lets the subagent ask the delegating agent a question. With a live mailbox the question goes to
-/// the parent and the call returns its reply, so the round keeps its work in progress; when the
-/// parent declines (it waits or ends its turn instead), the call ends the turn and the question is
-/// kept for the round's result, to be answered by continuing the task.
+/// Lets the subagent ask the delegating agent a question. A live mailbox returns the parent's reply;
+/// otherwise the call ends the turn and the question is answered by continuing the task.
 pub(crate) struct AskParentTool {
     questions: Arc<Mutex<Vec<String>>>,
     inbox: Option<Mailbox>,

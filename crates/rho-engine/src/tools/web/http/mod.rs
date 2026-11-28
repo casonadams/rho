@@ -22,13 +22,13 @@ pub struct HttpResponse<T> {
 }
 
 #[derive(Clone, Debug)]
-pub struct HttpPostResponse {
+pub(crate) struct HttpPostResponse {
     pub status: reqwest::StatusCode,
     pub content_type: String,
     pub body: String,
 }
 
-pub struct PostJsonRequest<'a> {
+pub(crate) struct PostJsonRequest<'a> {
     pub url: &'a str,
     pub body: &'a serde_json::Value,
     pub headers: &'a [(&'a str, &'a str)],
@@ -179,7 +179,7 @@ impl HttpClient {
         })
     }
 
-    pub async fn get_bytes(&self, request: HttpRequest<'_>) -> Result<HttpResponse<Vec<u8>>> {
+    pub(crate) async fn get_bytes(&self, request: HttpRequest<'_>) -> Result<HttpResponse<Vec<u8>>> {
         let resp = self.send_request(&request, false).await?;
         Self::read_response(resp, &request, "application/octet-stream").await
     }
@@ -205,11 +205,15 @@ impl HttpClient {
         })
     }
 
-    pub async fn post_json(&self, request: PostJsonRequest<'_>) -> Result<HttpPostResponse> {
+    pub(crate) async fn post_json(&self, request: PostJsonRequest<'_>) -> Result<HttpPostResponse> {
         self.post_json_until(request, |_, _| false).await
     }
 
-    pub async fn post_json_until<F>(&self, request: PostJsonRequest<'_>, mut stop_when: F) -> Result<HttpPostResponse>
+    pub(crate) async fn post_json_until<F>(
+        &self,
+        request: PostJsonRequest<'_>,
+        mut stop_when: F,
+    ) -> Result<HttpPostResponse>
     where
         F: FnMut(&str, &[u8]) -> bool,
     {

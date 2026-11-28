@@ -12,7 +12,7 @@ const MAX_WANTED_CHARS: usize = 255;
 const MODULE_STEMS: [&str; 3] = ["mod", "index", "__init__"];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PathKind {
+pub(crate) enum PathKind {
     File,
     Any,
 }
@@ -137,7 +137,7 @@ struct Rank {
     path: String,
 }
 
-pub fn suggest_paths(root: &Path, raw: &str, kind: PathKind) -> Vec<String> {
+pub(crate) fn suggest_paths(root: &Path, raw: &str, kind: PathKind) -> Vec<String> {
     let Some(target) = relative_target(root, raw) else {
         return Vec::new();
     };
@@ -181,7 +181,7 @@ pub fn suggest_paths(root: &Path, raw: &str, kind: PathKind) -> Vec<String> {
 }
 
 /// A trailing "Did you mean" line for a not-found error, or an empty string when nothing is close.
-pub async fn missing_path_hint(root: &Path, raw: &str, kind: PathKind) -> String {
+pub(crate) async fn missing_path_hint(root: &Path, raw: &str, kind: PathKind) -> String {
     let (root, raw) = (root.to_path_buf(), raw.to_string());
     match tokio::task::spawn_blocking(move || format_hint(&suggest_paths(&root, &raw, kind))).await {
         Ok(hint) => hint,

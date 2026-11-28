@@ -24,7 +24,7 @@ pub struct WebFetchConfig {
 }
 
 #[derive(Clone)]
-pub struct WebFetchTool {
+pub(crate) struct WebFetchTool {
     pub http: HttpClient,
     pub cache: FetchCache,
     pub config: WebFetchConfig,

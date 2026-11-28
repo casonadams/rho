@@ -11,7 +11,7 @@ const MAX_PARENT_MESSAGES: usize = 20;
 const MAX_PARENT_MESSAGE_CHARS: usize = 1_500;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum RoundEnd {
+pub(crate) enum RoundEnd {
     Answered(String),
     /// The subagent called `ask_parent` and is waiting for a reply.
     Asked(String),
@@ -27,7 +27,7 @@ pub enum RoundEnd {
 }
 
 #[derive(Debug, Clone)]
-pub struct Round {
+pub(crate) struct Round {
     pub end: RoundEnd,
     /// The structured result the subagent passed to `complete_task`, an A2A data part.
     pub data: Option<serde_json::Value>,
@@ -50,13 +50,13 @@ pub struct Round {
 
 impl Round {
     #[must_use]
-    pub fn problem_count(&self) -> usize {
+    pub(crate) fn problem_count(&self) -> usize {
         problem_count(&self.tool_log)
     }
 
     /// Ended early with work the parent can build on or continue.
     #[must_use]
-    pub fn is_incomplete(&self) -> bool {
+    pub(crate) fn is_incomplete(&self) -> bool {
         matches!(
             self.end,
             RoundEnd::Asked(_) | RoundEnd::Stopped { .. } | RoundEnd::Partial(_)
@@ -80,7 +80,7 @@ impl Round {
 
 /// What a round starts from: a new instruction, or a reply to the subagent's `ask_parent` question.
 #[derive(Debug, Clone, Copy)]
-pub enum RoundInput<'a> {
+pub(crate) enum RoundInput<'a> {
     Prompt(&'a str),
     Reply(&'a str),
 }
@@ -99,7 +99,7 @@ pub(super) fn ended_with_question(transcript: &[ChatMessage]) -> bool {
         .any(|c| matches!(c, AssistantContent::ToolCall(call) if call.function.name == ASK_PARENT_TOOL))
 }
 
-pub fn build_subagent_prompt(prompt: &str, context_slice: Option<&str>) -> String {
+pub(crate) fn build_subagent_prompt(prompt: &str, context_slice: Option<&str>) -> String {
     match context_slice {
         Some(slice) if !slice.trim().is_empty() => {
             format!("Context:\n{}\n\nTask:\n{}", slice.trim(), prompt.trim())

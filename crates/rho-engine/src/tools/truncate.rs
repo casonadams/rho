@@ -1,19 +1,15 @@
-//! Shared truncation utilities for tool outputs, ported from pi's
-//! `truncate.ts`. Two independent limits apply - whichever is hit first wins:
-//! a line limit (default 2000) and a byte limit (default 50KB). Neither
-//! function returns partial lines; head truncation reports an oversized first
-//! line through `first_line_exceeds_limit` and tail truncation reports a
-//! partial final line through `last_line_partial`.
+//! Truncation for tool outputs, ported from pi's `truncate.ts`: whichever of the line and byte limits is hit
+//! first wins, and no function returns partial lines (`first_line_exceeds_limit`, `last_line_partial` flag them).
 
 use std::borrow::Cow;
 use std::path::Path;
 
 pub use rho_harness_core::text::format_size;
 
-pub const DEFAULT_MAX_LINES: usize = 2000;
-pub const DEFAULT_MAX_BYTES: usize = 50 * 1024; // 50 KB
+pub(crate) const DEFAULT_MAX_LINES: usize = 2000;
+pub(crate) const DEFAULT_MAX_BYTES: usize = 50 * 1024; // 50 KB
 /// Max chars per search match line (pi's `GREP_MAX_LINE_LENGTH`).
-pub const GREP_MAX_LINE_LENGTH: usize = 500;
+pub(crate) const GREP_MAX_LINE_LENGTH: usize = 500;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TruncatedBy {
@@ -40,14 +36,14 @@ pub struct Truncation {
 }
 
 /// A single line passed through [`truncate_line`].
-pub struct TruncatedLine<'a> {
+pub(crate) struct TruncatedLine<'a> {
     pub text: Cow<'a, str>,
     pub was_truncated: bool,
 }
 
 /// Truncate a single line to [`GREP_MAX_LINE_LENGTH`] chars, appending
 /// `... [truncated]` (pi's `truncateLine`, used for search match lines).
-pub fn truncate_line(line: &str) -> TruncatedLine<'_> {
+pub(crate) fn truncate_line(line: &str) -> TruncatedLine<'_> {
     if line.len() <= GREP_MAX_LINE_LENGTH {
         return TruncatedLine {
             text: Cow::Borrowed(line),
@@ -108,7 +104,7 @@ fn collect_head_lines<'a>(
 
 /// Truncate content from the head (keep the first N lines/bytes). Suitable for
 /// file reads where the beginning matters.
-pub fn truncate_head(content: &str, max_lines: usize, max_bytes: usize) -> Truncation {
+pub(crate) fn truncate_head(content: &str, max_lines: usize, max_bytes: usize) -> Truncation {
     let (total_bytes, total_lines) = (content.len(), content.lines().count());
     if total_lines <= max_lines && total_bytes <= max_bytes {
         return untruncated(content, total_lines, total_bytes, max_lines, max_bytes);
@@ -184,10 +180,9 @@ fn collect_tail_lines<'a>(
     (out_rev, truncated_by, partial)
 }
 
-/// Truncate content from the tail (keep the last N lines/bytes). Suitable for
-/// bash output where the end matters (errors, final results). May return a
-/// partial first line when the last line alone exceeds the byte limit.
-pub fn truncate_tail(content: &str, max_lines: usize, max_bytes: usize) -> Truncation {
+/// Keeps the last N lines/bytes, for output where the end matters. May return a partial first line
+/// when the last line alone exceeds the byte limit.
+pub(crate) fn truncate_tail(content: &str, max_lines: usize, max_bytes: usize) -> Truncation {
     let (total_bytes, total_lines) = (content.len(), content.lines().count());
     if total_lines <= max_lines && total_bytes <= max_bytes {
         return untruncated(content, total_lines, total_bytes, max_lines, max_bytes);
@@ -222,7 +217,7 @@ fn attach_spill_artifact(mut trunc: Truncation, content: &str, artifact_dir: Opt
     trunc
 }
 
-pub fn truncate_head_with_spill(
+pub(crate) fn truncate_head_with_spill(
     content: &str,
     max_lines: usize,
     max_bytes: usize,
@@ -231,7 +226,7 @@ pub fn truncate_head_with_spill(
     attach_spill_artifact(truncate_head(content, max_lines, max_bytes), content, artifact_dir)
 }
 
-pub fn split_artifact_notice(content: &str) -> (&str, Option<&str>) {
+pub(crate) fn split_artifact_notice(content: &str) -> (&str, Option<&str>) {
     const SPILL_PREFIX: &str = "\n\n[Output truncated. Full content";
     if let Some(idx) = content.rfind(SPILL_PREFIX) {
         (&content[..idx], Some(&content[idx + 2..]))

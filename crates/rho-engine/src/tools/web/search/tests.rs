@@ -1,4 +1,7 @@
-use super::query::normalize_domain;
+use super::query::{
+    build_search_query_with_filters, matches_domain_filters, normalize_domain, normalize_domain_filters,
+};
+use super::result::{SearchResult, deduplicate_results};
 use super::*;
 
 #[test]
@@ -99,9 +102,11 @@ fn test_deduplicate_results_canonical_url() {
 fn test_format_search_results() {
     let results = vec![
         SearchResult::new("Rust", "A systems language", "https://www.rust-lang.org/"),
-        SearchResult::new("Docs", "API Docs", "https://docs.rs/tokio")
-            .with_hint("documentation")
-            .with_source("Brave"),
+        SearchResult {
+            content_hint: Some("documentation".into()),
+            source: Some("Brave".into()),
+            ..SearchResult::new("Docs", "API Docs", "https://docs.rs/tokio")
+        },
     ];
     let formatted = format_search_results(FormatResultsParams {
         query: "rust lang",

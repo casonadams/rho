@@ -283,7 +283,7 @@ impl Scan {
 
 /// Like [`summarize_test_failures`] for a command that exited 0, whose output merely quoting test
 /// results (`cat`, `git diff`) is not a failing run: needs the runner's own totals to report failures.
-pub fn summarize_reported_failures(output: &str) -> Option<String> {
+pub(crate) fn summarize_reported_failures(output: &str) -> Option<String> {
     let output = super::sanitize::strip_ansi(output);
     if FAILED_TOTALS.is_match(&output) {
         summarize_test_failures(&output)
@@ -293,7 +293,7 @@ pub fn summarize_reported_failures(output: &str) -> Option<String> {
 }
 
 /// The failing tests in `output` with their key failure lines, or `None` when none were found.
-pub fn summarize_test_failures(output: &str) -> Option<String> {
+pub(crate) fn summarize_test_failures(output: &str) -> Option<String> {
     let output = super::sanitize::strip_ansi(output);
     let mut scan = Scan::default();
     output.lines().for_each(|line| scan.read(line));

@@ -20,7 +20,7 @@ const COMMAND_PREVIEW_CHARS: usize = 60;
 /// Blocks until the agent's background work reports, a message arrives, or the turn is interrupted.
 /// Each turn binds a copy to the agent's mailbox; an unbound tool has nothing to wait for.
 #[derive(Clone)]
-pub struct WaitTool {
+pub(crate) struct WaitTool {
     cap: Duration,
     turn: Option<Turn>,
 }

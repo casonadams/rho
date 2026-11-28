@@ -2,12 +2,12 @@ use crate::tools::truncate::truncate_line;
 use similar::{DiffOp, TextDiff};
 use std::fmt::Write;
 
-pub const PREVIEW_CONTEXT_LINES: usize = 1;
-pub const PREVIEW_MAX_LINES: usize = 60;
+pub(crate) const PREVIEW_CONTEXT_LINES: usize = 1;
+pub(crate) const PREVIEW_MAX_LINES: usize = 60;
 
 /// The changed regions of `after`, numbered like `read` output, capped at `PREVIEW_MAX_LINES` lines.
 /// A lone region past the cap keeps its first lines; a pure deletion shows `@@ N` and the count removed.
-pub fn changed_regions(before: &str, after: &str) -> String {
+pub(crate) fn changed_regions(before: &str, after: &str) -> String {
     let diff = TextDiff::from_lines(before, after);
     let new_lines: Vec<&str> = after.lines().collect();
     let mut preview = Preview::default();

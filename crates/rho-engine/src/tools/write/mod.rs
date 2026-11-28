@@ -11,7 +11,7 @@ use std::sync::Arc;
 #[cfg(test)]
 mod tests;
 
-pub struct WriteTool {
+pub(crate) struct WriteTool {
     pub base_dir: crate::tools::WorkspaceDir,
     pub lsp: Option<Arc<LspManager>>,
     pub history: Option<crate::tools::undo::EditHistory>,
@@ -68,12 +68,12 @@ impl WriteTool {
         }
     }
 
-    pub fn with_workspace_dir(mut self, base_dir: crate::tools::WorkspaceDir) -> Self {
+    pub(crate) fn with_workspace_dir(mut self, base_dir: crate::tools::WorkspaceDir) -> Self {
         self.base_dir = base_dir;
         self
     }
 
-    pub fn with_lsp(mut self, lsp: Option<Arc<LspManager>>) -> Self {
+    pub(crate) fn with_lsp(mut self, lsp: Option<Arc<LspManager>>) -> Self {
         self.lsp = lsp;
         self
     }

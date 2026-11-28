@@ -1,7 +1,7 @@
 use super::result::SearchResult;
 use url::Url;
 
-pub struct FormatResultsParams<'a> {
+pub(crate) struct FormatResultsParams<'a> {
     pub query: &'a str,
     pub results: &'a [SearchResult],
     pub limit: usize,
@@ -53,7 +53,7 @@ fn format_search_item(out: &mut String, idx: usize, r: &SearchResult) {
     out.push('\n');
 }
 
-pub fn format_search_results(params: FormatResultsParams<'_>) -> String {
+pub(crate) fn format_search_results(params: FormatResultsParams<'_>) -> String {
     let via = format_via_engines(params.results, params.limit);
     let mut out = format!(
         "**Search results for:** {}{via} (searched on {})\n\n",

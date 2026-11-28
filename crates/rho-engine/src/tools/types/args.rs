@@ -8,7 +8,7 @@ use std::path::PathBuf;
 const MAX_ERROR_CHARS: usize = 300;
 
 /// Resolves a model-supplied path inside the workspace; an empty path is reported as a tool error.
-pub fn resolve_tool_path(workspace: &Workspace, clean_path: &str, tool: &str) -> Result<PathBuf, ToolResult> {
+pub(crate) fn resolve_tool_path(workspace: &Workspace, clean_path: &str, tool: &str) -> Result<PathBuf, ToolResult> {
     workspace
         .resolve(clean_path)
         .ok_or_else(|| ToolResult::error(format!("Empty file path provided for {tool} tool")))
@@ -23,7 +23,7 @@ fn decode_json_text(value: &Value) -> Option<Value> {
 }
 
 /// Decodes arguments sent as one JSON-encoded object so hooks, permission checks, and the tool all see the same value.
-pub fn normalize_tool_arguments(args: Value) -> Value {
+pub(crate) fn normalize_tool_arguments(args: Value) -> Value {
     match decode_json_text(&args) {
         Some(decoded @ Value::Object(_)) => decoded,
         _ => args,
@@ -72,7 +72,7 @@ fn expected_shape(schema: &Value) -> String {
     )
 }
 
-pub fn try_parse_tool_args<T: DeserializeOwned>(args: &Value) -> Result<T, serde_json::Error> {
+pub(crate) fn try_parse_tool_args<T: DeserializeOwned>(args: &Value) -> Result<T, serde_json::Error> {
     let first_error = match T::deserialize(args) {
         Ok(parsed) => return Ok(parsed),
         Err(e) => e,
@@ -136,7 +136,7 @@ fn is_unparsed_raw_arguments(args: &Value) -> bool {
         .is_some_and(|map| map.len() == 1 && map.get("raw").is_some_and(Value::is_string))
 }
 
-pub fn parse_tool_args<T: DeserializeOwned>(
+pub(crate) fn parse_tool_args<T: DeserializeOwned>(
     tool: &str,
     args: Value,
     schema: impl FnOnce() -> Value,

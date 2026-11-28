@@ -1,8 +1,5 @@
-//! A subagent round: the subagent's instructions, tools, and budget run on the main agent's turn
-//! loop, with its conversation in memory and its output shown in its monitor record. The round
-//! adds what a delegated task needs around that loop: evidence of what its tools did, a summary
-//! when it stops early, a pause when it asks the delegating agent a question, and the report it
-//! finishes with through `complete_task`.
+//! A subagent round runs the main turn loop with an in-memory conversation, adding delegated-task
+//! evidence, early-stop summaries, question pauses, and the `complete_task` report.
 
 use super::complete::{CompleteTaskTool, take_report};
 use super::evidence::evidence;
@@ -39,7 +36,7 @@ const DEFAULT_MONITOR_GROUP: &str = "subagents";
 const ASK_PARENT_GUIDANCE: &str = "If you cannot proceed without a decision or information only the delegating agent has, call ask_parent with a specific question instead of guessing; your work so far is kept while you wait.\n\n";
 const REPLY_HEADING: &str = "Reply from the delegating agent";
 
-pub fn filter_tools_for_role(tools: &[Arc<dyn EngineTool>], role: SubagentRole) -> Vec<Arc<dyn EngineTool>> {
+pub(crate) fn filter_tools_for_role(tools: &[Arc<dyn EngineTool>], role: SubagentRole) -> Vec<Arc<dyn EngineTool>> {
     let allowed = role.allowed_tools();
     tools_named(tools, |name| allowed.contains(&name))
 }
@@ -155,7 +152,7 @@ impl SubagentRunner {
     }
 
     #[must_use]
-    pub fn new_custom(
+    pub(crate) fn new_custom(
         model: ModelHandle,
         instructions: String,
         tools: Vec<Arc<dyn EngineTool>>,
@@ -183,7 +180,7 @@ impl SubagentRunner {
     }
 
     #[must_use]
-    pub fn with_worktree_lsp(mut self, open: Option<WorktreeLsp>) -> Self {
+    pub(crate) fn with_worktree_lsp(mut self, open: Option<WorktreeLsp>) -> Self {
         self.worktree_lsp = open;
         self
     }
@@ -219,7 +216,7 @@ impl SubagentRunner {
 
     /// Lets the subagent pause with a question for the agent that started it (the `ask_parent` tool).
     #[must_use]
-    pub fn with_parent_channel(mut self) -> Self {
+    pub(crate) fn with_parent_channel(mut self) -> Self {
         self.parent_channel = true;
         self
     }
@@ -227,7 +224,7 @@ impl SubagentRunner {
     /// Runs the agent in `root` (its worktree): file tools, the environment it is told about, and
     /// permission checks all treat `root` as the workspace.
     #[must_use]
-    pub fn in_worktree(mut self, root: &std::path::Path) -> Self {
+    pub(crate) fn in_worktree(mut self, root: &std::path::Path) -> Self {
         self.isolated = true;
         self.tools = crate::tools::builtin_tools::rerooted(&self.tools, root, self.worktree_lsp.as_ref(), self.direnv);
         self.lsp_root = self.worktree_lsp.as_ref().map(|_| root.to_path_buf());
@@ -243,21 +240,21 @@ impl SubagentRunner {
     }
 
     #[must_use]
-    pub fn with_label(mut self, name: &str) -> Self {
+    pub(crate) fn with_label(mut self, name: &str) -> Self {
         self.name = Some(name.to_string());
         self.monitor_label = name.to_string();
         self
     }
 
     #[must_use]
-    pub fn with_task_name(mut self, name: &str) -> Self {
+    pub(crate) fn with_task_name(mut self, name: &str) -> Self {
         self.name = Some(name.to_string());
         self.monitor_label = format!("{name} · {}", self.monitor_label);
         self
     }
 
     #[must_use]
-    pub fn with_monitor_identity(mut self, group: &str, label: &str) -> Self {
+    pub(crate) fn with_monitor_identity(mut self, group: &str, label: &str) -> Self {
         self.monitor_group = group.to_string();
         self.monitor_label = label.to_string();
         self
@@ -296,7 +293,7 @@ impl SubagentRunner {
     }
 
     #[must_use]
-    pub fn with_position(mut self, position: impl Into<String>) -> Self {
+    pub(crate) fn with_position(mut self, position: impl Into<String>) -> Self {
         self.position = Some(position.into());
         self
     }
@@ -414,7 +411,7 @@ impl SubagentRunner {
     }
 
     /// Continues `transcript` from `input` until the round ends.
-    pub async fn run_round(&self, transcript: Vec<ChatMessage>, input: RoundInput<'_>) -> Round {
+    pub(crate) async fn run_round(&self, transcript: Vec<ChatMessage>, input: RoundInput<'_>) -> Round {
         let (shown, prompt) = match input {
             RoundInput::Reply(text) if ended_with_question(&transcript) => {
                 (text, format!("{REPLY_HEADING}:\n{}", text.trim()))

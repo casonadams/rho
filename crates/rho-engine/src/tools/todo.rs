@@ -11,7 +11,7 @@ use std::sync::{Arc, Mutex};
 /// Each turn binds a copy holding the latest list in that agent's conversation, so every agent
 /// keeps its own list and it survives resume and compaction.
 #[derive(Default)]
-pub struct TodoTool {
+pub(crate) struct TodoTool {
     todos: Mutex<Vec<TodoItem>>,
     presenter: Option<Arc<dyn Presenter>>,
     emit_surface: bool,

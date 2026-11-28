@@ -14,7 +14,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 use tokio::task::{AbortHandle, JoinHandle};
 
-pub const DEFAULT_FOREGROUND_SECONDS: u64 = 0;
+pub(crate) const DEFAULT_FOREGROUND_SECONDS: u64 = 0;
 /// Longest subagent result placed in a completion notice; the full record stays in the session.
 const MAX_NOTICE_BYTES: usize = 20_000;
 /// How long a background round asked to stop may take to save its work before it is aborted.
@@ -190,9 +190,8 @@ impl Backgrounding {
             .map(|_| format!("subagent task '{task_id}' is still running in the background; its result arrives as a follow-up message when it finishes"))
     }
 
-    /// Runs `work` for the task in the reserved `slot`, returning its result if it finishes within the
-    /// budget, otherwise a notice that it continues in the background. A round that ends after
-    /// `cancellation` fires reports nothing.
+    /// Runs `work` in the reserved `slot`; returns its result if it finishes within the budget, else a notice
+    /// that it continues in the background. A round that ends after `cancellation` fires reports nothing.
     pub(crate) async fn run<F>(
         &self,
         slot: RoundSlot,
@@ -237,9 +236,8 @@ impl Backgrounding {
         }
     }
 
-    /// The round's outcome if it ends within the foreground budget, before it asks the delegating
-    /// agent a question (which that agent can only answer once this call returns); a zero budget
-    /// never waits.
+    /// The round's outcome if it ends within the foreground budget, before it asks a question; a zero budget never waits.
+    /// The delegating agent can answer a question only once this call returns.
     async fn wait_inline(
         &self,
         handle: &mut JoinHandle<ToolResult>,

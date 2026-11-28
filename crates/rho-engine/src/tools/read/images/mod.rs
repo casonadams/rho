@@ -4,7 +4,7 @@ mod sniff;
 #[cfg(test)]
 mod tests;
 
-pub use sniff::{SNIFF_WINDOW_BYTES, SniffedMime, detect_supported_image_mime};
+pub(crate) use sniff::detect_supported_image_mime;
 
 use crate::tools::types::{ToolImage, ToolResult};
 use resize::{ResizedImage, resize_to_limits};
@@ -12,7 +12,7 @@ use std::borrow::Cow;
 
 /// Successfully processed image, ready to become a tool-result image block.
 #[derive(Debug, PartialEq)]
-pub struct ProcessedImage {
+pub(crate) struct ProcessedImage {
     /// Base64-encoded image data.
     pub data: String,
     pub mime: &'static str,
@@ -22,7 +22,7 @@ pub struct ProcessedImage {
 
 /// Pipeline failure, carrying the model-facing omission message (pi parity).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ProcessError {
+pub(crate) enum ProcessError {
     Convert,
     Resize,
 }
@@ -38,7 +38,7 @@ impl ProcessError {
 
 /// Port of pi's `processImage`: normalize the format (BMP → PNG), run the
 /// resize ladder, and assemble pi's hints (conversion + dimension note).
-pub fn process_image(bytes: &[u8], mime: &'static str) -> Result<ProcessedImage, ProcessError> {
+pub(crate) fn process_image(bytes: &[u8], mime: &'static str) -> Result<ProcessedImage, ProcessError> {
     let (bytes, mime, converted_from): (Cow<'_, [u8]>, &'static str, Option<&'static str>) = match mime {
         "image/png" | "image/jpeg" | "image/gif" | "image/webp" => (Cow::Borrowed(bytes), mime, None),
         other => {
@@ -61,9 +61,8 @@ pub fn process_image(bytes: &[u8], mime: &'static str) -> Result<ProcessedImage,
     })
 }
 
-/// pi's read-tool image branch: assemble the model-facing text note and attach
-/// the processed image. Processing failures surface pi's omission message as a
-/// successful text-only result (no image block).
+/// Mirrors pi's read-tool image branch: a text note plus the image block; on processing failure, a text-only
+/// success carrying pi's omission message.
 pub fn tool_result(bytes: &[u8], mime: &'static str) -> ToolResult {
     match process_image(bytes, mime) {
         Ok(processed) => {

@@ -10,7 +10,7 @@ use crate::tools::web::search::WebSearchArgs;
 use crate::tools::write::WriteArgs;
 use rho_harness_core::args::{MemoryArgs, SubagentArgs, TodoArgs, UndoArgs, WaitArgs, WorktreeArgs};
 
-pub static PROMPT_WAIT: &str = "\
+pub(crate) static PROMPT_WAIT: &str = "\
 Block until one of your background bash jobs or subagent tasks finishes, or a user message arrives.
 
 Usage:
@@ -18,7 +18,7 @@ Usage:
 - It returns every result that has arrived, each only once; call it again to wait for work still running.
 - It returns at once when nothing is running or a message is waiting, and after 10 minutes returns `Still running:` with what is left.";
 
-pub static PROMPT_UNDO: &str = "\
+pub(crate) static PROMPT_UNDO: &str = "\
 Revert the most recent edit, write, or lsp change (rename, code action, format) this session made to a file.
 
 Usage:
@@ -26,7 +26,7 @@ Usage:
 - It refuses when the file changed since (by the user, bash, or a formatter); then read and edit it instead.
 - The result shows the restored regions numbered like read.";
 
-pub static PROMPT_MEMORY: &str = "\
+pub(crate) static PROMPT_MEMORY: &str = "\
 Keep short notes that are loaded into your context at the start of every later session.
 
 Usage:
@@ -35,7 +35,7 @@ Usage:
 - One short line per note, at most 50 notes (8KB) per scope. view numbers the notes and remove takes that number; remove a note as soon as it is wrong.
 - Changes take effect next session, not in this one.";
 
-pub static PROMPT_TODO: &str = "\
+pub(crate) static PROMPT_TODO: &str = "\
 Keep an ordered task list for multi-step work; the user sees it, and it survives compaction and resume.
 
 Usage:
@@ -44,7 +44,7 @@ Usage:
 - Keep exactly one item in_progress. Mark each item completed as soon as it is done and verified, not in batches; if blocked, keep it in_progress and add an item for the blocker.
 - Add steps you discover and remove ones that no longer apply.";
 
-pub static PROMPT_WORKTREE: &str = "\
+pub(crate) static PROMPT_WORKTREE: &str = "\
 Review and land the work subagents and workflows did in their own git worktrees; their changes reach your working tree only when you merge them.
 
 Usage:
@@ -53,7 +53,7 @@ Usage:
 - merge three-way merges into your working tree, uncommitted edits included, and removes the worktree; conflicting files get <<<<<<< markers to resolve with edit.
 - Merge or discard every worktree your subagents create before you finish, or say why one is kept; unmerged worktrees are deleted after 24 hours. To get fixes first, continue the subagent with its task_id.";
 
-pub static PROMPT_LSP: &str = "\
+pub(crate) static PROMPT_LSP: &str = "\
 Query the language server for a file's language: diagnostics, definitions, references, hover, implementations, symbols, renames, code actions, and formatting.
 
 Usage:
@@ -62,7 +62,7 @@ Usage:
 - rename, format, and code_actions with apply: true write files; check the files they list. Actions that only run a server command are refused.
 - Servers start on first use, so the first query can take a few seconds. If no server handles a file the error says why; fall back to rg and read.";
 
-pub static PROMPT_READ: &str = "\
+pub(crate) static PROMPT_READ: &str = "\
 Read a text file with line numbers, or attach an image.
 
 Usage:
@@ -70,14 +70,14 @@ Usage:
 - Output stops at 2000 lines or 50KB with a `Use offset=N to continue.` note. For large files read a range with offset and limit, or one function or type with symbol.
 - Images (png, jpeg, gif, webp, bmp) are attached; other binary files return a placeholder. Use fd, not read, to list a directory.";
 
-pub static PROMPT_WRITE: &str = "\
+pub(crate) static PROMPT_WRITE: &str = "\
 Create a file or replace its entire content; parent directories are created.
 
 Usage:
 - text replaces the whole file, so include everything that should remain; change existing files with edit instead.
 - When a language server handles the file, the result ends with its diagnostics.";
 
-pub static PROMPT_EDIT: &str = "\
+pub(crate) static PROMPT_EDIT: &str = "\
 Edit an existing file with exact text replacements.
 
 Usage:
@@ -89,7 +89,7 @@ Usage:
 - Put all changes to one file in one call, merging changes to the same lines into one entry; edit other files with separate calls in the same response.
 - The result shows each changed region numbered like read, so there is no need to re-read. With a language server it also lists diagnostics: fix errors you introduced, but expect transient ones mid-change. Line endings are preserved.";
 
-pub static PROMPT_FD: &str = "\
+pub(crate) static PROMPT_FD: &str = "\
 Find files and directories by path.
 
 Usage:
@@ -97,7 +97,7 @@ Usage:
 - Results are grouped under their directory, and directories end with `/`. Ignored files are excluded; hidden: true adds dotfiles.
 - Use depth for a bounded overview (depth 2 for top-level layout) and type to filter by language. stats adds line counts and sizes; with sort and min_lines it finds large files.";
 
-pub static PROMPT_RG: &str = "\
+pub(crate) static PROMPT_RG: &str = "\
 Search file contents with a smart-case Rust regex (no lookaround or backreferences).
 
 Usage:
@@ -106,7 +106,7 @@ Usage:
 - Matches stay within one line unless multiline: true.
 - Ignored files, binary files, and files over 1 MB are skipped; hidden: true adds dotfiles. path may be a single file; use fd to find files by name.";
 
-pub static PROMPT_BASH: &str = "\
+pub(crate) static PROMPT_BASH: &str = "\
 Execute a bash command in the working directory and return combined stdout and stderr.
 
 Usage:
@@ -116,14 +116,14 @@ Usage:
 - Never poll with sleep, ps, or pgrep: keep working, call wait, or end your turn.
 - Failures end with `[exit N]`. Long output keeps its first and last lines (more of the last on failure) and names the full log as `log: PATH` (search it with rg or page it with read), plus a summary of failing tests when it finds any. Pipe noisy commands through rg, head, or tail.";
 
-pub static PROMPT_WEB_SEARCH: &str = "\
+pub(crate) static PROMPT_WEB_SEARCH: &str = "\
 Search the web and return titles, URLs, and snippets.
 
 Usage:
 - Snippets are rarely authoritative: open the best results with web_fetch, preferring primary sources (official docs, release notes, upstream repositories).
 - For recent events or latest versions, set recency and account for today's date.";
 
-pub static PROMPT_WEB_FETCH: &str = "\
+pub(crate) static PROMPT_WEB_FETCH: &str = "\
 Fetch a URL and return its content as clean text (HTML, JSON, Markdown, text, CSV, XML, or PDF).
 
 Usage:
@@ -131,7 +131,7 @@ Usage:
 - JavaScript is not executed: client-rendered pages return an error. Private network addresses are blocked unless configured.
 - Use it on URLs from the user or web_search; use read for local files.";
 
-pub static PROMPT_SUBAGENT: &str = "\
+pub(crate) static PROMPT_SUBAGENT: &str = "\
 Run a subagent in an isolated context for focused research, review, planning, or self-contained work.
 
 Usage:
@@ -168,7 +168,7 @@ impl BuiltinToolDeclaration {
     }
 }
 
-pub const DECLARATIONS: &[BuiltinToolDeclaration] = &[
+pub(crate) const DECLARATIONS: &[BuiltinToolDeclaration] = &[
     BuiltinToolDeclaration {
         name: "read",
         capability: BuiltinToolKind::ReadOnly,

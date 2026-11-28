@@ -1,7 +1,7 @@
 use schemars::JsonSchema;
 
 /// Normalize a generated JSON Schema in place for provider compatibility.
-pub fn normalize_schema(value: &mut serde_json::Value) {
+pub(crate) fn normalize_schema(value: &mut serde_json::Value) {
     let mut defs = std::collections::HashMap::new();
     collect_definitions(value, &mut defs);
     inline_refs(value, &defs);
@@ -147,7 +147,7 @@ fn clean_schema(value: &mut serde_json::Value) {
     }
 }
 
-pub fn generated_schema<T: JsonSchema>() -> serde_json::Value {
+pub(crate) fn generated_schema<T: JsonSchema>() -> serde_json::Value {
     let mut schema = serde_json::to_value(schemars::schema_for!(T)).expect("generated JSON Schema must serialize");
     normalize_schema(&mut schema);
     schema

@@ -1,6 +1,7 @@
 use super::{find, fixture};
 use crate::tools::fd::entry::format_results;
-use crate::tools::fd::{FdArgs, FdEntry, FdFormat, FdTool};
+use crate::tools::fd::entry::{FdEntry, FdFormat};
+use crate::tools::fd::{FdArgs, FdTool};
 use crate::tools::listing::{Collected, PageRequest};
 use crate::tools::types::generated_schema;
 

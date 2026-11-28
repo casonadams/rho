@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 /// Opens the language-server manager for a subagent's worktree.
-pub type WorktreeLsp = Arc<dyn Fn(&Path) -> Arc<LspManager> + Send + Sync>;
+pub(crate) type WorktreeLsp = Arc<dyn Fn(&Path) -> Arc<LspManager> + Send + Sync>;
 
 /// Stops the language servers of a subagent's worktree when it goes out of scope, so a round that
 /// is force-aborted does not leave them running. [`Self::close`] is the graceful path.

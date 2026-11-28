@@ -1,6 +1,5 @@
-//! Undo for the changes `edit`, `write`, and the `lsp` rename, code action and format actions make:
-//! each tool records a file's contents before and after its change, and `undo` restores the earlier
-//! contents while the file still holds what the tool wrote.
+//! Undo for the changes `edit`, `write`, and `lsp` rename, code action, and format make; each records
+//! a file's contents before and after, and `undo` restores the earlier ones while the file still matches.
 
 use crate::locking::lock;
 use crate::tools::atomic::atomic_write;
@@ -14,9 +13,9 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard};
 
-pub const MAX_REVISIONS_PER_FILE: usize = 20;
+pub(crate) const MAX_REVISIONS_PER_FILE: usize = 20;
 /// Total bytes of file contents the history keeps across all files; the oldest revisions go first.
-pub const MAX_HISTORY_BYTES: usize = 64 * 1024 * 1024;
+pub(crate) const MAX_HISTORY_BYTES: usize = 64 * 1024 * 1024;
 
 struct Revision {
     /// `None` when the change created the file.
@@ -43,7 +42,7 @@ struct Undoing {
 
 /// The file's contents before a change: `Some(None)` when it does not exist yet, `None` when it
 /// could not be read, in which case the change must not be recorded (undo would delete the file).
-pub async fn read_before(path: &Path) -> Option<Option<Vec<u8>>> {
+pub(crate) async fn read_before(path: &Path) -> Option<Option<Vec<u8>>> {
     read_current(path).await.ok()
 }
 
@@ -58,7 +57,7 @@ async fn read_current(path: &Path) -> std::io::Result<Option<Vec<u8>>> {
 
 /// The changes the agent's tools made to each file this session, newest last.
 #[derive(Clone, Default)]
-pub struct EditHistory(Arc<Mutex<State>>);
+pub(crate) struct EditHistory(Arc<Mutex<State>>);
 
 #[derive(Default)]
 struct State {
@@ -77,7 +76,13 @@ impl EditHistory {
 
     /// Like [`Self::record`], for a change that created `created_dirs` (innermost first) to hold a
     /// new file; undoing the creation removes the ones that are left empty.
-    pub fn record_with_dirs(&self, path: &Path, before: Option<Vec<u8>>, after: &[u8], created_dirs: Vec<PathBuf>) {
+    pub(crate) fn record_with_dirs(
+        &self,
+        path: &Path,
+        before: Option<Vec<u8>>,
+        after: &[u8],
+        created_dirs: Vec<PathBuf>,
+    ) {
         let mut state = self.state();
         let seq = state.next_seq;
         state.next_seq += 1;
@@ -166,7 +171,7 @@ async fn remove_empty_dirs(dirs: &[PathBuf]) -> usize {
     removed
 }
 
-pub struct UndoTool {
+pub(crate) struct UndoTool {
     base_dir: crate::tools::WorkspaceDir,
     history: EditHistory,
     lsp: Option<Arc<crate::lsp::LspManager>>,
@@ -181,13 +186,13 @@ impl UndoTool {
         }
     }
 
-    pub fn with_workspace_dir(mut self, base_dir: crate::tools::WorkspaceDir) -> Self {
+    pub(crate) fn with_workspace_dir(mut self, base_dir: crate::tools::WorkspaceDir) -> Self {
         self.base_dir = base_dir;
         self
     }
 
     /// Tells the language servers about files an undo restores or deletes.
-    pub fn with_lsp(mut self, lsp: Option<Arc<crate::lsp::LspManager>>) -> Self {
+    pub(crate) fn with_lsp(mut self, lsp: Option<Arc<crate::lsp::LspManager>>) -> Self {
         self.lsp = lsp;
         self
     }

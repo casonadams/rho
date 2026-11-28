@@ -3,7 +3,11 @@ use rho_harness_core::args::EditReplacement;
 use std::ops::Range;
 
 /// Byte ranges an edit replaces in `content`, in ascending order.
-pub fn locate_edit(content: &str, edit: &EditReplacement, line_ending: &str) -> Result<Vec<Range<usize>>, String> {
+pub(crate) fn locate_edit(
+    content: &str,
+    edit: &EditReplacement,
+    line_ending: &str,
+) -> Result<Vec<Range<usize>>, String> {
     match (&edit.start_text, &edit.end_text) {
         (None, None) => locate_old_text(content, edit, line_ending),
         (Some(start), Some(end)) if edit.old_text.is_empty() && edit.replace_all != Some(true) => {

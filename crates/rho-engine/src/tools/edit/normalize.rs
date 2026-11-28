@@ -3,14 +3,14 @@ use std::borrow::Cow;
 use rho_harness_core::text::truncate_chars;
 
 /// Detects whether the content predominantly uses CRLF or LF; ties go to LF.
-pub fn detect_line_ending(content: &str) -> &'static str {
+pub(crate) fn detect_line_ending(content: &str) -> &'static str {
     let crlf = content.matches("\r\n").count();
     let bare_lf = content.matches('\n').count() - crlf;
     if crlf > bare_lf { "\r\n" } else { "\n" }
 }
 
 /// Normalizes newlines in `text` to match `target_ending`.
-pub fn normalize_line_endings<'a>(text: &'a str, target_ending: &str) -> Cow<'a, str> {
+pub(crate) fn normalize_line_endings<'a>(text: &'a str, target_ending: &str) -> Cow<'a, str> {
     if target_ending == "\r\n" {
         if !text.contains('\n') || (text.contains("\r\n") && !has_isolated_lf(text)) {
             Cow::Borrowed(text)
@@ -36,7 +36,7 @@ fn has_isolated_lf(text: &str) -> bool {
     false
 }
 
-pub fn truncate_snippet(s: &str, max_chars: usize) -> String {
+pub(crate) fn truncate_snippet(s: &str, max_chars: usize) -> String {
     match truncate_chars(s, max_chars) {
         (head, true) => format!("{head}..."),
         (_, false) => s.to_string(),
@@ -45,7 +45,7 @@ pub fn truncate_snippet(s: &str, max_chars: usize) -> String {
 
 /// Checks if `content` contains a sequence of lines that matches `old_text`
 /// when intra-line and leading/trailing whitespace are collapsed.
-pub fn has_whitespace_relaxed_match(content: &str, old_text: &str) -> bool {
+pub(crate) fn has_whitespace_relaxed_match(content: &str, old_text: &str) -> bool {
     let clean_old = collapse_whitespace(old_text);
     if clean_old.is_empty() {
         return false;

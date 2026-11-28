@@ -12,7 +12,7 @@ const MAX_SNAPSHOT_BYTES: u64 = 10 * 1024 * 1024;
 
 /// The 1-based start line of an edit replacement in file content: where `old_text` is, or where
 /// `new_text` is when the edit is already on disk.
-pub fn locate_edit_line_number(content: &str, old_text: &str, new_text: &str) -> Option<usize> {
+pub(crate) fn locate_edit_line_number(content: &str, old_text: &str, new_text: &str) -> Option<usize> {
     locate_match_line(content, old_text).or_else(|| locate_match_line(content, new_text))
 }
 

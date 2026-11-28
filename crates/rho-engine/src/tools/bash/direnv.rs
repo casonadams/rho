@@ -1,9 +1,5 @@
-//! Automatic `direnv` environment loading for bash commands.
-//!
-//! Walks up from the command working directory to locate `.envrc` and, when present,
-//! invokes `direnv export json` against a clean parent environment (with `DIRENV_*`
-//! variables stripped). Never auto-allows `.envrc`: blocked or failing loads degrade
-//! silently so commands still execute normally.
+//! Loads direnv for bash commands: walks up to `.envrc`, runs `direnv export json` on a clean parent env
+//! (`DIRENV_*` stripped), and never auto-allows `.envrc`; blocked or failing loads are silently skipped.
 
 use crate::locking::lock;
 use std::collections::HashMap;
@@ -14,12 +10,12 @@ use std::sync::{LazyLock, Mutex};
 use std::time::{Duration, Instant};
 use tokio::process::Command;
 
-pub const DEFAULT_DIRENV_TIMEOUT_MS: u64 = 30_000;
+pub(crate) const DEFAULT_DIRENV_TIMEOUT_MS: u64 = 30_000;
 const ENVRC_CACHE_TTL: Duration = Duration::from_secs(5);
 const ENVRC_CACHE_MAX_ENTRIES: usize = 512;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct DirenvOptions {
+pub(crate) struct DirenvOptions {
     pub enabled: bool,
     pub timeout_ms: u64,
 }
@@ -34,7 +30,7 @@ impl Default for DirenvOptions {
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct DirenvDiff {
+pub(crate) struct DirenvDiff {
     pub set: Vec<(String, String)>,
     pub unset: Vec<String>,
 }
@@ -43,7 +39,7 @@ type EnvrcCache = HashMap<PathBuf, (Instant, Option<PathBuf>)>;
 static ENVRC_CACHE: LazyLock<Mutex<EnvrcCache>> = LazyLock::new(|| Mutex::new(HashMap::new()));
 
 /// Walks upward from `start_dir` looking for a regular `.envrc` file.
-pub fn find_envrc(start_dir: &Path) -> Option<PathBuf> {
+pub(crate) fn find_envrc(start_dir: &Path) -> Option<PathBuf> {
     let key = start_dir.to_path_buf();
     let now = Instant::now();
     if let Some((at, found)) = lock(&ENVRC_CACHE).get(&key)
@@ -74,7 +70,7 @@ fn walk_for_envrc(start_dir: &Path) -> Option<PathBuf> {
 }
 
 /// Parses `direnv export json` output (`{ "KEY": "val" | null }`).
-pub fn parse_direnv_export(stdout: &str) -> Option<DirenvDiff> {
+pub(crate) fn parse_direnv_export(stdout: &str) -> Option<DirenvDiff> {
     let trimmed = stdout.trim();
     if trimmed.is_empty() {
         return Some(DirenvDiff::default());
@@ -121,7 +117,7 @@ async fn run_direnv_export(bin: &Path, envrc_dir: &Path, timeout: Duration) -> O
 }
 
 /// Loads the `direnv` environment diff for `cwd` when enabled and `.envrc` exists.
-pub async fn load_direnv_env(
+pub(crate) async fn load_direnv_env(
     cwd: &Path,
     options: DirenvOptions,
     command_timeout: Option<Duration>,
@@ -137,7 +133,7 @@ pub async fn load_direnv_env(
 }
 
 /// Applies a loaded `DirenvDiff` onto a child `Command` before spawning.
-pub fn apply_direnv(cmd: &mut Command, diff: &DirenvDiff) {
+pub(crate) fn apply_direnv(cmd: &mut Command, diff: &DirenvDiff) {
     for key in &diff.unset {
         cmd.env_remove(key);
     }

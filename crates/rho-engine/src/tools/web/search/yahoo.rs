@@ -14,7 +14,7 @@ static SELECTORS: LazyLock<ResultSelectors> = LazyLock::new(|| ResultSelectors {
     snippet: selector(".compText, p"),
 });
 
-pub fn yahoo_search_url(query: &str, recency: Option<WebSearchRecency>) -> String {
+pub(crate) fn yahoo_search_url(query: &str, recency: Option<WebSearchRecency>) -> String {
     let age_param = recency_param(recency, "age", ["1d", "1w", "1m", "1y"]);
     format!(
         "https://search.yahoo.com/search?p={}{age_param}",
@@ -22,13 +22,13 @@ pub fn yahoo_search_url(query: &str, recency: Option<WebSearchRecency>) -> Strin
     )
 }
 
-pub async fn search_yahoo(req: &EngineRequest<'_>) -> Result<Vec<SearchResult>, AppError> {
+pub(crate) async fn search_yahoo(req: &EngineRequest<'_>) -> Result<Vec<SearchResult>, AppError> {
     let url = yahoo_search_url(req.query, req.recency);
     let body = fetch_results_page(req, &url, LYNX_UA).await?;
     Ok(parse_yahoo_html(&body))
 }
 
-pub fn decode_yahoo_url(raw: &str) -> String {
+pub(crate) fn decode_yahoo_url(raw: &str) -> String {
     if let Some(pos) = raw.find("/RU=") {
         let remainder = &raw[pos + 4..];
         let end = remainder.find('/').unwrap_or(remainder.len());
@@ -49,7 +49,7 @@ fn urlencoding_decode(s: &str) -> Result<String, ()> {
         .map_err(|_| ())
 }
 
-pub fn parse_yahoo_html(html: &str) -> Vec<SearchResult> {
+pub(crate) fn parse_yahoo_html(html: &str) -> Vec<SearchResult> {
     parse_result_blocks(html, &SELECTORS, decode_yahoo_url)
 }
 

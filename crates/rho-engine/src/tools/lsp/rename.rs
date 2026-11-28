@@ -137,10 +137,8 @@ impl LspTool {
         Ok(out)
     }
 
-    /// Writes every file a `WorkspaceEdit` changes, all or none, records each in the edit history,
-    /// and tells `file`'s server and the other servers. `what` names the action in refusals.
-    /// The edit was computed against the text `file` was synced with, so it is refused if that
-    /// file changed on disk since, or if any file changes between planning and writing.
+    /// Writes every file a `WorkspaceEdit` changes, all or none, and records each in the edit history; `what` names
+    /// the action in refusals. Refused if a file changed on disk since the edit was computed, or changes mid-write.
     pub(super) async fn apply_workspace_edit(
         &self,
         edit: &Value,

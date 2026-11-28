@@ -9,9 +9,8 @@ const HARMLESS: &[&str] = &[
     "sleep", "pgrep", "pidof", "ps", "tail", "head", "cat", "echo", "printf", "date", "ls", "jobs", "rg", "grep", "wc",
 ];
 
-/// Whether `command` only waits or checks on a process: it starts with `sleep`, `pgrep`, `pidof`,
-/// `ps`, or `tail -f`, and whatever follows is just printing or filtering. A line that goes on to
-/// run anything else (`sleep 1 && make`) is real work.
+/// Whether `command` only waits or checks on a process (`sleep`, `pgrep`, `pidof`, `ps`, `tail -f`);
+/// any chained work (`sleep 1 && make`) makes it real work.
 pub(super) fn is_poll_command(command: &str) -> bool {
     let mut segments = command
         .split([';', '&', '|', '\n'])

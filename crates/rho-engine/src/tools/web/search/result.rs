@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use std::sync::LazyLock;
 use url::Url;
 
-pub struct ResultSelectors {
+pub(crate) struct ResultSelectors {
     pub block: scraper::Selector,
     pub title: scraper::Selector,
     pub snippet: scraper::Selector,
@@ -12,7 +12,7 @@ pub struct ResultSelectors {
 static LINK_SEL: LazyLock<scraper::Selector> = LazyLock::new(|| crate::tools::web::selector("a[href]"));
 
 /// Skips blocks whose first link is not an absolute http(s) URL.
-pub fn parse_result_blocks(
+pub(crate) fn parse_result_blocks(
     html: &str,
     selectors: &ResultSelectors,
     normalize_url: fn(&str) -> String,
@@ -45,7 +45,7 @@ pub fn parse_result_blocks(
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct SearchResult {
+pub(crate) struct SearchResult {
     pub title: String,
     pub abstract_text: String,
     pub url: String,
@@ -64,16 +64,6 @@ impl SearchResult {
             content_hint: None,
             source: None,
         }
-    }
-
-    pub fn with_hint(mut self, hint: impl Into<String>) -> Self {
-        self.content_hint = Some(hint.into());
-        self
-    }
-
-    pub fn with_source(mut self, src: impl Into<String>) -> Self {
-        self.source = Some(src.into());
-        self
     }
 }
 
@@ -170,7 +160,7 @@ fn dedupe_key(url: &Url) -> String {
     format!("{host}{port}{path}{query}")
 }
 
-pub fn deduplicate_results(results: Vec<SearchResult>) -> Vec<SearchResult> {
+pub(crate) fn deduplicate_results(results: Vec<SearchResult>) -> Vec<SearchResult> {
     let mut by_key: HashMap<String, SearchResult> = HashMap::new();
     let mut order: Vec<String> = Vec::new();
 

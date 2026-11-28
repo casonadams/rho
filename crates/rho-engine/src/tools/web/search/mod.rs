@@ -14,10 +14,9 @@ use crate::tools::engine_tool::TypedTool;
 use crate::tools::types::ToolResult;
 use crate::tools::web::http::HttpClient;
 use crate::tools::web::rate_limiter::SearchRateLimiter;
-pub use engine::{EngineKind, EngineRequest, MultiEngineParams, default_engine_chain, resolve_engine_chain};
-pub use format::{FormatResultsParams, format_search_results};
-pub use query::{build_search_query_with_filters, matches_domain_filters, normalize_domain_filters, relax_query};
-pub use result::{SearchResult, deduplicate_results};
+pub(crate) use engine::{EngineKind, MultiEngineParams, default_engine_chain, resolve_engine_chain};
+pub(crate) use format::{FormatResultsParams, format_search_results};
+pub(crate) use query::relax_query;
 pub use rho_harness_core::args::{WebSearchArgs, WebSearchRecency};
 use rho_harness_core::error::AppError;
 
@@ -30,7 +29,7 @@ pub struct WebSearchConfig {
 }
 
 #[derive(Clone)]
-pub struct WebSearchTool {
+pub(crate) struct WebSearchTool {
     pub http: HttpClient,
     pub rate_limiter: SearchRateLimiter,
     pub config: WebSearchConfig,

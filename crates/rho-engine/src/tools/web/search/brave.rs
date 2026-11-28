@@ -14,7 +14,7 @@ static SELECTORS: LazyLock<ResultSelectors> = LazyLock::new(|| ResultSelectors {
     snippet: selector("div.content, p.snippet-description, div.snippet-description"),
 });
 
-pub fn brave_search_url(query: &str, recency: Option<WebSearchRecency>) -> String {
+pub(crate) fn brave_search_url(query: &str, recency: Option<WebSearchRecency>) -> String {
     let tf_param = recency_param(recency, "tf", ["pd", "pw", "pm", "py"]);
     format!(
         "https://search.brave.com/search?q={}&source=web{tf_param}",
@@ -22,13 +22,13 @@ pub fn brave_search_url(query: &str, recency: Option<WebSearchRecency>) -> Strin
     )
 }
 
-pub async fn search_brave(req: &EngineRequest<'_>) -> Result<Vec<SearchResult>, AppError> {
+pub(crate) async fn search_brave(req: &EngineRequest<'_>) -> Result<Vec<SearchResult>, AppError> {
     let url = brave_search_url(req.query, req.recency);
     let body = fetch_results_page(req, &url, BRAVE_CHROME_UA).await?;
     Ok(parse_brave_html(&body))
 }
 
-pub fn parse_brave_html(html: &str) -> Vec<SearchResult> {
+pub(crate) fn parse_brave_html(html: &str) -> Vec<SearchResult> {
     parse_result_blocks(html, &SELECTORS, |href| href.to_string())
 }
 

@@ -53,7 +53,7 @@ pub trait EngineTool: Send + Sync {
 /// A built-in tool whose arguments are one typed struct. The blanket `EngineTool` impl supplies the
 /// name, catalog description, schema and argument parsing, so a tool only writes `run`.
 #[async_trait::async_trait]
-pub trait TypedTool: Send + Sync {
+pub(crate) trait TypedTool: Send + Sync {
     type Args: DeserializeOwned + JsonSchema + Send;
     const NAME: &'static str;
     /// Whether calls may run alongside other concurrency-safe calls in the same batch.
@@ -132,7 +132,7 @@ type GenericToolHandler = Arc<
         + Sync,
 >;
 
-pub struct GenericTool {
+pub(crate) struct GenericTool {
     name: String,
     description: String,
     parameters: serde_json::Value,

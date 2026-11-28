@@ -1,6 +1,5 @@
-//! The supervisor every subagent tool of a session shares, and that survives rebuilding those tools
-//! (a model or login change): the agents' mailboxes, the rounds running now and how to message or
-//! stop them, the conversations a round is busy with, and the limited slots rounds run in.
+//! The supervisor shared by a session's subagent tools; it survives rebuilding them (a model or login change)
+//! and holds the mailboxes, running rounds, conversations, and limited round slots.
 
 use super::conversation::ConversationSettings;
 use crate::engine::runner::turn::types::CancellationSignal;
@@ -41,7 +40,7 @@ impl SubagentRuntime {
 
     /// Sends a message the user typed to task `task_id`'s running round, answering its question if it
     /// is waiting on one.
-    pub fn message_from_user(&self, task_id: &AgentId, text: &str) -> Result<Delivery, SendError> {
+    pub(crate) fn message_from_user(&self, task_id: &AgentId, text: &str) -> Result<Delivery, SendError> {
         self.mailboxes.tell(Party::User, task_id, text)
     }
 
@@ -50,9 +49,8 @@ impl SubagentRuntime {
         self.open.with(task_id, |round| round.stop.cancel()).is_some()
     }
 
-    /// Sends `message` from the delegating agent to task `task_id`'s running round, answering its
-    /// question if it is waiting on one, and returns the confirmation; [`SendError::NoMailbox`] when
-    /// no round of it runs.
+    /// Sends `message` to task `task_id`'s running round, answering its pending question if any.
+    /// Returns [`SendError::NoMailbox`] when no round of it runs.
     pub(crate) fn steer(&self, task_id: &AgentId, message: &str) -> Result<String, SendError> {
         let parent = self
             .open
@@ -87,8 +85,7 @@ impl SubagentRuntime {
         crate::wake::until(&self.rounds.freed, || self.rounds.try_take()).await
     }
 
-    /// Registers task `task_id`'s round, delegated by the top-level agent `owner`, and opens its
-    /// mailbox under `owner`'s (opened too if it is not yet), which decides who the round may message.
+    /// Registers task `task_id`'s round under the top-level agent `owner`'s mailbox, which decides who it may message.
     /// The round is forgotten when the returned registration closes or drops.
     pub(crate) fn open_round(
         &self,

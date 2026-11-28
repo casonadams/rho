@@ -2,10 +2,7 @@ pub mod catalog;
 #[cfg(test)]
 mod tests;
 
-pub use catalog::{
-    BuiltinToolDeclaration, BuiltinToolKind, DECLARATIONS, PROMPT_BASH, PROMPT_EDIT, PROMPT_FD, PROMPT_READ, PROMPT_RG,
-    PROMPT_WEB_FETCH, PROMPT_WEB_SEARCH, PROMPT_WRITE,
-};
+pub(crate) use catalog::{BuiltinToolDeclaration, BuiltinToolKind, DECLARATIONS};
 
 use crate::lsp::LspManager;
 use crate::tools::bash::BashTool;
@@ -106,7 +103,7 @@ pub fn build_builtin_tools(
 
 /// Long-lived services the engine shares with its tools.
 #[derive(Default)]
-pub struct ToolsetServices {
+pub(crate) struct ToolsetServices {
     /// With a store, every subagent works in its own worktree and the `worktree` tool reviews and merges them.
     pub worktrees: Option<crate::worktree::WorktreeStore>,
     /// Language servers behind the `lsp` tool, `read` symbols, and edit diagnostics.
@@ -120,7 +117,7 @@ pub struct ToolsetServices {
 }
 
 /// The built-in tools and the subagent tool.
-pub fn build_builtin_toolset(
+pub(crate) fn build_builtin_toolset(
     base_dir: &Path,
     config: &Config,
     model: Option<crate::engine::compactor::llm::ModelHandle>,
@@ -231,9 +228,8 @@ fn memory_tool(home: Option<&Path>, base_dir: &Path, config: &Config) -> Option<
     Some(Arc::new(crate::tools::MemoryTool::new(store)))
 }
 
-/// `tools` with the workspace-native ones (read, write, edit, undo, bash, fd, rg) rooted at
-/// `root` instead. With `lsp`, they and the `lsp` tool use the manager it opens for `root`;
-/// without it they run without language servers.
+/// Roots the workspace-native tools at `root`, sharing the `lsp` manager when given.
+/// Without one they run without language servers.
 pub(crate) fn rerooted(
     tools: &[Arc<dyn EngineTool>],
     root: &Path,
@@ -243,9 +239,8 @@ pub(crate) fn rerooted(
     fresh_session_state(tools, root, lsp.map(|open| open(root)), direnv)
 }
 
-/// `tools` with the ones that share an edit history (write, edit, undo and lsp) replaced by new
-/// ones, so a subagent cannot undo its parent's edits. The workspace-native tools are rooted at
-/// `root`; the `lsp` tool uses `lsp`, and is dropped without it.
+/// Replaces the tools that share an edit history (write, edit, undo, lsp), so a subagent cannot undo its parent's edits.
+/// The workspace-native tools are rooted at `root`; `lsp` is dropped without a manager.
 pub(crate) fn fresh_session_state(
     tools: &[Arc<dyn EngineTool>],
     root: &Path,

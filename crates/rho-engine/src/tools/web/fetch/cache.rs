@@ -3,13 +3,13 @@ use std::sync::Arc;
 use std::time::Duration;
 
 #[derive(Clone, Debug)]
-pub struct CachedResource {
+pub(crate) struct CachedResource {
     pub text: Arc<str>,
     pub final_url: Arc<str>,
 }
 
 #[derive(Clone)]
-pub struct FetchCache {
+pub(crate) struct FetchCache {
     cache: Cache<String, CachedResource>,
 }
 
@@ -20,7 +20,7 @@ impl FetchCache {
 
     /// Bounds both the entry count and the total text size: every entry weighs at least
     /// `max_bytes / max_entries`, so `max_entries` small entries use up the byte budget too.
-    pub fn with_ttl(ttl: Duration, max_entries: u64, max_bytes: u64) -> Self {
+    pub(crate) fn with_ttl(ttl: Duration, max_entries: u64, max_bytes: u64) -> Self {
         let floor = (max_bytes / max_entries.max(1)).max(1);
         let cache = Cache::builder()
             .time_to_live(ttl)

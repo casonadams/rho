@@ -56,7 +56,7 @@ fn slice_content(content: &str, start_idx: usize, limit: Option<usize>) -> Strin
     }
 }
 
-pub fn format_content(content: &str, args: &ReadArgs, artifact_dir: Option<&Path>) -> ToolResult {
+pub(crate) fn format_content(content: &str, args: &ReadArgs, artifact_dir: Option<&Path>) -> ToolResult {
     let offset = args.offset.unwrap_or(1).max(1);
     let total_lines = content.lines().count();
     if total_lines == 0 {
@@ -92,7 +92,7 @@ pub fn format_content(content: &str, args: &ReadArgs, artifact_dir: Option<&Path
     ToolResult::success(output)
 }
 
-pub fn number_lines(content: &str, start_line: usize) -> String {
+pub(crate) fn number_lines(content: &str, start_line: usize) -> String {
     use std::fmt::Write;
     let line_count = content.lines().count();
     let max_line = start_line.saturating_add(line_count);
@@ -105,7 +105,7 @@ pub fn number_lines(content: &str, start_line: usize) -> String {
     output
 }
 
-pub fn is_binary(bytes: &[u8]) -> bool {
+pub(crate) fn is_binary(bytes: &[u8]) -> bool {
     let check_len = bytes.len().min(1024);
     bytes[..check_len].contains(&0)
 }

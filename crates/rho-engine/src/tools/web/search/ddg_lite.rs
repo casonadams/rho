@@ -14,7 +14,7 @@ static TR_SEL: LazyLock<Selector> = LazyLock::new(|| selector("tr"));
 static LINK_SEL: LazyLock<Selector> = LazyLock::new(|| selector("a.result-link"));
 static SNIPPET_SEL: LazyLock<Selector> = LazyLock::new(|| selector("td.result-snippet"));
 
-pub fn ddg_lite_search_url(query: &str, region: &str, recency: Option<WebSearchRecency>) -> String {
+pub(crate) fn ddg_lite_search_url(query: &str, region: &str, recency: Option<WebSearchRecency>) -> String {
     let df_param = recency_param(recency, "df", ["d", "w", "m", "y"]);
     format!(
         "https://lite.duckduckgo.com/lite/?q={}&kl={}{df_param}",
@@ -23,13 +23,13 @@ pub fn ddg_lite_search_url(query: &str, region: &str, recency: Option<WebSearchR
     )
 }
 
-pub async fn search_ddg_lite(req: &EngineRequest<'_>) -> Result<Vec<SearchResult>, AppError> {
+pub(crate) async fn search_ddg_lite(req: &EngineRequest<'_>) -> Result<Vec<SearchResult>, AppError> {
     let url = ddg_lite_search_url(req.query, req.region, req.recency);
     let body = fetch_results_page(req, &url, LYNX_UA).await?;
     Ok(parse_ddg_lite_html(&body))
 }
 
-pub fn decode_ddg_url(raw: &str) -> String {
+pub(crate) fn decode_ddg_url(raw: &str) -> String {
     let Ok(u) = Url::parse(raw) else {
         return raw.to_string();
     };
@@ -71,7 +71,7 @@ fn parse_ddg_row(rows: &[scraper::ElementRef<'_>], idx: usize) -> Option<SearchR
     Some(SearchResult::new(title, snippet, decoded))
 }
 
-pub fn parse_ddg_lite_html(html: &str) -> Vec<SearchResult> {
+pub(crate) fn parse_ddg_lite_html(html: &str) -> Vec<SearchResult> {
     let document = Html::parse_document(html);
     let rows: Vec<_> = document.select(&TR_SEL).collect();
     (0..rows.len()).filter_map(|idx| parse_ddg_row(&rows, idx)).collect()

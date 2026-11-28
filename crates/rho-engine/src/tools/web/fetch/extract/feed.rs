@@ -61,7 +61,7 @@ fn render_feed(feed: feed_rs::model::Feed, base_url: &str) -> String {
     out.trim().to_string()
 }
 
-pub fn extract_feed_or_xml(raw: &str, base_url: &str) -> String {
+pub(crate) fn extract_feed_or_xml(raw: &str, base_url: &str) -> String {
     if let Ok(feed) = feed_rs::parser::parse(raw.as_bytes()) {
         return render_feed(feed, base_url);
     }

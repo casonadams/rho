@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
-pub fn spill_artifact(dir: &Path, content: &str) -> std::io::Result<PathBuf> {
+pub(crate) fn spill_artifact(dir: &Path, content: &str) -> std::io::Result<PathBuf> {
     std::fs::create_dir_all(dir)?;
     let id = uuid::Uuid::new_v4();
     let file_path = dir.join(format!("{id}.log"));
@@ -9,7 +9,7 @@ pub fn spill_artifact(dir: &Path, content: &str) -> std::io::Result<PathBuf> {
     Ok(file_path)
 }
 
-pub fn format_artifact_notice(path: &Path, total_lines: usize, total_bytes: usize) -> String {
+pub(crate) fn format_artifact_notice(path: &Path, total_lines: usize, total_bytes: usize) -> String {
     let size_str = crate::tools::truncate::format_size(total_bytes);
     let path_str = path.display();
     format!(
@@ -18,7 +18,7 @@ pub fn format_artifact_notice(path: &Path, total_lines: usize, total_bytes: usiz
 }
 
 #[derive(Debug)]
-pub struct ArtifactFile {
+pub(crate) struct ArtifactFile {
     pub path: PathBuf,
     pub size: u64,
     pub modified: SystemTime,
@@ -89,10 +89,9 @@ fn prune_overflow_files(files: &mut [ArtifactFile], max_bytes: u64, spare_after:
     removed
 }
 
-/// Removes files older than `max_age`, then the oldest files while the total exceeds
-/// `max_total_bytes`, except files newer than `spare_newer_than`: another live process may still
-/// be pointing the model at them.
-pub fn cleanup_artifacts(
+/// Removes files older than `max_age`, then the oldest while the total exceeds `max_total_bytes`; files newer
+/// than `spare_newer_than` are kept, since another live process may still point the model at them.
+pub(crate) fn cleanup_artifacts(
     dir: &Path,
     max_age: Duration,
     max_total_bytes: u64,

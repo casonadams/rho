@@ -64,7 +64,7 @@ fn extract_meta(document: &Html) -> (Option<String>, Option<String>, Option<Stri
     (title, author, site)
 }
 
-pub fn html_to_text(html: &str, width: usize) -> String {
+pub(crate) fn html_to_text(html: &str, width: usize) -> String {
     let prev_hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(|_| {}));
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -154,7 +154,7 @@ fn try_main_mode(document: &Html, full_len: usize, base_url: &str, is_main: bool
     Ok(None)
 }
 
-pub fn extract_html(html: &str, response_url: &str, mode: FetchMode) -> Result<String> {
+pub(crate) fn extract_html(html: &str, response_url: &str, mode: FetchMode) -> Result<String> {
     let document = Html::parse_document(html);
     let base_url = effective_base_url(&document, response_url);
     let full_raw = html_to_text(html, 120);

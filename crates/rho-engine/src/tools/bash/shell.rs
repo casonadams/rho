@@ -36,7 +36,7 @@ fn build_windows_command(command: &str) -> Command {
 }
 
 /// Resolves the shell executable and arguments for executing commands.
-pub fn resolve_shell_command(command: &str) -> Command {
+pub(crate) fn resolve_shell_command(command: &str) -> Command {
     #[cfg(unix)]
     let mut cmd = {
         let mut c = Command::new(default_unix_shell());

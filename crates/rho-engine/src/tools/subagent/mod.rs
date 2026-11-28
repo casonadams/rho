@@ -24,13 +24,14 @@ mod tests;
 pub mod types;
 pub(crate) mod workspace;
 
-pub use background::DEFAULT_FOREGROUND_SECONDS;
-pub use models::{SubagentModelResolver, SubagentModels};
+pub(crate) use background::DEFAULT_FOREGROUND_SECONDS;
+pub(crate) use models::{SubagentModelResolver, SubagentModels};
 pub use presenter::AgentPresenter;
 pub use runner::SubagentRunner;
 pub(crate) use runtime::RoundSlot;
 pub use runtime::SubagentRuntime;
-pub use types::{DEFAULT_SUBAGENT_TURNS, SubagentArgs, SubagentRole, resolve_turns, task_name};
+pub use types::{SubagentArgs, SubagentRole};
+pub(crate) use types::{resolve_turns, task_name};
 
 use crate::engine::compactor::llm::ModelHandle;
 use crate::tools::engine_tool::{EngineTool, TurnToolContext};
@@ -69,7 +70,7 @@ pub(crate) struct RunnerSpec<'a> {
 }
 
 /// Replaces the tools that share an edit history with new ones for one subagent.
-pub type FreshSessionState = Arc<dyn Fn(&[Arc<dyn EngineTool>]) -> Vec<Arc<dyn EngineTool>> + Send + Sync>;
+pub(crate) type FreshSessionState = Arc<dyn Fn(&[Arc<dyn EngineTool>]) -> Vec<Arc<dyn EngineTool>> + Send + Sync>;
 
 enum Target<'a> {
     Agent(&'a AgentMetadata),
@@ -105,14 +106,14 @@ impl SubagentTool {
     }
 
     #[must_use]
-    pub fn with_agents(mut self, agents: Vec<AgentMetadata>) -> Self {
+    pub(crate) fn with_agents(mut self, agents: Vec<AgentMetadata>) -> Self {
         self.agents = agents;
         self.describe()
     }
 
     /// Personas the caller can layer onto any role or agent with `persona`.
     #[must_use]
-    pub fn with_personas(mut self, personas: Vec<PersonaMetadata>) -> Self {
+    pub(crate) fn with_personas(mut self, personas: Vec<PersonaMetadata>) -> Self {
         self.personas = personas;
         self.describe()
     }
@@ -147,7 +148,7 @@ impl SubagentTool {
     }
 
     #[must_use]
-    pub fn with_model_resolver(self, resolver: SubagentModelResolver) -> Self {
+    pub(crate) fn with_model_resolver(self, resolver: SubagentModelResolver) -> Self {
         self.models.set_resolver(resolver);
         self
     }
@@ -159,7 +160,7 @@ impl SubagentTool {
 
     /// Where every subagent's worktree is created; without a store subagents work in the project itself.
     #[must_use]
-    pub fn with_worktrees(mut self, store: crate::worktree::WorktreeStore) -> Self {
+    pub(crate) fn with_worktrees(mut self, store: crate::worktree::WorktreeStore) -> Self {
         self.worktrees = Some(store);
         self
     }
@@ -167,14 +168,14 @@ impl SubagentTool {
     /// Gives subagents in a worktree an `lsp` tool, and `read`, `edit`, and `write` diagnostics, backed
     /// by the manager `open` returns for the worktree.
     #[must_use]
-    pub fn with_worktree_lsp(mut self, open: lsp::WorktreeLsp) -> Self {
+    pub(crate) fn with_worktree_lsp(mut self, open: lsp::WorktreeLsp) -> Self {
         self.worktree_lsp = Some(open);
         self
     }
 
     /// How a subagent's `bash` loads `direnv` once its tools move into a worktree.
     #[must_use]
-    pub fn with_direnv(mut self, direnv: crate::tools::bash::DirenvOptions) -> Self {
+    pub(crate) fn with_direnv(mut self, direnv: crate::tools::bash::DirenvOptions) -> Self {
         self.direnv = direnv;
         self
     }
@@ -182,14 +183,14 @@ impl SubagentTool {
     /// Gives every subagent its own copy of the tools that share an edit history, made by `fresh`,
     /// instead of the parent's.
     #[must_use]
-    pub fn with_fresh_session_state(mut self, fresh: FreshSessionState) -> Self {
+    pub(crate) fn with_fresh_session_state(mut self, fresh: FreshSessionState) -> Self {
         self.fresh_session_state = Some(fresh);
         self
     }
 
     /// How long a subagent call waits for the round before moving it to the background.
     #[must_use]
-    pub fn with_foreground_budget(mut self, budget: std::time::Duration) -> Self {
+    pub(crate) fn with_foreground_budget(mut self, budget: std::time::Duration) -> Self {
         self.background = self.background.with_budget(budget);
         self
     }
@@ -197,7 +198,7 @@ impl SubagentTool {
     /// Shares the session's subagent runtime (mailboxes, running rounds, busy conversations, round
     /// slots) with every tool built for the session.
     #[must_use]
-    pub fn with_runtime(mut self, runtime: &SubagentRuntime) -> Self {
+    pub(crate) fn with_runtime(mut self, runtime: &SubagentRuntime) -> Self {
         self.background = self.background.sharing(runtime);
         self
     }
@@ -248,7 +249,7 @@ impl SubagentTool {
 
     /// Configured model names for the `smol` and `slow` roles; `default` is always the session model.
     #[must_use]
-    pub fn with_model_roles(mut self, smol: Option<String>, slow: Option<String>) -> Self {
+    pub(crate) fn with_model_roles(mut self, smol: Option<String>, slow: Option<String>) -> Self {
         let configured = |m: Option<String>| m.map(|m| m.trim().to_string()).filter(|m| !m.is_empty());
         for (role, model) in [(ModelRole::Smol, configured(smol)), (ModelRole::Slow, configured(slow))] {
             if let Some(model) = model {
@@ -260,7 +261,7 @@ impl SubagentTool {
 
     /// Model roles by lowercase built-in role or custom agent name, used when the caller passes none.
     #[must_use]
-    pub fn with_pinned_models(mut self, pinned: BTreeMap<String, ModelRole>) -> Self {
+    pub(crate) fn with_pinned_models(mut self, pinned: BTreeMap<String, ModelRole>) -> Self {
         self.pinned_models = pinned;
         self
     }
@@ -444,9 +445,8 @@ impl SubagentTool {
     }
 }
 
-/// A custom agent gets the tools its `tools:` list names (never `subagent`, `memory`, or
-/// `worktree`); without a list it gets the read-only set a scout has, so an agent file has to ask
-/// for write or shell access.
+/// A custom agent gets the tools its `tools:` list names (never `subagent`, `memory`, or `worktree`);
+/// without a list it gets the read-only scout set, so write or shell access must be listed.
 fn filter_tools_for_agent(tools: &[Arc<dyn EngineTool>], agent: &AgentMetadata) -> Vec<Arc<dyn EngineTool>> {
     let listed = |names: &Option<Vec<String>>, name: &str| {
         names

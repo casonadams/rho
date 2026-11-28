@@ -12,13 +12,14 @@ use crate::tools::WorkspaceDir;
 use crate::tools::engine_tool::{EngineTool, TurnToolContext, TypedTool};
 use crate::tools::types::ToolResult;
 pub use accumulator::{OutputAccumulator, OutputSnapshot};
-pub use direnv::DirenvOptions;
+pub(crate) use direnv::DirenvOptions;
 pub use rho_harness_core::args::BashArgs;
 use rho_harness_core::error::AppError;
 use rho_harness_core::presentation::ToolStreamPort;
-pub use runner::{DEFAULT_BASH_TIMEOUT_SEC, run_command_streaming_with_direnv};
+pub use runner::DEFAULT_BASH_TIMEOUT_SEC;
+pub(crate) use runner::run_command_streaming_with_direnv;
 pub use sanitize::{sanitize_binary_output, split_at_incomplete_ansi};
-pub use shell::resolve_shell_command;
+pub(crate) use shell::resolve_shell_command;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -47,7 +48,7 @@ impl BashTool {
     }
 
     #[must_use]
-    pub fn with_workspace_dir(mut self, base_dir: WorkspaceDir) -> Self {
+    pub(crate) fn with_workspace_dir(mut self, base_dir: WorkspaceDir) -> Self {
         self.base_dir = base_dir;
         self
     }
@@ -61,7 +62,7 @@ impl BashTool {
 
     /// Configures automatic `direnv` environment loading for commands.
     #[must_use]
-    pub fn with_direnv(mut self, direnv: DirenvOptions) -> Self {
+    pub(crate) fn with_direnv(mut self, direnv: DirenvOptions) -> Self {
         self.direnv = direnv;
         self
     }

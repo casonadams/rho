@@ -11,7 +11,7 @@ use crate::tools::truncate::format_size;
 use crate::tools::types::ToolResult;
 use rho_harness_core::args::FdSort;
 
-pub const FD_COLLECTION_CEILING: usize = 20_000;
+pub(crate) const FD_COLLECTION_CEILING: usize = 20_000;
 
 const STATS_TABLE: Layout = Layout {
     blank_between_groups: false,
@@ -20,7 +20,7 @@ const STATS_TABLE: Layout = Layout {
 };
 
 #[derive(Debug, Clone)]
-pub struct FdEntry {
+pub(crate) struct FdEntry {
     pub relative: String,
     pub is_dir: bool,
     pub stats: Option<FileStats>,
@@ -77,7 +77,7 @@ fn entry_bytes(entry: &FdEntry) -> u64 {
     entry.stats.map(|s| s.bytes).or(entry.size).unwrap_or(0)
 }
 
-pub fn compare_entries(a: &FdEntry, b: &FdEntry, sort: FdSort) -> Ordering {
+pub(crate) fn compare_entries(a: &FdEntry, b: &FdEntry, sort: FdSort) -> Ordering {
     let by_path = || directory_order(&a.relative, &b.relative);
     match sort {
         FdSort::Path => by_path(),
@@ -90,7 +90,7 @@ pub fn compare_entries(a: &FdEntry, b: &FdEntry, sort: FdSort) -> Ordering {
 }
 
 #[derive(Debug, Clone)]
-pub struct FdFormat {
+pub(crate) struct FdFormat {
     pub request: PageRequest,
     pub show_stats: bool,
 }
@@ -106,7 +106,7 @@ fn drop_headed_directories(items: Vec<FdEntry>) -> Vec<FdEntry> {
         .collect()
 }
 
-pub fn format_results(collected: Collected<FdEntry>, options: FdFormat) -> ToolResult {
+pub(crate) fn format_results(collected: Collected<FdEntry>, options: FdFormat) -> ToolResult {
     if collected.items.is_empty() {
         return ToolResult::success("No paths found");
     }

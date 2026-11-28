@@ -4,7 +4,7 @@ use tokio::sync::Mutex;
 use tokio::time::sleep;
 
 #[derive(Clone)]
-pub struct SearchRateLimiter {
+pub(crate) struct SearchRateLimiter {
     last_search: Arc<Mutex<Option<Instant>>>,
     min_interval: Duration,
 }

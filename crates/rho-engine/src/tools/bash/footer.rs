@@ -3,7 +3,7 @@
 
 /// Summary of a finished command whose full output went to a log file.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct BashFooter {
+pub(crate) struct BashFooter {
     pub exit_code: i32,
     pub lines: usize,
     pub size: String,

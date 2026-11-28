@@ -1,14 +1,14 @@
 use crate::tools::types::ToolResult;
 
-pub const PAGE_BYTE_LIMIT: usize = 44_744;
-pub const LINE_MAX_BYTES: usize = 4_000;
+pub(crate) const PAGE_BYTE_LIMIT: usize = 44_744;
+pub(crate) const LINE_MAX_BYTES: usize = 4_000;
 
-pub struct PageResult {
+pub(crate) struct PageResult {
     pub content: String,
     pub consumed: usize,
 }
 
-pub struct PageLinesParams<'a> {
+pub(crate) struct PageLinesParams<'a> {
     pub lines: &'a [String],
     pub start: usize,
     pub line_limit: usize,
@@ -29,7 +29,7 @@ fn split_oversized_line(line: &str, max_bytes: usize, output: &mut Vec<String>) 
     }
 }
 
-pub fn prepare_lines(text: &str, max_bytes: usize) -> Vec<String> {
+pub(crate) fn prepare_lines(text: &str, max_bytes: usize) -> Vec<String> {
     let mut output = Vec::new();
     for line in text.split('\n') {
         if line.len() <= max_bytes {
@@ -41,7 +41,7 @@ pub fn prepare_lines(text: &str, max_bytes: usize) -> Vec<String> {
     output
 }
 
-pub fn page_lines(params: PageLinesParams<'_>) -> PageResult {
+pub(crate) fn page_lines(params: PageLinesParams<'_>) -> PageResult {
     let mut selected: Vec<&str> = Vec::new();
     let mut bytes = 0;
     let end = params.lines.len().min(params.start.saturating_add(params.line_limit));
@@ -59,7 +59,7 @@ pub fn page_lines(params: PageLinesParams<'_>) -> PageResult {
     }
 }
 
-pub struct FormatPageParams<'a> {
+pub(crate) struct FormatPageParams<'a> {
     pub text: &'a str,
     pub offset: usize,
     pub limit: usize,
@@ -76,7 +76,7 @@ fn assemble_output(source_url: &str, final_url: &str, text: &str) -> String {
     out
 }
 
-pub fn format_page(params: FormatPageParams<'_>) -> ToolResult {
+pub(crate) fn format_page(params: FormatPageParams<'_>) -> ToolResult {
     let full_output = assemble_output(params.source_url, params.final_url, params.text);
     if full_output.trim().is_empty() {
         return ToolResult::success("[Empty content returned from URL]");

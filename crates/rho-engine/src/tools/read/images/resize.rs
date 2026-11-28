@@ -36,15 +36,14 @@ pub(crate) struct ResizeLimits {
 
 impl ResizeLimits {
     /// pi's defaults: 2000×2000 dimensions, 4.5MB base64 budget.
-    pub const INLINE: Self = Self {
+    pub(crate) const INLINE: Self = Self {
         max_width: MAX_DIMENSION,
         max_height: MAX_DIMENSION,
         max_bytes: MAX_BASE64_BYTES,
     };
 
-    /// Scale to fit the limits, rounding like pi's `Math.round`. Unlike pi
-    /// (which would throw on a zero-sized target), clamps to 1 so degenerate
-    /// aspect ratios still produce a usable image.
+    /// Scales to fit the limits, rounding like pi's `Math.round`; clamps to 1 so degenerate aspect ratios
+    /// still yield an image (pi would throw on a zero-sized target).
     pub(crate) fn fit_dimensions(&self, width: u32, height: u32) -> (u32, u32) {
         let (mut w, mut h) = (width, height);
         if w > self.max_width {
@@ -136,9 +135,8 @@ fn resize_loop(rgba: &RgbaImage, orig: Dimensions, limits: &ResizeLimits) -> Opt
     }
 }
 
-/// Port of pi's `resizeImageInProcess`. Passes through when dimensions and the
-/// base64 size already fit; otherwise decodes, applies EXIF orientation, then
-/// tries PNG + JPEG candidates at decreasing sizes until one fits the budget.
+/// Port of pi's `resizeImageInProcess`: passes through when dimensions and base64 size already fit;
+/// otherwise re-encodes PNG and JPEG candidates at decreasing sizes until one fits the budget.
 pub(crate) fn resize_with_limits(bytes: &[u8], mime: &'static str, limits: ResizeLimits) -> Option<ResizedImage> {
     let format = image_format(mime)?;
     let image = decode_with_orientation(bytes, format)?;

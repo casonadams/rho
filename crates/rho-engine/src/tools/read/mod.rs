@@ -3,7 +3,7 @@ pub mod images;
 #[cfg(test)]
 mod tests;
 
-pub use format::{format_content, is_binary, number_lines};
+pub(crate) use format::{format_content, is_binary};
 pub use rho_harness_core::args::ReadArgs;
 
 use crate::lsp::{LspManager, render};
@@ -14,7 +14,7 @@ use rho_harness_core::workspace::{Workspace, clean_path_arg};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-pub struct ReadTool {
+pub(crate) struct ReadTool {
     pub base_dir: crate::tools::WorkspaceDir,
     pub artifact_dir: Option<PathBuf>,
     initial_default_artifact_dir: PathBuf,
@@ -91,18 +91,13 @@ impl ReadTool {
         }
     }
 
-    pub fn with_workspace_dir(mut self, base_dir: crate::tools::WorkspaceDir) -> Self {
+    pub(crate) fn with_workspace_dir(mut self, base_dir: crate::tools::WorkspaceDir) -> Self {
         self.base_dir = base_dir;
         self
     }
 
-    pub fn with_lsp(mut self, lsp: Option<Arc<LspManager>>) -> Self {
+    pub(crate) fn with_lsp(mut self, lsp: Option<Arc<LspManager>>) -> Self {
         self.lsp = lsp;
-        self
-    }
-
-    pub fn with_artifact_dir(mut self, artifact_dir: Option<PathBuf>) -> Self {
-        self.artifact_dir = artifact_dir;
         self
     }
 

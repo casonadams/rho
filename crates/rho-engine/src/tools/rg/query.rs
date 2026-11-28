@@ -18,9 +18,9 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering as AtomicOrdering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-pub const MAX_RG_FILE_BYTES: u64 = 1_000_000;
+pub(crate) const MAX_RG_FILE_BYTES: u64 = 1_000_000;
 
-pub struct RgQuery {
+pub(crate) struct RgQuery {
     pub workspace_root: PathBuf,
     pub search_root: PathBuf,
     pub search_path_display: Option<String>,

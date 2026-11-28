@@ -16,7 +16,7 @@ fn parse_host_str(input: &str) -> Option<String> {
     Some(part.to_string())
 }
 
-pub fn normalize_domain(raw: &str) -> Option<String> {
+pub(crate) fn normalize_domain(raw: &str) -> Option<String> {
     let input = raw.trim().trim_start_matches('-').trim().to_lowercase();
     if input.is_empty() {
         return None;
@@ -39,7 +39,7 @@ fn insert_domain_filter(raw: &str, allowed: &mut Vec<String>, blocked: &mut Vec<
     }
 }
 
-pub fn normalize_domain_filters(domains: Option<&[String]>) -> (Vec<String>, Vec<String>) {
+pub(crate) fn normalize_domain_filters(domains: Option<&[String]>) -> (Vec<String>, Vec<String>) {
     let mut allowed = Vec::new();
     let mut blocked = Vec::new();
     if let Some(list) = domains {
@@ -50,7 +50,7 @@ pub fn normalize_domain_filters(domains: Option<&[String]>) -> (Vec<String>, Vec
     (allowed, blocked)
 }
 
-pub fn matches_site(host: &str, target_domain: &str) -> bool {
+pub(crate) fn matches_site(host: &str, target_domain: &str) -> bool {
     let normalized_host = host.strip_prefix("www.").unwrap_or(host).to_lowercase();
     let normalized_target = target_domain
         .strip_prefix("www.")
@@ -59,7 +59,7 @@ pub fn matches_site(host: &str, target_domain: &str) -> bool {
     normalized_host == normalized_target || normalized_host.ends_with(&format!(".{normalized_target}"))
 }
 
-pub fn matches_domain_filters(host: &str, allowed: &[String], blocked: &[String]) -> bool {
+pub(crate) fn matches_domain_filters(host: &str, allowed: &[String], blocked: &[String]) -> bool {
     if allowed.is_empty() && blocked.is_empty() {
         return true;
     }
@@ -94,7 +94,7 @@ fn append_blocked_sites(parts: &mut Vec<String>, blocked: &[String]) {
     }
 }
 
-pub fn build_search_query_with_filters(query: &str, domains: Option<&[String]>) -> String {
+pub(crate) fn build_search_query_with_filters(query: &str, domains: Option<&[String]>) -> String {
     let cleaned = query.split_whitespace().collect::<Vec<_>>().join(" ");
     let (allowed, blocked) = normalize_domain_filters(domains);
     if allowed.is_empty() && blocked.is_empty() {
@@ -107,7 +107,7 @@ pub fn build_search_query_with_filters(query: &str, domains: Option<&[String]>) 
     parts.join(" ").trim().to_string()
 }
 
-pub fn recency_param(recency: Option<WebSearchRecency>, key: &str, values: [&str; 4]) -> String {
+pub(crate) fn recency_param(recency: Option<WebSearchRecency>, key: &str, values: [&str; 4]) -> String {
     let index = match recency {
         None => return String::new(),
         Some(WebSearchRecency::Day) => 0,
@@ -118,11 +118,11 @@ pub fn recency_param(recency: Option<WebSearchRecency>, key: &str, values: [&str
     format!("&{key}={}", values[index])
 }
 
-pub fn urlencoding_encode(s: &str) -> String {
+pub(crate) fn urlencoding_encode(s: &str) -> String {
     percent_encoding::utf8_percent_encode(s, percent_encoding::NON_ALPHANUMERIC).to_string()
 }
 
-pub fn relax_query(query: &str) -> String {
+pub(crate) fn relax_query(query: &str) -> String {
     query
         .replace(['"', '\'', '(', ')', '[', ']', '+'], " ")
         .split_whitespace()

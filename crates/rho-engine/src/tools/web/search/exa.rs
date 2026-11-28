@@ -16,7 +16,7 @@ use rho_harness_core::text::truncate_chars;
 const EXA_API_URL: &str = "https://api.exa.ai/search";
 const EXA_MCP_URL: &str = "https://mcp.exa.ai/mcp?tools=web_search_exa";
 const EXA_MCP_ADVANCED_URL: &str = "https://mcp.exa.ai/mcp?tools=web_search_advanced_exa";
-pub const EXA_AUTH_PROVIDER: &str = "exa-search";
+pub(crate) const EXA_AUTH_PROVIDER: &str = "exa-search";
 const EXA_MCP_SOURCE: &str = "rho";
 const EXA_MCP_REQUEST_ID: &str = "1";
 const MAX_EXA_SNIPPET_CHARS: usize = 500;
@@ -37,7 +37,7 @@ struct ExaRawResult {
     highlights: Option<Vec<String>>,
 }
 
-pub async fn resolve_exa_api_key(auth_file: Option<&Path>) -> Option<String> {
+pub(crate) async fn resolve_exa_api_key(auth_file: Option<&Path>) -> Option<String> {
     resolve_exa_api_key_with_env(auth_file, std::env::var("EXA_API_KEY").ok()).await
 }
 
@@ -62,7 +62,7 @@ async fn exa_key_from_auth_file(path: &Path) -> Option<String> {
     Some(key.trim().to_string()).filter(|k| !k.is_empty())
 }
 
-pub fn recency_to_start_published_date(recency: WebSearchRecency, now: DateTime<Utc>) -> String {
+pub(crate) fn recency_to_start_published_date(recency: WebSearchRecency, now: DateTime<Utc>) -> String {
     let days = match recency {
         WebSearchRecency::Day => 1,
         WebSearchRecency::Week => 7,
@@ -72,7 +72,7 @@ pub fn recency_to_start_published_date(recency: WebSearchRecency, now: DateTime<
     (now - Duration::days(days)).to_rfc3339_opts(SecondsFormat::Secs, true)
 }
 
-pub fn build_exa_api_body(req: &EngineRequest<'_>, now: DateTime<Utc>) -> Value {
+pub(crate) fn build_exa_api_body(req: &EngineRequest<'_>, now: DateTime<Utc>) -> Value {
     let mut body = Map::new();
     body.insert("query".into(), json!(req.query));
     body.insert("numResults".into(), json!(req.limit.clamp(1, 20)));
@@ -101,7 +101,7 @@ fn has_native_filters(req: &EngineRequest<'_>) -> bool {
     !req.allowed_domains.is_empty() || !req.blocked_domains.is_empty() || req.recency.is_some()
 }
 
-pub fn build_exa_mcp_body(req: &EngineRequest<'_>, request_id: &str, now: DateTime<Utc>) -> Value {
+pub(crate) fn build_exa_mcp_body(req: &EngineRequest<'_>, request_id: &str, now: DateTime<Utc>) -> Value {
     let mut arguments = Map::new();
     arguments.insert("query".into(), json!(req.query));
     arguments.insert("numResults".into(), json!(req.limit.clamp(1, 20)));
@@ -124,7 +124,7 @@ pub fn build_exa_mcp_body(req: &EngineRequest<'_>, request_id: &str, now: DateTi
     })
 }
 
-pub async fn search_exa(req: &EngineRequest<'_>) -> Result<Vec<SearchResult>, AppError> {
+pub(crate) async fn search_exa(req: &EngineRequest<'_>) -> Result<Vec<SearchResult>, AppError> {
     if let Some(api_key) = resolve_exa_api_key(req.auth_file).await {
         search_exa_api(req, &api_key, EXA_API_URL).await
     } else {

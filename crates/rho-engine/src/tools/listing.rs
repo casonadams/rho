@@ -1,6 +1,5 @@
-//! Deterministic collection and byte-budgeted paging for search listings
-//! (`rg`, `fd`). Rows are kept in sort order, grouped under a shared header,
-//! and every row stays reachable through `offset`.
+//! Deterministic collection and byte-budgeted paging for search listings (`rg`, `fd`); every row stays
+//! reachable through `offset`.
 
 use crate::locking::lock;
 use std::cmp::Ordering;
@@ -8,17 +7,17 @@ use std::sync::Mutex;
 
 use crate::tools::types::ToolResult;
 
-pub const LISTING_PAGE_BYTES: usize = 20 * 1024;
+pub(crate) const LISTING_PAGE_BYTES: usize = 20 * 1024;
 
 /// Keeps the first `cap` items in `cmp` order out of everything pushed, so the
 /// kept set does not depend on parallel walk order.
-pub struct SortedCollector<T, F> {
+pub(crate) struct SortedCollector<T, F> {
     cap: usize,
     cmp: F,
     items: Mutex<Vec<T>>,
 }
 
-pub struct Collected<T> {
+pub(crate) struct Collected<T> {
     pub items: Vec<T>,
     pub seen: usize,
 }
@@ -55,7 +54,7 @@ impl<T, F: Fn(&T, &T) -> Ordering> SortedCollector<T, F> {
     }
 }
 
-pub trait Row {
+pub(crate) trait Row {
     fn group(&self) -> Option<&str>;
     fn render(&self, out: &mut String);
     fn cut(&self) -> bool {
@@ -72,7 +71,7 @@ pub struct Layout {
 
 impl Layout {
     /// Rows indented under a header line naming their directory.
-    pub const BY_DIRECTORY: Layout = Layout {
+    pub(crate) const BY_DIRECTORY: Layout = Layout {
         blank_between_groups: false,
         row_indent: "  ",
         preamble: None,
@@ -80,7 +79,7 @@ impl Layout {
 }
 
 #[derive(Debug, Clone, Copy, Default)]
-pub struct PageRequest {
+pub(crate) struct PageRequest {
     pub offset: usize,
     pub limit: Option<usize>,
 }
@@ -94,7 +93,7 @@ impl PageRequest {
     }
 }
 
-pub struct Listing<'a, T> {
+pub(crate) struct Listing<'a, T> {
     pub rows: &'a [T],
     pub layout: Layout,
     pub unit: &'static str,
@@ -170,7 +169,7 @@ fn plural(unit: &str) -> String {
     }
 }
 
-pub fn count_noun(count: usize, unit: &str) -> String {
+pub(crate) fn count_noun(count: usize, unit: &str) -> String {
     if count == 1 {
         format!("1 {unit}")
     } else {
@@ -197,7 +196,7 @@ fn paging_notice<T>(listing: &Listing<'_, T>, start: usize, end: usize) -> Strin
     parts.join("; ")
 }
 
-pub fn render_page<T: Row>(listing: &Listing<'_, T>, request: PageRequest) -> ToolResult {
+pub(crate) fn render_page<T: Row>(listing: &Listing<'_, T>, request: PageRequest) -> ToolResult {
     let total = listing.rows.len();
     let start = request.offset;
     if start >= total {
@@ -227,7 +226,7 @@ pub fn render_page<T: Row>(listing: &Listing<'_, T>, request: PageRequest) -> To
     ToolResult::success(output)
 }
 
-pub fn split_parent(path: &str) -> (&str, &str) {
+pub(crate) fn split_parent(path: &str) -> (&str, &str) {
     match parent_key(path) {
         ("", name) => ("./", name),
         split => split,
@@ -243,7 +242,7 @@ fn parent_key(path: &str) -> (&str, &str) {
 
 /// Orders paths so each directory's direct children are contiguous, which
 /// keeps one header per directory in a grouped listing.
-pub fn directory_order(a: &str, b: &str) -> Ordering {
+pub(crate) fn directory_order(a: &str, b: &str) -> Ordering {
     parent_key(a).cmp(&parent_key(b))
 }
 

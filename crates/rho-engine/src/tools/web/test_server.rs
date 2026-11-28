@@ -5,7 +5,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::oneshot;
 
-pub struct CannedResponse {
+pub(crate) struct CannedResponse {
     pub status: &'static str,
     pub content_type: &'static str,
     pub body: String,

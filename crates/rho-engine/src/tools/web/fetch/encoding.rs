@@ -11,7 +11,7 @@ static META_CHARSET: LazyLock<regex::Regex> = LazyLock::new(|| {
     .expect("valid regex")
 });
 
-pub fn charset_from_bom(bytes: &[u8]) -> Option<&'static str> {
+pub(crate) fn charset_from_bom(bytes: &[u8]) -> Option<&'static str> {
     if bytes.starts_with(&[0xef, 0xbb, 0xbf]) {
         Some("utf-8")
     } else if bytes.starts_with(&[0xff, 0xfe]) {
@@ -23,14 +23,14 @@ pub fn charset_from_bom(bytes: &[u8]) -> Option<&'static str> {
     }
 }
 
-pub fn charset_from_content_type(content_type: &str) -> Option<String> {
+pub(crate) fn charset_from_content_type(content_type: &str) -> Option<String> {
     CHARSET_CT
         .captures(content_type)
         .and_then(|c| c.get(1))
         .map(|m| m.as_str().to_string())
 }
 
-pub fn charset_from_html(bytes: &[u8]) -> Option<String> {
+pub(crate) fn charset_from_html(bytes: &[u8]) -> Option<String> {
     let limit = bytes.len().min(4096);
     let head = String::from_utf8_lossy(&bytes[..limit]);
     META_CHARSET
@@ -38,7 +38,7 @@ pub fn charset_from_html(bytes: &[u8]) -> Option<String> {
         .and_then(|c| c.get(1).or_else(|| c.get(2)).map(|m| m.as_str().to_string()))
 }
 
-pub fn decode_body(bytes: &[u8], content_type: &str) -> String {
+pub(crate) fn decode_body(bytes: &[u8], content_type: &str) -> String {
     let label = charset_from_bom(bytes)
         .map(ToString::to_string)
         .or_else(|| charset_from_content_type(content_type))
@@ -54,7 +54,7 @@ pub fn decode_body(bytes: &[u8], content_type: &str) -> String {
     }
 }
 
-pub fn is_pdf(bytes: &[u8], content_type: &str) -> bool {
+pub(crate) fn is_pdf(bytes: &[u8], content_type: &str) -> bool {
     content_type.to_lowercase().contains("application/pdf") || bytes.starts_with(b"%PDF-")
 }
 
@@ -109,14 +109,14 @@ fn mime_from_url_extension(url: &str) -> Option<&'static str> {
     }
 }
 
-pub fn image_mime_type(bytes: &[u8], content_type: &str, url: &str) -> Option<&'static str> {
+pub(crate) fn image_mime_type(bytes: &[u8], content_type: &str, url: &str) -> Option<&'static str> {
     let ct_lower = content_type.to_ascii_lowercase();
     mime_from_content_type(&ct_lower)
         .or_else(|| mime_from_magic_bytes(bytes))
         .or_else(|| mime_from_url_extension(url))
 }
 
-pub fn is_image(bytes: &[u8], content_type: &str, url: &str) -> bool {
+pub(crate) fn is_image(bytes: &[u8], content_type: &str, url: &str) -> bool {
     image_mime_type(bytes, content_type, url).is_some()
 }
 

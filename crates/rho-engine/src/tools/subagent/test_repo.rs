@@ -16,7 +16,7 @@ pub fn git(root: &Path, args: &[&str]) {
 }
 
 /// Initializes a repository on `main` in `dir` and commits `files` with the content `v1`.
-pub fn committed_repo(dir: &TestDir, files: &[&str]) -> PathBuf {
+pub(crate) fn committed_repo(dir: &TestDir, files: &[&str]) -> PathBuf {
     let root = dir.canonicalize().unwrap();
     git(&root, &["init", "--quiet", "-b", "main"]);
     for file in files {

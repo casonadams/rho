@@ -5,8 +5,8 @@ use std::io::{BufWriter, Write};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
-pub const BASH_PRUNE_LINE_THRESHOLD: usize = 15;
-pub const BASH_MAX_LOG_BYTES: usize = 16 * 1024 * 1024;
+pub(crate) const BASH_PRUNE_LINE_THRESHOLD: usize = 15;
+pub(crate) const BASH_MAX_LOG_BYTES: usize = 16 * 1024 * 1024;
 const HEAD_MAX_BYTES: usize = 4 * 1024;
 const LOG_DIR_NAME: &str = "rho-bash";
 const LOG_MAX_AGE: Duration = Duration::from_secs(24 * 60 * 60);
@@ -22,7 +22,7 @@ pub fn default_log_dir() -> PathBuf {
 
 /// Removes full output logs under `temp_root` older than a day or beyond the total size cap, and
 /// day-old `rho-bash-*.log` files that earlier versions left loose in `temp_root`. Returns the count.
-pub fn sweep_logs(temp_root: &Path) -> usize {
+pub(crate) fn sweep_logs(temp_root: &Path) -> usize {
     let removed = crate::tools::artifact::cleanup_artifacts(
         &temp_root.join(LOG_DIR_NAME),
         LOG_MAX_AGE,

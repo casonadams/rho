@@ -7,7 +7,7 @@ use std::fmt::Write as _;
 use std::path::PathBuf;
 
 /// The main agent's view of worktrees: review/merge/discard agent worktrees, or create & enter a session worktree.
-pub struct WorktreeTool {
+pub(crate) struct WorktreeTool {
     root: crate::tools::WorkspaceDir,
     store: WorktreeStore,
     session_base: Option<PathBuf>,
@@ -28,13 +28,13 @@ impl WorktreeTool {
     }
 
     #[must_use]
-    pub fn with_workspace_dir(mut self, root: crate::tools::WorkspaceDir) -> Self {
+    pub(crate) fn with_workspace_dir(mut self, root: crate::tools::WorkspaceDir) -> Self {
         self.root = root;
         self
     }
 
     #[must_use]
-    pub fn with_session_worktree(
+    pub(crate) fn with_session_worktree(
         mut self,
         base: PathBuf,
         clean_source: bool,
@@ -220,11 +220,11 @@ mod tests {
         let parent_wt = WorktreeTool::new(&root, store)
             .with_workspace_dir(parent_ws.clone())
             .with_session_worktree(session_base, false, Some(relocate_slot.clone()));
-        let parent_write = crate::tools::WriteTool::new(&root).with_workspace_dir(parent_ws.clone());
-        let parent_read = crate::tools::ReadTool::new(&root).with_workspace_dir(parent_ws.clone());
+        let parent_write = crate::tools::write::WriteTool::new(&root).with_workspace_dir(parent_ws.clone());
+        let parent_read = crate::tools::read::ReadTool::new(&root).with_workspace_dir(parent_ws.clone());
 
         // Independent subagent tool keeps its own WorkspaceDir.
-        let subagent_read = crate::tools::ReadTool::new(&root);
+        let subagent_read = crate::tools::read::ReadTool::new(&root);
 
         let res = call(&parent_wt, json!({ "action": "create", "branch": "feat/immediate" })).await;
         assert!(!res.is_error, "{}", res.content);

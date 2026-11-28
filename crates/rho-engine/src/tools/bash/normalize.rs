@@ -1,9 +1,9 @@
-pub const BASH_CLEAN_WINDOW_LINE_THRESHOLD: usize = 50;
-pub const BASH_CLEAN_HEAD_LINES: usize = 10;
-pub const BASH_CLEAN_TAIL_LINES: usize = 15;
-pub const BASH_FAILURE_TAIL_LINES: usize = 100;
+pub(crate) const BASH_CLEAN_WINDOW_LINE_THRESHOLD: usize = 50;
+pub(crate) const BASH_CLEAN_HEAD_LINES: usize = 10;
+pub(crate) const BASH_CLEAN_TAIL_LINES: usize = 15;
+pub(crate) const BASH_FAILURE_TAIL_LINES: usize = 100;
 
-pub fn collapse_consecutive_lines(text: &str) -> String {
+pub(crate) fn collapse_consecutive_lines(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
     let mut lines = text.lines().peekable();
     while let Some(line) = lines.next() {
@@ -33,7 +33,7 @@ pub fn tidy_output(text: &str) -> String {
     collapse_consecutive_lines(text.trim())
 }
 
-pub fn window_clean_output(text: &str, head_count: usize, tail_count: usize) -> String {
+pub(crate) fn window_clean_output(text: &str, head_count: usize, tail_count: usize) -> String {
     let lines: Vec<&str> = text.lines().collect();
     if lines.len() <= head_count + tail_count + 5 {
         return text.to_string();
@@ -41,11 +41,11 @@ pub fn window_clean_output(text: &str, head_count: usize, tail_count: usize) -> 
     window_head_and_tail(&lines[..head_count].join("\n"), text, lines.len(), tail_count)
 }
 
-pub fn join_head_tail(head: &str, omitted: usize, tail: &str) -> String {
+pub(crate) fn join_head_tail(head: &str, omitted: usize, tail: &str) -> String {
     format!("{head}\n\n[... {omitted} lines omitted]\n\n{tail}")
 }
 
-pub fn window_head_and_tail(head: &str, tail: &str, total_lines: usize, tail_count: usize) -> String {
+pub(crate) fn window_head_and_tail(head: &str, tail: &str, total_lines: usize, tail_count: usize) -> String {
     let head_lines = head.lines().count();
     let lines: Vec<&str> = tail.lines().collect();
     let keep = tail_count.min(total_lines.saturating_sub(head_lines)).min(lines.len());

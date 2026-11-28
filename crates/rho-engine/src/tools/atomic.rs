@@ -20,7 +20,7 @@ async fn existing_mode(_path: &Path) -> Option<u32> {
     None
 }
 
-pub async fn atomic_write(path: &Path, content: &[u8]) -> std::io::Result<()> {
+pub(crate) async fn atomic_write(path: &Path, content: &[u8]) -> std::io::Result<()> {
     let mode = existing_mode(path).await.unwrap_or(NEW_FILE_MODE);
     rho_harness_core::fs::write_atomic_async(path, content.to_vec(), mode).await
 }

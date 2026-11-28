@@ -2,9 +2,9 @@ use reqwest::dns::{Addrs, Name, Resolve, Resolving};
 use rho_harness_core::net::is_private_ip;
 use std::net::SocketAddr;
 
-pub struct PublicDns;
+pub(crate) struct PublicDns;
 
-pub async fn public_addrs(host: &str) -> Result<Vec<SocketAddr>, String> {
+pub(crate) async fn public_addrs(host: &str) -> Result<Vec<SocketAddr>, String> {
     let addrs = tokio::net::lookup_host((host, 0))
         .await
         .map_err(|e| format!("DNS lookup failed for {host}: {e}"))?;

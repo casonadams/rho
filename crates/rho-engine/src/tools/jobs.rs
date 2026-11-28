@@ -220,12 +220,12 @@ impl JobManager {
         running
     }
 
-    pub fn has_running(&self, owner: &AgentId) -> bool {
+    pub(crate) fn has_running(&self, owner: &AgentId) -> bool {
         self.lock().jobs.values().any(|j| j.runs_for(owner))
     }
 
     /// Signals every running job of `owner` to stop; each job records its own failure when it does.
-    pub fn cancel_owner(&self, owner: &AgentId) {
+    pub(crate) fn cancel_owner(&self, owner: &AgentId) {
         for job in self.running(owner) {
             job.cancel.cancel();
         }

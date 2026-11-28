@@ -7,7 +7,7 @@ use rho_harness_core::memory::{MemoryError, MemoryStore, numbered};
 const NEXT_SESSION: &str = "Memory loads at session start, so this takes effect in the next session.";
 
 /// Lets the model keep short notes across sessions in the user's memory directory.
-pub struct MemoryTool {
+pub(crate) struct MemoryTool {
     store: MemoryStore,
 }
 

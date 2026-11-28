@@ -1,17 +1,13 @@
 use crate::tools::builtin_tools::{BuiltinToolDeclaration, BuiltinToolKind, DECLARATIONS};
 
-pub use crate::tools::builtin_tools::{
-    PROMPT_BASH, PROMPT_EDIT, PROMPT_FD, PROMPT_READ, PROMPT_RG, PROMPT_WEB_FETCH, PROMPT_WEB_SEARCH, PROMPT_WRITE,
-};
-
-pub type ToolCapability = BuiltinToolKind;
-pub type ToolDescriptor = BuiltinToolDeclaration;
+pub(crate) type ToolCapability = BuiltinToolKind;
+pub(crate) type ToolDescriptor = BuiltinToolDeclaration;
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct ToolRegistry;
 
 impl ToolRegistry {
-    pub fn descriptors() -> &'static [ToolDescriptor] {
+    pub(crate) fn descriptors() -> &'static [ToolDescriptor] {
         DECLARATIONS
     }
 
@@ -31,7 +27,7 @@ impl ToolRegistry {
         Self::descriptor(name).map(|descriptor| descriptor.capability)
     }
 
-    pub fn prompt_snippet(name: &str) -> Option<&'static str> {
+    pub(crate) fn prompt_snippet(name: &str) -> Option<&'static str> {
         Self::descriptor(name).map(|descriptor| descriptor.prompt_snippet)
     }
 }

@@ -11,7 +11,7 @@ const TARGET_FIELDS: [&str; 6] = ["path", "command", "pattern", "url", "query", 
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum OutcomeStatus {
+pub(crate) enum OutcomeStatus {
     Ok,
     Error,
     Denied,
@@ -30,7 +30,7 @@ impl OutcomeStatus {
 
 /// One tool call a subagent made and how it ended.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ToolOutcome {
+pub(crate) struct ToolOutcome {
     pub tool: String,
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub target: String,
@@ -85,7 +85,7 @@ impl ToolOutcome {
 
 /// Tool calls that errored or were denied.
 #[must_use]
-pub fn problem_count(log: &[ToolOutcome]) -> usize {
+pub(crate) fn problem_count(log: &[ToolOutcome]) -> usize {
     log.iter().filter(|o| o.status != OutcomeStatus::Ok).count()
 }
 
@@ -104,7 +104,7 @@ fn count(log: &[ToolOutcome], status: OutcomeStatus) -> usize {
 
 /// `Tool outcomes: 12 ok, 2 errors (edit a.rs: oldText not found; ...), 1 denied (bash rm x)`.
 #[must_use]
-pub fn outcome_line(log: &[ToolOutcome]) -> Option<String> {
+pub(crate) fn outcome_line(log: &[ToolOutcome]) -> Option<String> {
     if log.is_empty() {
         return None;
     }

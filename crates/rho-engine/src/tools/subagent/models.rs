@@ -4,7 +4,7 @@ use crate::locking::{read, write};
 use std::sync::{Arc, RwLock};
 
 /// Resolves a configured `<provider>/<model>` name to a handle; the error text is shown to the caller.
-pub type SubagentModelResolver = Arc<dyn Fn(&str) -> Result<ModelHandle, String> + Send + Sync>;
+pub(crate) type SubagentModelResolver = Arc<dyn Fn(&str) -> Result<ModelHandle, String> + Send + Sync>;
 
 /// The session model and resolver subagents run on, and how their windows compact, shared by every
 /// copy of the tool so a model, thinking or context change reaches all of them.

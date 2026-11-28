@@ -1,11 +1,9 @@
 use image::ImageFormat;
 
-/// Magic-byte sniffing ported from pi's `detectSupportedImageMimeType`
-/// (`packages/coding-agent/src/utils/mime.ts`). Only these five formats are
-/// treated as images; everything else keeps rho's existing
-/// `[Binary file: N bytes]` path.
+/// Magic-byte sniffing ported from pi's `detectSupportedImageMimeType`; only these five formats count as
+/// images, and everything else keeps rho's binary-file path.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SniffedMime {
+pub(crate) enum SniffedMime {
     Png,
     Jpeg,
     Gif,
@@ -14,7 +12,7 @@ pub enum SniffedMime {
 }
 
 impl SniffedMime {
-    pub fn mime(self) -> &'static str {
+    pub(crate) fn mime(self) -> &'static str {
         match self {
             Self::Png => "image/png",
             Self::Jpeg => "image/jpeg",
@@ -25,12 +23,9 @@ impl SniffedMime {
     }
 }
 
-/// Read at most this many bytes before committing to sniffing (pi parity).
-pub const SNIFF_WINDOW_BYTES: usize = 4100;
-
 const PNG_SIGNATURE: [u8; 8] = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
 
-pub fn detect_supported_image_mime(bytes: &[u8]) -> Option<SniffedMime> {
+pub(crate) fn detect_supported_image_mime(bytes: &[u8]) -> Option<SniffedMime> {
     let format = image::guess_format(bytes).ok()?;
     match format {
         ImageFormat::Png if is_png(bytes) && !is_animated_png(bytes) => Some(SniffedMime::Png),

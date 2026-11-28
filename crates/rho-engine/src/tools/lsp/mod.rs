@@ -12,14 +12,14 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
-pub const DIAGNOSTICS_WAIT: Duration = Duration::from_secs(10);
+pub(crate) const DIAGNOSTICS_WAIT: Duration = Duration::from_secs(10);
 /// How long a query waits for a server that is still loading the project.
-pub const READY_WAIT: Duration = Duration::from_secs(30);
+pub(crate) const READY_WAIT: Duration = Duration::from_secs(30);
 
 /// How long after a server started an empty answer may just mean it has not indexed yet.
-pub const INDEXING_WINDOW: Duration = Duration::from_secs(30);
+pub(crate) const INDEXING_WINDOW: Duration = Duration::from_secs(30);
 
-pub struct LspTool {
+pub(crate) struct LspTool {
     base_dir: crate::tools::WorkspaceDir,
     manager: Arc<LspManager>,
     history: Option<EditHistory>,
@@ -105,7 +105,7 @@ impl LspTool {
         }
     }
 
-    pub fn with_workspace_dir(mut self, base_dir: crate::tools::WorkspaceDir) -> Self {
+    pub(crate) fn with_workspace_dir(mut self, base_dir: crate::tools::WorkspaceDir) -> Self {
         self.base_dir = base_dir;
         self
     }

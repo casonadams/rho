@@ -1,7 +1,8 @@
 use super::{fixture, search};
 use crate::tools::listing::LISTING_PAGE_BYTES;
 use crate::tools::listing::PageRequest;
-use crate::tools::rg::{RG_COLLECTION_CEILING, RgArgs, RgOutputMode};
+use crate::tools::rg::entry::RG_COLLECTION_CEILING;
+use crate::tools::rg::{RgArgs, RgOutputMode};
 use crate::tools::types::generated_schema;
 
 const MODE_HINT: &str = "output_mode 'files' or 'count' covers every matching file in far fewer bytes";

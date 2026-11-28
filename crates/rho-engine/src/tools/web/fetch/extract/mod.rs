@@ -6,13 +6,13 @@ pub mod markdown;
 #[cfg(test)]
 mod tests;
 
-pub use data::{extract_csv, extract_json, extract_pdf_bytes};
-pub use feed::extract_feed_or_xml;
-pub use html::extract_html;
-pub use markdown::resolve_markdown_links;
+pub(crate) use data::{extract_csv, extract_json, extract_pdf_bytes};
+pub(crate) use feed::extract_feed_or_xml;
+pub(crate) use html::extract_html;
+pub(crate) use markdown::resolve_markdown_links;
 use rho_harness_core::error::{AppError, Result};
 
-pub struct ExtractTextParams<'a> {
+pub(crate) struct ExtractTextParams<'a> {
     pub body: &'a str,
     pub content_type: &'a str,
     pub url_str: &'a str,
@@ -21,7 +21,7 @@ pub struct ExtractTextParams<'a> {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum FetchMode {
+pub(crate) enum FetchMode {
     Auto,
     Main,
     Full,
@@ -117,7 +117,7 @@ fn extract_inferred_text(body: &str, ct_lower: &str, url_str: &str, mode: FetchM
     Ok(body.trim().to_string())
 }
 
-pub fn extract_text(params: ExtractTextParams<'_>) -> Result<String> {
+pub(crate) fn extract_text(params: ExtractTextParams<'_>) -> Result<String> {
     let ct_lower = params.content_type.to_lowercase();
     if let Some(fmt) = params.format_override
         && let Some(text_res) = extract_override_text(fmt, params.body, params.url_str, params.mode)

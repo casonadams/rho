@@ -8,8 +8,8 @@ use crate::lsp::LspManager;
 use crate::tools::atomic::atomic_write;
 use crate::tools::engine_tool::{EngineTool, TurnToolContext, TypedTool};
 use crate::tools::types::{ToolResult, resolve_tool_path};
-pub use matching::locate_edit;
-pub use normalize::{detect_line_ending, has_whitespace_relaxed_match, normalize_line_endings, truncate_snippet};
+pub(crate) use matching::locate_edit;
+pub(crate) use normalize::{detect_line_ending, normalize_line_endings};
 pub use rho_harness_core::args::EditArgs;
 pub use rho_harness_core::args::EditReplacement;
 use rho_harness_core::error::AppError;
@@ -17,7 +17,7 @@ use rho_harness_core::workspace::{Workspace, clean_path_arg};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-pub struct EditTool {
+pub(crate) struct EditTool {
     pub base_dir: crate::tools::WorkspaceDir,
     pub lsp: Option<Arc<LspManager>>,
     pub history: Option<crate::tools::undo::EditHistory>,
@@ -123,12 +123,12 @@ impl EditTool {
         }
     }
 
-    pub fn with_workspace_dir(mut self, base_dir: crate::tools::WorkspaceDir) -> Self {
+    pub(crate) fn with_workspace_dir(mut self, base_dir: crate::tools::WorkspaceDir) -> Self {
         self.base_dir = base_dir;
         self
     }
 
-    pub fn with_lsp(mut self, lsp: Option<Arc<LspManager>>) -> Self {
+    pub(crate) fn with_lsp(mut self, lsp: Option<Arc<LspManager>>) -> Self {
         self.lsp = lsp;
         self
     }

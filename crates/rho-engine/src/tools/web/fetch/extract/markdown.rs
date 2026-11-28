@@ -11,7 +11,7 @@ static LINK_PATTERN: LazyLock<regex::Regex> = LazyLock::new(|| {
     regex::Regex::new(r"(!?\[[^\]]*\]\()(<[^>]+>|(?:[^()\s]|\([^()]*\))+)([^)]*\))").expect("valid regex")
 });
 
-pub fn resolve_relative_url(target: &str, base_url: &str) -> String {
+pub(crate) fn resolve_relative_url(target: &str, base_url: &str) -> String {
     if target.is_empty() || target.starts_with('#') {
         return target.to_string();
     }
@@ -89,7 +89,7 @@ fn resolve_line_refs_and_links(line: &str, base_url: &str) -> String {
         .into_owned()
 }
 
-pub fn resolve_markdown_links(markdown: &str, base_url: &str) -> String {
+pub(crate) fn resolve_markdown_links(markdown: &str, base_url: &str) -> String {
     let mut current_fence: Option<(char, usize)> = None;
     let mut out = Vec::new();
 

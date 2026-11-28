@@ -1,10 +1,10 @@
 pub use rho_harness_core::args::subagent::{SubagentArgs, SubagentRole};
 
-pub const DEFAULT_SUBAGENT_TURNS: usize = 100;
+pub(crate) const DEFAULT_SUBAGENT_TURNS: usize = 100;
 const MAX_TASK_NAME_CHARS: usize = 40;
 
 #[must_use]
-pub fn resolve_turns(requested: Option<usize>) -> usize {
+pub(crate) fn resolve_turns(requested: Option<usize>) -> usize {
     requested.unwrap_or(DEFAULT_SUBAGENT_TURNS).max(1)
 }
 
@@ -29,7 +29,7 @@ fn lowered_first(word: &str) -> String {
 
 /// The camelCase task name a subagent is labelled with, e.g. `performance audit` -> `performanceAudit`.
 #[must_use]
-pub fn task_name(raw: &str) -> Option<String> {
+pub(crate) fn task_name(raw: &str) -> Option<String> {
     let mut words = raw.split(|c: char| !c.is_alphanumeric()).filter(|w| !w.is_empty());
     let mut name = lowered_first(words.next()?);
     name.extend(words.map(capitalized));
