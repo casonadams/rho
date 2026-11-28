@@ -48,12 +48,14 @@ async fn a_subagent_that_overflows_its_context_compacts_and_finishes_the_round()
 
 /// A step that reads a file and reports `used` tokens of context.
 fn read_using(file: &str, used: u64) -> Vec<Result<ModelStreamEvent, AppError>> {
-    let mut turn: Vec<_> = tool_call_turn(&[("read", file)]).into_iter().map(Ok).collect();
-    turn.push(Ok(ModelStreamEvent::Usage(crate::engine::metrics::StructuralUsage {
+    let usage = crate::engine::metrics::StructuralUsage {
         input_tokens: used,
         ..Default::default()
-    })));
-    turn
+    };
+    crate::test_support::tool_step("call-0", "read", serde_json::json!({ "command": file }), usage)
+        .into_iter()
+        .map(Ok)
+        .collect()
 }
 
 #[tokio::test]

@@ -994,17 +994,14 @@ mod recovery {
 
     /// A step whose prompt used 9k tokens, past where a 10k window with a 2k reserve compacts.
     fn step_near_the_window(id: usize) -> Vec<Result<ModelStreamEvent, AppError>> {
-        use rho_harness_core::model::{ToolCall, ToolFunction};
-        vec![
-            Ok(ModelStreamEvent::ToolCall(ToolCall::new(
-                format!("call-{id}"),
-                ToolFunction::new("missing", serde_json::json!({})),
-            ))),
-            Ok(ModelStreamEvent::Usage(crate::engine::metrics::StructuralUsage {
-                input_tokens: 9_000,
-                ..Default::default()
-            })),
-        ]
+        let usage = crate::engine::metrics::StructuralUsage {
+            input_tokens: 9_000,
+            ..Default::default()
+        };
+        crate::test_support::tool_step(format!("call-{id}"), "missing", serde_json::json!({}), usage)
+            .into_iter()
+            .map(Ok)
+            .collect()
     }
 
     /// An engine on a 10k window that compacts past 8k.

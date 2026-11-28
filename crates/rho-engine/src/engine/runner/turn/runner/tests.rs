@@ -453,18 +453,14 @@ async fn a_tool_can_end_the_turn_once_its_batch_is_answered() {
     assert_eq!(result_text(&messages[2]), "question sent");
 }
 
+/// A `probe` call whose prompt used `used` tokens, most of them read from the cache.
 fn probe_then_usage(i: u64, used: u64) -> Vec<ModelStreamEvent> {
-    vec![
-        ModelStreamEvent::ToolCall(ToolCall::new(
-            format!("c{i}"),
-            ToolFunction::new("probe", serde_json::json!({ "i": i })),
-        )),
-        ModelStreamEvent::Usage(StructuralUsage {
-            input_tokens: 1_000,
-            cached_input_tokens: Some(used - 1_000),
-            ..Default::default()
-        }),
-    ]
+    let usage = StructuralUsage {
+        input_tokens: 1_000,
+        cached_input_tokens: Some(used - 1_000),
+        ..Default::default()
+    };
+    crate::test_support::tool_step(format!("c{i}"), "probe", serde_json::json!({ "i": i }), usage)
 }
 
 #[test]

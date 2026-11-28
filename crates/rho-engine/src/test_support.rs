@@ -43,6 +43,21 @@ impl Presenter for CapturingPresenter {
     }
 }
 
+/// A model turn that calls `tool` with `args` as call `id`, then reports `usage` for its request.
+pub(crate) fn tool_step(
+    id: impl Into<String>,
+    tool: &str,
+    args: serde_json::Value,
+    usage: crate::engine::metrics::StructuralUsage,
+) -> Vec<crate::provider::adapter::ModelStreamEvent> {
+    use crate::provider::adapter::ModelStreamEvent;
+    use rho_harness_core::model::{ToolCall, ToolFunction};
+    vec![
+        ModelStreamEvent::ToolCall(ToolCall::new(id, ToolFunction::new(tool, args))),
+        ModelStreamEvent::Usage(usage),
+    ]
+}
+
 pub(crate) fn temp_dir(label: &str) -> TestDir {
     TestDir::with_prefix(&format!("rho-{label}-"))
 }
