@@ -161,103 +161,11 @@ mod compactor {
     }
 
     #[tokio::test]
-    async fn test_llm_compactor_structured_extract() {
-        #[derive(Debug, serde::Deserialize, serde::Serialize, schemars::JsonSchema, PartialEq, Eq)]
-        struct TestMetadata {
-            goal: String,
-            files: Vec<String>,
-        }
-
-        let mock = Arc::new(MockAdapter::text(r#"{"goal": "Fix bug", "files": ["src/main.rs"]}"#));
-        let compactor = LlmCompactor::new(Some(mock));
-
-        let res: Option<TestMetadata> = compactor.extract("extract summary").await;
-        assert_eq!(
-            res,
-            Some(TestMetadata {
-                goal: "Fix bug".to_string(),
-                files: vec!["src/main.rs".to_string()],
-            })
-        );
-    }
-
-    #[tokio::test]
-    async fn test_llm_compactor_structured_extract_and_render() {
-        let mock = Arc::new(MockAdapter::text(
-            serde_json::to_string(&serde_json::json!({
-                "goals": ["Build fast CLI"],
-                "decisions": ["Use Rust"],
-                "completed": ["Scaffolded repo"],
-                "active_files": ["src/main.rs"],
-                "open_questions": ["Add tests"],
-            }))
-            .unwrap(),
-        ));
-        let compactor = LlmCompactor::new(Some(mock));
-
-        let messages = vec![
-            ChatMessage::user("Please build fast CLI"),
-            ChatMessage::assistant("I scaffolded the repo"),
-        ];
-
-        let summary = compactor
-            .summarize(
-                &messages,
-                SummarizeOptions {
-                    structured: true,
-                    ..Default::default()
-                },
-            )
-            .await;
-
-        assert!(summary.contains("## Goals\n- Build fast CLI"));
-        assert!(summary.contains("## Key Decisions\n- Use Rust"));
-        assert!(summary.contains("## Completed Work\n- Scaffolded repo"));
-        assert!(summary.contains("## Active Files\n- src/main.rs"));
-        assert!(summary.contains("## Open Questions\n- Add tests"));
-    }
-
-    #[tokio::test]
-    async fn test_llm_compactor_invalid_extraction_falls_back_to_completion() {
-        let mock = Arc::new(MockAdapter::default());
-        mock.add_turn(vec![Ok(crate::provider::adapter::ModelStreamEvent::Text(
-            "invalid json causing extraction fallback".to_string(),
-        ))]);
-        mock.add_turn(vec![Ok(crate::provider::adapter::ModelStreamEvent::Text(
-            "## Goal\nFallback completion goal\n\n## Progress\n### Done\n- [x] Done item".to_string(),
-        ))]);
-        let compactor = LlmCompactor::new(Some(mock));
-
-        let messages = vec![
-            ChatMessage::user("Please test fallback"),
-            ChatMessage::assistant("Will do"),
-        ];
-
-        let summary = compactor
-            .summarize(
-                &messages,
-                SummarizeOptions {
-                    structured: true,
-                    ..Default::default()
-                },
-            )
-            .await;
-
-        assert_eq!(
-            summary,
-            "## Goal\nFallback completion goal\n\n## Progress\n### Done\n- [x] Done item"
-        );
-    }
-
-    #[tokio::test]
     async fn test_llm_compactor_completion_failure_falls_back_to_deterministic_summary() {
         let mock = Arc::new(MockAdapter::default());
-        mock.add_turn(vec![Ok(crate::provider::adapter::ModelStreamEvent::Text(
-            "non-json text causing extraction failure".to_string(),
+        mock.add_turn(vec![Err(rho_harness_core::error::AppError::Network(
+            "connection reset".to_string(),
         ))]);
-        mock.add_turn(vec![Ok(
-            crate::provider::adapter::ModelStreamEvent::Text(String::new()),
-        )]);
         let compactor = LlmCompactor::new(Some(mock));
 
         let messages = vec![
@@ -265,15 +173,7 @@ mod compactor {
             ChatMessage::assistant("Work in progress"),
         ];
 
-        let summary = compactor
-            .summarize(
-                &messages,
-                SummarizeOptions {
-                    structured: true,
-                    ..Default::default()
-                },
-            )
-            .await;
+        let summary = compactor.summarize(&messages, SummarizeOptions::default()).await;
 
         assert!(summary.contains("## Goal\nCritical task to summarize"));
         assert!(summary.contains("## Progress\n### Done"));
@@ -297,7 +197,6 @@ mod compactor {
                     prior_summary: Some(prior),
                     custom_instructions: Some("Focus on tests"),
                     is_split_turn: false,
-                    structured: false,
                 },
             )
             .await;
@@ -793,6 +692,36 @@ mod orchestrator {
 
         let stats = engine.compact_session(None).await.unwrap();
         assert!(stats.tokens_before > 0);
+    }
+
+    #[tokio::test]
+    async fn a_failing_demotion_hook_error_is_returned_to_the_caller() {
+        let hook: std::sync::Arc<dyn crate::engine::compactor::DemotionHook> =
+            std::sync::Arc::new(CapturingDemotionHook {
+                fail: true,
+                ..Default::default()
+            });
+
+        let result =
+            crate::engine::compactor::orchestrator::dispatch_demote(Some(&hook), "session", &[ChatMessage::user("hi")])
+                .await;
+
+        assert_eq!(result, Err("simulated hook failure".to_string()));
+    }
+
+    #[tokio::test]
+    async fn a_panicking_demotion_hook_is_returned_to_the_caller_as_an_error() {
+        let hook: std::sync::Arc<dyn crate::engine::compactor::DemotionHook> =
+            std::sync::Arc::new(CapturingDemotionHook {
+                panic: true,
+                ..Default::default()
+            });
+
+        let result =
+            crate::engine::compactor::orchestrator::dispatch_demote(Some(&hook), "session", &[ChatMessage::user("hi")])
+                .await;
+
+        assert_eq!(result, Err("demotion hook panicked".to_string()));
     }
 
     #[tokio::test]

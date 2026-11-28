@@ -1,6 +1,4 @@
-use crate::paths::canonical_or_self;
 use serde_json::Value;
-use std::path::{Path, PathBuf};
 
 pub const REPEATED_CALL_MESSAGE: &str = "This tool call was blocked because it repeats your previous two calls exactly. No operation was executed. Try a semantically different approach.";
 
@@ -9,27 +7,17 @@ const STEPPING_TOOLS: &[&str] = &["undo", "wait"];
 
 #[derive(Clone, Default)]
 pub struct RepeatedCallTracker {
-    working_dir: PathBuf,
     key: Option<String>,
     consecutive: usize,
 }
 
 impl RepeatedCallTracker {
-    pub fn new(working_dir: impl AsRef<Path>) -> Self {
-        let canonical = canonical_or_self(working_dir.as_ref());
-        Self {
-            working_dir: canonical,
-            key: None,
-            consecutive: 0,
-        }
-    }
-
     pub fn check(&mut self, tool_name: &str, arguments: &Value) -> Result<(), &'static str> {
         if STEPPING_TOOLS.contains(&tool_name) {
             self.reset();
             return Ok(());
         }
-        let key = normalized_call_key(tool_name, arguments, &self.working_dir);
+        let key = normalized_call_key(tool_name, arguments);
         if self.key.as_ref() == Some(&key) {
             self.consecutive += 1;
         } else {
@@ -48,17 +36,17 @@ impl RepeatedCallTracker {
     }
 }
 
-fn normalized_call_key(tool_name: &str, arguments: &Value, working_dir: &Path) -> String {
+fn normalized_call_key(tool_name: &str, arguments: &Value) -> String {
     let mut normalized = arguments.clone();
     match tool_name {
-        "bash" => normalize_bash(&mut normalized, working_dir),
+        "bash" => normalize_bash(&mut normalized),
         "web_search" => normalize_web_search(&mut normalized),
         _ => {}
     }
     serde_json::to_string(&(tool_name, normalized)).unwrap_or_else(|_| format!("{tool_name}:<invalid>"))
 }
 
-fn normalize_bash(arguments: &mut Value, working_dir: &Path) {
+fn normalize_bash(arguments: &mut Value) {
     let Some(values) = arguments.as_object_mut() else {
         return;
     };
@@ -67,10 +55,6 @@ fn normalize_bash(arguments: &mut Value, working_dir: &Path) {
     {
         *command = Value::String(normalize_shell_whitespace(text));
     }
-    values.insert(
-        "working_directory".to_string(),
-        Value::String(normalize_working_dir(working_dir)),
-    );
 }
 
 fn normalize_web_search(arguments: &mut Value) {
@@ -89,10 +73,6 @@ fn normalize_web_search(arguments: &mut Value) {
     }
     let effective_limit = values.get("limit").and_then(Value::as_u64).unwrap_or(5).clamp(1, 20);
     values.insert("limit".to_string(), Value::from(effective_limit));
-}
-
-fn normalize_working_dir(working_dir: &Path) -> String {
-    working_dir.to_string_lossy().into_owned()
 }
 
 struct ShellNormalizer {

@@ -45,12 +45,7 @@ fn test_agent_env_with(
     let sink = TerminalApprovalSink::new(&pres, cfg, sm.clone());
     let inbox = crate::mailbox::Mailboxes::default().open(&AgentId::from(sm.session_id.as_str()), None);
     let runner = AgentRunner::new(model, Vec::new(), sm, sink).inbox(Some(inbox));
-    (
-        runner,
-        temp,
-        TestStepBuffers::default(),
-        RepeatedCallTracker::new(std::path::PathBuf::from(".")),
-    )
+    (runner, temp, TestStepBuffers::default(), RepeatedCallTracker::default())
 }
 
 /// The background work of the test runner's engine.
@@ -629,6 +624,79 @@ async fn the_tool_observer_hears_refused_and_finished_calls() {
     assert_eq!(seen[0], format!("denied bash: {}", result_text(&message)));
     assert!(seen[0].starts_with("denied bash: Permission denied"), "{seen:?}");
     assert_eq!(seen[1], "finished echo: hi (error: false)");
+}
+
+#[tokio::test]
+async fn a_call_refused_as_a_repeat_is_reported_to_the_tool_observer() {
+    let (runner, _temp, _, mut tracker) = test_agent_env(Arc::new(MockAdapter::default()));
+    let seen = Arc::new(SeenCalls::default());
+    let observer: Arc<dyn ToolObserver> = seen.clone();
+    let tools: Vec<Arc<dyn EngineTool>> = vec![Arc::new(ScriptedTool {
+        name: "echo",
+        result: crate::tools::ToolResult::success("hi"),
+    })];
+    let call = ToolCall::new("c1", ToolFunction::new("echo", serde_json::json!({})));
+    let mut ctx = ToolExecutionContext {
+        tools: &tools,
+        sink: &runner.sink,
+        repeat_tracker: &mut tracker,
+        lifecycle: None,
+        permission: None,
+        observer: Some(&observer),
+    };
+    for _ in 0..2 {
+        execute_single_tool_call(&call, &mut ctx).await;
+    }
+
+    let (message, control) = execute_single_tool_call(&call, &mut ctx).await;
+
+    assert_eq!(control, CallControl::Continue);
+    assert_eq!(result_text(&message), crate::repeat::REPEATED_CALL_MESSAGE);
+    let seen = seen.0.lock().unwrap();
+    assert_eq!(
+        seen.last(),
+        Some(&format!("denied echo: {}", crate::repeat::REPEATED_CALL_MESSAGE))
+    );
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn a_call_stopped_by_a_hook_is_reported_to_the_tool_observer() {
+    use std::os::unix::fs::PermissionsExt;
+    let (runner, _temp, _, mut tracker) = test_agent_env(Arc::new(MockAdapter::default()));
+    let dir = TestDir::new();
+    let hook = dir.join("tool_call");
+    std::fs::write(&hook, "#!/bin/sh\necho '{\"action\":\"stop\",\"reason\":\"enough\"}'\n").unwrap();
+    std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let lifecycle = Arc::new(
+        crate::hook::LifecycleHook::new(
+            dir.to_path_buf(),
+            "s1",
+            Arc::new(crate::engine::eval::presenter::NoopPresenter),
+        )
+        .with_hook_dirs(vec![dir.to_path_buf()]),
+    );
+    let seen = Arc::new(SeenCalls::default());
+    let observer: Arc<dyn ToolObserver> = seen.clone();
+    let tools: Vec<Arc<dyn EngineTool>> = vec![Arc::new(ScriptedTool {
+        name: "echo",
+        result: crate::tools::ToolResult::success("hi"),
+    })];
+    let call = ToolCall::new("c1", ToolFunction::new("echo", serde_json::json!({})));
+    let mut ctx = ToolExecutionContext {
+        tools: &tools,
+        sink: &runner.sink,
+        repeat_tracker: &mut tracker,
+        lifecycle: Some(&lifecycle),
+        permission: None,
+        observer: Some(&observer),
+    };
+
+    let (message, control) = execute_single_tool_call(&call, &mut ctx).await;
+
+    assert_eq!(control, CallControl::Stop("enough".to_string()));
+    let seen = seen.0.lock().unwrap();
+    assert_eq!(*seen, vec![format!("denied echo: {}", result_text(&message))]);
 }
 
 fn rendezvous_tools(safe: bool) -> Vec<Arc<dyn EngineTool>> {

@@ -61,8 +61,7 @@ mod tests {
     #[test]
     fn repeated_calls_are_blocked_after_three_consecutive_identical_attempts() {
         for (name, calls, expect_ok) in scenarios() {
-            let dir = rho_test_support::TestDir::with_prefix(&format!("{name}_"));
-            let mut tracker = RepeatedCallTracker::new(&dir);
+            let mut tracker = RepeatedCallTracker::default();
             for ((tool, arguments), ok) in calls.iter().zip(expect_ok) {
                 let result = tracker.check(tool, arguments);
                 if ok {

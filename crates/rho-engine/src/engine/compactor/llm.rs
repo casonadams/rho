@@ -5,7 +5,7 @@ use std::future::Future;
 use std::time::Duration;
 
 use rho_harness_core::session::compaction::{
-    CompactionSummaryPayload, SUMMARIZATION_SYSTEM_PROMPT, build_summarization_prompt, build_turn_prefix_prompt,
+    SUMMARIZATION_SYSTEM_PROMPT, build_summarization_prompt, build_turn_prefix_prompt,
     build_update_summarization_prompt, generate_fallback_summary, merge_split_turn_summary, serialize_conversation,
 };
 use rho_harness_core::tokens::is_user_turn_start;
@@ -21,14 +21,23 @@ pub struct SummarizeOptions<'a> {
     pub prior_summary: Option<&'a str>,
     pub custom_instructions: Option<&'a str>,
     pub is_split_turn: bool,
-    pub structured: bool,
 }
 
 #[derive(Debug)]
 enum LlmCallError {
-    ContextOverflow(String),
-    Other,
+    ContextOverflow(AppError),
+    Failed(AppError),
 }
+
+impl std::fmt::Display for LlmCallError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::ContextOverflow(cause) | Self::Failed(cause) => cause.fmt(f),
+        }
+    }
+}
+
+const SUMMARY_TIMEOUT: Duration = Duration::from_secs(60);
 
 async fn run_agent_completion(model: ModelHandle, prompt: &str) -> Result<(String, StructuralUsage), LlmCallError> {
     let req = crate::provider::adapter::ModelCompletionRequest {
@@ -40,41 +49,22 @@ async fn run_agent_completion(model: ModelHandle, prompt: &str) -> Result<(Strin
         temperature: Some(0.0),
         thinking_level: None,
     };
-    match tokio::time::timeout(Duration::from_secs(60), model.complete(req)).await {
+    let response = tokio::time::timeout(SUMMARY_TIMEOUT, model.complete(req))
+        .await
+        .map_err(|_| {
+            AppError::Provider(format!(
+                "summary request timed out after {}s",
+                SUMMARY_TIMEOUT.as_secs()
+            ))
+        });
+    match response {
         Ok(Ok(resp)) if !resp.content.trim().is_empty() => Ok((resp.content.trim().to_string(), resp.usage)),
-        Ok(Ok(_)) => Err(LlmCallError::Other),
-        Ok(Err(AppError::ContextOverflow(msg))) => Err(LlmCallError::ContextOverflow(msg)),
-        Ok(Err(_)) => Err(LlmCallError::Other),
-        Err(_) => Err(LlmCallError::Other),
+        Ok(Ok(_)) => Err(LlmCallError::Failed(AppError::Provider(
+            "summary model returned no text".to_string(),
+        ))),
+        Ok(Err(error @ AppError::ContextOverflow(_))) => Err(LlmCallError::ContextOverflow(error)),
+        Ok(Err(error)) | Err(error) => Err(LlmCallError::Failed(error)),
     }
-}
-
-fn strip_json_fences(text: &str) -> &str {
-    let trimmed = text.trim();
-    if let Some(rest) = trimmed.strip_prefix("```json") {
-        if let Some(content) = rest.strip_suffix("```") {
-            return content.trim();
-        }
-    } else if let Some(rest) = trimmed.strip_prefix("```")
-        && let Some(content) = rest.strip_suffix("```")
-    {
-        return content.trim();
-    }
-    trimmed
-}
-
-async fn run_agent_extraction<T>(model: ModelHandle, prompt: &str) -> Result<T, LlmCallError>
-where
-    T: schemars::JsonSchema + for<'de> serde::Deserialize<'de> + serde::Serialize + Send + Sync + 'static,
-{
-    let schema = schemars::schema_for!(T);
-    let schema_json = serde_json::to_string_pretty(&schema).unwrap_or_default();
-    let full_prompt = format!(
-        "{prompt}\n\nYou must return ONLY valid JSON matching this JSON schema:\n{schema_json}\nDo not include explanation, markdown formatting, or code fences, only the JSON object."
-    );
-    let (text, _) = run_agent_completion(model, &full_prompt).await?;
-    let cleaned = strip_json_fences(&text);
-    serde_json::from_str(cleaned).map_err(|_| LlmCallError::Other)
 }
 
 fn truncate_oldest_round(messages: &[ChatMessage]) -> Option<Vec<ChatMessage>> {
@@ -95,23 +85,39 @@ fn truncate_oldest_round(messages: &[ChatMessage]) -> Option<Vec<ChatMessage>> {
 const MAX_OVERFLOW_RETRIES: usize = 3;
 
 /// Calls `call` on `messages`, dropping the oldest round and retrying on context overflow.
-/// Returns `None` when the call fails otherwise or no round is left to drop.
+/// Returns the last failure when the call fails otherwise or no round is left to drop.
 async fn retry_dropping_oldest_rounds<T, Fut>(
     mut messages: Vec<ChatMessage>,
     mut call: impl FnMut(&[ChatMessage]) -> Fut,
-) -> Option<T>
+) -> Result<T, LlmCallError>
 where
     Fut: Future<Output = Result<T, LlmCallError>>,
 {
     let mut retries = 0;
     loop {
         match call(&messages).await {
-            Ok(value) => return Some(value),
-            Err(LlmCallError::ContextOverflow(_)) if retries < MAX_OVERFLOW_RETRIES => {
+            Ok(value) => return Ok(value),
+            Err(overflow @ LlmCallError::ContextOverflow(_)) if retries < MAX_OVERFLOW_RETRIES => {
+                let Some(shorter) = truncate_oldest_round(&messages) else {
+                    return Err(overflow);
+                };
                 retries += 1;
-                messages = truncate_oldest_round(&messages)?;
+                messages = shorter;
             }
-            Err(_) => return None,
+            Err(error) => return Err(error),
+        }
+    }
+}
+
+fn summary_or_fallback(
+    attempt: Result<(String, Option<StructuralUsage>), LlmCallError>,
+    fallback: impl FnOnce() -> String,
+) -> (String, Option<StructuralUsage>) {
+    match attempt {
+        Ok(result) => result,
+        Err(error) => {
+            tracing::warn!("LLM compaction failed, using a deterministic summary: {error}");
+            (fallback(), None)
         }
     }
 }
@@ -164,14 +170,6 @@ impl LlmCompactor {
         Self { model }
     }
 
-    pub async fn extract<T>(&self, prompt: &str) -> Option<T>
-    where
-        T: schemars::JsonSchema + for<'de> serde::Deserialize<'de> + serde::Serialize + Send + Sync + 'static,
-    {
-        let model = self.model.as_ref()?.clone();
-        run_agent_extraction(model, prompt).await.ok()
-    }
-
     pub async fn summarize(&self, messages: &[ChatMessage], options: SummarizeOptions<'_>) -> String {
         self.summarize_with_usage(messages, options).await.0
     }
@@ -199,50 +197,17 @@ impl LlmCompactor {
         }
     }
 
-    async fn execute_summary_call(
-        model: ModelHandle,
-        prompt: &str,
-        structured: bool,
-    ) -> Result<(String, Option<StructuralUsage>), LlmCallError> {
-        if structured {
-            match run_agent_extraction::<CompactionSummaryPayload>(model.clone(), prompt).await {
-                Ok(payload) => Ok((payload.render_markdown(), None)),
-                Err(LlmCallError::ContextOverflow(msg)) => Err(LlmCallError::ContextOverflow(msg)),
-                Err(LlmCallError::Other) => {
-                    let (summary, usage) = run_agent_completion(model, prompt).await?;
-                    Ok((summary, Some(usage)))
-                }
-            }
-        } else {
-            let (summary, usage) = run_agent_completion(model, prompt).await?;
-            Ok((summary, Some(usage)))
-        }
-    }
-
     async fn summarize_full_with_usage(
         &self,
         messages: &[ChatMessage],
         options: SummarizeOptions<'_>,
     ) -> (String, Option<StructuralUsage>) {
-        let attempt = match self.model.clone() {
-            Some(model) => {
-                let structured = options.structured;
-                retry_dropping_oldest_rounds(strip_media_for_summarization(messages), |current| {
-                    let prompt = Self::resolve_summary_prompt(&serialize_conversation(current), &options);
-                    let model = model.clone();
-                    async move { Self::execute_summary_call(model, &prompt, structured).await }
-                })
-                .await
-            }
-            None => None,
-        };
-        match attempt {
-            Some(result) => result,
-            None => (
-                generate_fallback_summary(messages, options.prior_summary, options.custom_instructions),
-                None,
-            ),
-        }
+        self.summarize_with(
+            messages,
+            |transcript| Self::resolve_summary_prompt(transcript, &options),
+            || generate_fallback_summary(messages, options.prior_summary, options.custom_instructions),
+        )
+        .await
     }
 
     async fn summarize_prefix_with_usage(
@@ -250,25 +215,36 @@ impl LlmCompactor {
         prefix: &[ChatMessage],
         instructions: Option<&str>,
     ) -> (String, Option<StructuralUsage>) {
-        let attempt = match self.model.clone() {
-            Some(model) => {
-                retry_dropping_oldest_rounds(strip_media_for_summarization(prefix), |current| {
-                    let prompt = build_turn_prefix_prompt(&serialize_conversation(current), instructions);
-                    let model = model.clone();
-                    async move {
-                        run_agent_completion(model, &prompt)
-                            .await
-                            .map(|(summary, usage)| (summary, Some(usage)))
-                    }
-                })
-                .await
-            }
-            None => None,
+        self.summarize_with(
+            prefix,
+            |transcript| build_turn_prefix_prompt(transcript, instructions),
+            || generate_fallback_summary(prefix, None, instructions),
+        )
+        .await
+    }
+
+    /// Summarizes `messages` with the prompt `prompt` builds from their transcript, dropping the
+    /// oldest rounds while the request is too long; `fallback` when there is no model or it fails.
+    async fn summarize_with(
+        &self,
+        messages: &[ChatMessage],
+        prompt: impl Fn(&str) -> String,
+        fallback: impl FnOnce() -> String,
+    ) -> (String, Option<StructuralUsage>) {
+        let Some(model) = self.model.clone() else {
+            return (fallback(), None);
         };
-        match attempt {
-            Some(result) => result,
-            None => (generate_fallback_summary(prefix, None, instructions), None),
-        }
+        let attempt = retry_dropping_oldest_rounds(strip_media_for_summarization(messages), |current| {
+            let prompt = prompt(&serialize_conversation(current));
+            let model = model.clone();
+            async move {
+                run_agent_completion(model, &prompt)
+                    .await
+                    .map(|(summary, usage)| (summary, Some(usage)))
+            }
+        })
+        .await;
+        summary_or_fallback(attempt, fallback)
     }
 
     async fn summarize_head_turn_with_usage(
@@ -307,5 +283,57 @@ impl LlmCompactor {
         } else {
             self.summarize_head_turn_with_usage(messages, options).await
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::provider::adapter::{MockAdapter, ModelAdapter, ModelCompletionRequest, ModelStreamEvent};
+    use std::pin::Pin;
+    use std::sync::Arc;
+
+    #[tokio::test]
+    async fn a_failed_summary_call_keeps_the_model_error_as_its_cause() {
+        let mock = Arc::new(MockAdapter::default());
+        mock.add_turn(vec![Err(AppError::Network("connection reset".to_string()))]);
+
+        let Err(LlmCallError::Failed(cause)) = run_agent_completion(mock, "summarize").await else {
+            panic!("the summary call should fail");
+        };
+
+        assert_eq!(cause.to_string(), "Network error: connection reset");
+    }
+
+    #[derive(Debug)]
+    struct NeverAnswers;
+
+    #[async_trait::async_trait]
+    impl ModelAdapter for NeverAnswers {
+        fn model_name(&self) -> &str {
+            "never"
+        }
+
+        fn provider_name(&self) -> &str {
+            "never"
+        }
+
+        async fn stream(
+            &self,
+            _request: ModelCompletionRequest,
+        ) -> Result<Pin<Box<dyn futures::Stream<Item = Result<ModelStreamEvent, AppError>> + Send>>, AppError> {
+            Ok(Box::pin(futures::stream::pending()))
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_summary_call_past_the_deadline_fails_with_a_timeout_cause() {
+        let model: ModelHandle = Arc::new(NeverAnswers);
+
+        let Err(LlmCallError::Failed(cause)) = run_agent_completion(model, "summarize").await else {
+            panic!("the summary call should time out");
+        };
+
+        assert_eq!(cause.to_string(), "Provider error: summary request timed out after 60s");
     }
 }

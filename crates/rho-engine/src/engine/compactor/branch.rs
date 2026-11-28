@@ -18,7 +18,6 @@ impl AgentEngine {
                         "Summarize key discoveries, progress, decisions, and critical context from this abandoned branch before switching.",
                     ),
                     is_split_turn: false,
-                    structured: false,
                 },
             )
             .await;

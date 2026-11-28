@@ -88,7 +88,6 @@ pub async fn compact_messages(
                 prior_summary: None,
                 custom_instructions: None,
                 is_split_turn: cut.is_split_turn,
-                structured: false,
             },
         )
         .await;
@@ -314,7 +313,10 @@ impl SessionCompactor {
 
     async fn finalize_compaction(&self, plan: FinalizeCompactionPlan<'_>) -> Result<CompactionStats> {
         let (to_sum, kept) = (&plan.messages[..plan.cut_index], &plan.messages[plan.cut_index..]);
-        dispatch_demote(self.demotion_hook.as_ref(), &self.session_manager.session_id, to_sum).await;
+        if let Err(error) = dispatch_demote(self.demotion_hook.as_ref(), &self.session_manager.session_id, to_sum).await
+        {
+            tracing::warn!("demotion hook failed; compaction continues: {error}");
+        }
         let md_summary = self
             .generate_compaction_summary(
                 to_sum,
@@ -322,7 +324,6 @@ impl SessionCompactor {
                     prior_summary: plan.prior_summary,
                     custom_instructions: plan.instructions,
                     is_split_turn: plan.is_split_turn,
-                    structured: false,
                 },
             )
             .await;
@@ -412,15 +413,21 @@ impl AgentEngine {
 
 const UNFINISHED_TURN_NOTE: &str = "[This turn stopped before finishing; the work above was saved.]";
 
-pub(crate) async fn dispatch_demote(hook: Option<&Arc<dyn DemotionHook>>, session_id: &str, messages: &[ChatMessage]) {
-    if let Some(hook) = hook {
-        if messages.is_empty() {
-            return;
-        }
-        let hook = Arc::clone(hook);
-        let fut = std::panic::AssertUnwindSafe(async move { hook.on_demote(session_id, messages).await });
-        if futures::FutureExt::catch_unwind(fut).await.is_err() {
-            tracing::warn!("demotion hook panicked; compaction continues");
-        }
+pub(crate) async fn dispatch_demote(
+    hook: Option<&Arc<dyn DemotionHook>>,
+    session_id: &str,
+    messages: &[ChatMessage],
+) -> std::result::Result<(), String> {
+    let Some(hook) = hook else {
+        return Ok(());
+    };
+    if messages.is_empty() {
+        return Ok(());
+    }
+    let hook = Arc::clone(hook);
+    let fut = std::panic::AssertUnwindSafe(async move { hook.on_demote(session_id, messages).await });
+    match futures::FutureExt::catch_unwind(fut).await {
+        Ok(result) => result,
+        Err(_) => Err("demotion hook panicked".to_string()),
     }
 }

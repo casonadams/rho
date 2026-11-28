@@ -56,7 +56,7 @@ impl AgentRunner {
             budget: 10,
             history: Vec::new(),
             sink,
-            repeat_tracker: RepeatedCallTracker::new(working_dir.clone()),
+            repeat_tracker: RepeatedCallTracker::default(),
             lifecycle: None,
             permission: None,
             steering: None,

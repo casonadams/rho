@@ -5,8 +5,8 @@ use crate::tools::EngineTool;
 use rho_harness_core::model::{ChatMessage, ToolCall};
 use std::sync::Arc;
 
-/// Hears how each of the turn's tool calls ended: refused by a hook or the permission policy, or run
-/// (with the output the model receives, after outcome hooks).
+/// Hears how each of the turn's tool calls ended: refused as a repeat, by a hook, or by the permission
+/// policy, or run (with the output the model receives, after outcome hooks).
 pub trait ToolObserver: Send + Sync {
     fn denied(&self, call: &ToolCall, reason: &str);
     fn finished(&self, call: &ToolCall, args: &serde_json::Value, output: &str, is_error: bool);
@@ -120,11 +120,24 @@ enum PlannedCall {
     Settled(CallOutcome),
 }
 
+enum ExecutedCall {
+    Ran(serde_json::Value, ToolRun),
+    Settled(CallOutcome),
+}
+
+fn notify_denied(observer: Option<&Arc<dyn ToolObserver>>, call: &ToolCall, msg: &ChatMessage) {
+    if let Some(observer) = observer {
+        observer.denied(call, &message_text(msg));
+    }
+}
+
 async fn plan_tool_call(call: &ToolCall, ctx: &mut ToolExecutionContext<'_>) -> PlannedCall {
     ctx.sink.focus_tool_preview(&call.id);
-    if let Err(msg) = ctx.repeat_tracker.check(&call.function.name, &call.function.arguments) {
+    if let Err(reason) = ctx.repeat_tracker.check(&call.function.name, &call.function.arguments) {
         ctx.sink.cancel_tool_preview();
-        return PlannedCall::Settled((tool_result_message(call, msg.to_string()), CallControl::Continue));
+        let msg = tool_result_message(call, reason.to_string());
+        notify_denied(ctx.observer, call, &msg);
+        return PlannedCall::Settled((msg, CallControl::Continue));
     }
     match evaluate_tool_dispatch(call, ctx.lifecycle, ctx.permission).await {
         DispatchDecision::Proceed(args) => {
@@ -134,13 +147,12 @@ async fn plan_tool_call(call: &ToolCall, ctx: &mut ToolExecutionContext<'_>) -> 
         DispatchDecision::Deny(msg) => {
             ctx.sink.cancel_tool_preview();
             ctx.sink.tool_denied();
-            if let Some(observer) = ctx.observer {
-                observer.denied(call, &message_text(&msg));
-            }
+            notify_denied(ctx.observer, call, &msg);
             PlannedCall::Settled((msg, CallControl::Continue))
         }
         DispatchDecision::Stop(msg, reason) => {
             ctx.sink.cancel_tool_preview();
+            notify_denied(ctx.observer, call, &msg);
             PlannedCall::Settled((msg, CallControl::Stop(reason)))
         }
     }
@@ -234,21 +246,23 @@ pub(super) async fn execute_concurrent_tool_calls(
         }
     }
     let tools = ctx.tools;
-    let results = futures::future::join_all(planned.iter().zip(calls).map(|(plan, call)| async move {
+    let executed = futures::future::join_all(planned.into_iter().zip(calls).map(|(plan, call)| async move {
         match plan {
-            PlannedCall::Ready(args) => Some(run_planned_tool(tools, call, args).await),
-            PlannedCall::Settled(_) => None,
+            PlannedCall::Ready(args) => {
+                let run = run_planned_tool(tools, call, &args).await;
+                ExecutedCall::Ran(args, run)
+            }
+            PlannedCall::Settled(outcome) => ExecutedCall::Settled(outcome),
         }
     }))
     .await;
 
-    let mut outcomes = Vec::with_capacity(planned.len());
-    for ((plan, result), call) in planned.into_iter().zip(results).zip(calls) {
-        match (plan, result) {
-            (PlannedCall::Ready(args), Some(result)) => outcomes.push(finish_tool_call(call, &args, result, ctx).await),
-            (PlannedCall::Settled(outcome), _) => outcomes.push(outcome),
-            (PlannedCall::Ready(_), None) => {}
-        }
+    let mut outcomes = Vec::with_capacity(executed.len());
+    for (executed, call) in executed.into_iter().zip(calls) {
+        outcomes.push(match executed {
+            ExecutedCall::Ran(args, run) => finish_tool_call(call, &args, run, ctx).await,
+            ExecutedCall::Settled(outcome) => outcome,
+        });
     }
     outcomes
 }

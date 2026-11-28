@@ -288,11 +288,7 @@ impl AgentEngineBuilder {
             mcp,
         } = assembly;
         let context = super::tracking::ContextTracker::new();
-        let demotion_hook = self.demotion_hook.or_else(|| {
-            Some(Arc::new(
-                crate::engine::compactor::artifact_spill::ArtifactDemotionHook::new(base_dir.join(".rho/artifacts")),
-            ))
-        });
+        let demotion_hook = self.demotion_hook;
         AgentEngine {
             config: self.config,
             base_dir,
@@ -326,6 +322,12 @@ impl AgentEngineBuilder {
 
     pub async fn build(mut self) -> Result<AgentEngine> {
         let base_dir = self.base_dir.take().map(Ok).unwrap_or_else(std::env::current_dir)?;
+        if self.demotion_hook.is_none() {
+            let hook =
+                crate::engine::compactor::artifact_spill::ArtifactDemotionHook::new(base_dir.join(".rho/artifacts"))
+                    .await;
+            self.demotion_hook = Some(Arc::new(hook));
+        }
         let session_manager = self.resolve_session().await?;
         let shared_auth = Arc::new(tokio::sync::Mutex::new(self.auth_store.clone()));
         let router = ModelRouter::new(shared_auth, self.model_catalog.clone());
