@@ -17,6 +17,26 @@ use rho_harness_core::error::AppError;
 /// Times one turn of an agent may compact its context and carry on before it gives up.
 const MAX_COMPACTIONS_PER_TURN: usize = 3;
 
+/// What writes a compaction's summary.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub(crate) enum CompactionSummaries {
+    /// The session's current model.
+    #[default]
+    SessionModel,
+    /// A summary built from the messages without asking a model.
+    Heuristic,
+}
+
+impl CompactionSummaries {
+    /// The model to summarize with when the session runs on `session_model`.
+    pub(crate) fn model(self, session_model: Option<&llm::ModelHandle>) -> Option<llm::ModelHandle> {
+        match self {
+            Self::SessionModel => session_model.cloned(),
+            Self::Heuristic => None,
+        }
+    }
+}
+
 /// How a turn that stopped for a full context goes on.
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum MadeRoom<T> {

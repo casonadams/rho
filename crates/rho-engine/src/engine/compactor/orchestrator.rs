@@ -365,7 +365,7 @@ impl AgentEngine {
             self.usage.clone(),
             self.run_tracker.clone(),
             self.context.clone(),
-            self.compactor_model.clone(),
+            self.compaction_summaries.model(self.model.as_ref()),
             SessionCompactorConfig {
                 model_name: self.config.model.clone(),
                 keep_recent_tokens: self.config.keep_recent_tokens,

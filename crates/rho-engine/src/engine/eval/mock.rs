@@ -73,7 +73,7 @@ pub fn mock_engine(model: Arc<dyn ModelAdapter>, config: MockEngineConfig<'_>) -
             crate::provider::ModelCatalog::default(),
         ),
         model: Some(model_handle),
-        compactor_model: None,
+        compaction_summaries: crate::engine::compactor::CompactionSummaries::Heuristic,
         demotion_hook: None,
         agent_monitor: rho_harness_core::agents::AgentMonitor::default(),
         subagent_runtime: runtime,

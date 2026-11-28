@@ -904,6 +904,24 @@ mod recovery {
     }
 
     #[tokio::test]
+    async fn compaction_summarizes_with_the_model_the_session_switched_to() {
+        let dir = crate::test_support::TestDir::new();
+        let first = Arc::new(MockAdapter::text("## Goal\nfrom the first model"));
+        let mut engine = recovery_engine(&dir, first.clone());
+        engine.compaction_summaries = crate::engine::compactor::CompactionSummaries::SessionModel;
+        let session_id = engine.session_manager.session_id.clone();
+        populate_recovery_history(&engine.session_manager, &session_id).await;
+        let switched = Arc::new(MockAdapter::text("## Goal\nfrom the switched model"));
+        engine.model = Some(switched.clone());
+
+        let stats = engine.compact_session(None).await.unwrap();
+
+        assert!(stats.summary.contains("from the switched model"), "{}", stats.summary);
+        assert!(first.requests().is_empty());
+        assert!(!switched.requests().is_empty());
+    }
+
+    #[tokio::test]
     async fn an_overflow_on_the_first_request_compacts_and_sends_the_prompt_again() {
         let dir = crate::test_support::TestDir::new();
         let model = Arc::new(MockAdapter::default());

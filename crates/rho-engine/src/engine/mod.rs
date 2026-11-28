@@ -57,7 +57,7 @@ pub struct AgentEngine {
     pub(crate) project_context: Arc<tokio::sync::Mutex<Option<(std::path::PathBuf, context::ProjectContext)>>>,
     pub(crate) router: crate::provider::ModelRouter,
     pub(crate) model: Option<crate::engine::compactor::llm::ModelHandle>,
-    pub(crate) compactor_model: Option<crate::engine::compactor::llm::ModelHandle>,
+    pub(crate) compaction_summaries: crate::engine::compactor::CompactionSummaries,
     pub(crate) demotion_hook: Option<Arc<dyn crate::engine::compactor::DemotionHook>>,
     pub(crate) agent_monitor: rho_harness_core::agents::AgentMonitor,
     pub(crate) subagent_runtime: crate::tools::subagent::SubagentRuntime,
