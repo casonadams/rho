@@ -1,20 +1,21 @@
 use crate::decision::{DecisionHandle, DecisionQuestion, DecisionRequest};
 use crate::tools::engine_tool::EngineTool;
-use crate::tools::types::{ToolResult, generated_schema, normalize_tool_arguments, try_parse_tool_args};
-use rho_harness_core::a2ui::{
-    A2uiComponent, A2uiComponentKind, A2uiMessage, A2uiModalRequest, A2uiModalResult, ActionBinding, BoundString,
-    ButtonVariant, ChoiceOption, CreateSurface, RowJustify, SemanticTone, SurfacePlacement, TextUsageHint,
-    UpdateComponents, UpdateDataModel,
-};
+use crate::tools::types::{ToolResult, generated_schema, parse_tool_args};
+use answers::build_output;
+use futures::future::join_all;
+use modal::build_modal_request;
 use rho_harness_core::error::AppError;
 use rho_harness_core::presentation::Presenter;
 use rho_harness_core::session::redact_credentials_text;
 use schemars::JsonSchema;
-use serde::{Deserialize, Serialize};
-use serde_json::{Map, Value, json};
+use serde::Deserialize;
+use serde_json::Value;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Duration;
+
+mod answers;
+mod modal;
 
 pub const MAX_QUESTIONS: usize = 5;
 pub const MAX_CHOICES: usize = 4;
@@ -22,7 +23,6 @@ pub const ASK_SURFACE_ID: &str = "rho:ask";
 const ASK_TOOL_NAME: &str = "ask";
 const DEFAULT_DECISION_TIMEOUT: Duration = Duration::from_millis(600);
 const RECOMMENDED_SUFFIX: &str = " (Recommended)";
-const OTHER_SENTINEL: &str = "__other__";
 
 #[derive(Debug, Clone, Deserialize, JsonSchema)]
 pub struct AskArgs {
@@ -61,64 +61,6 @@ pub struct AskChoiceArg {
     /// Optional supporting description for the choice.
     #[serde(default)]
     pub description: Option<String>,
-}
-
-#[derive(Debug, Clone, Copy, Serialize)]
-#[serde(rename_all = "snake_case")]
-enum AskOutcome {
-    Submitted,
-    Cancelled,
-    TimedOut,
-    Undelivered,
-}
-
-#[derive(Debug, Clone, Copy, Serialize)]
-#[serde(rename_all = "snake_case")]
-enum AnswerStatus {
-    Answered,
-    Skipped,
-    Unanswered,
-}
-
-#[derive(Debug, Clone, Serialize)]
-struct AskOutput {
-    outcome: AskOutcome,
-    answers: Vec<AskAnswerOutput>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-struct AskAnswerOutput {
-    id: String,
-    question: String,
-    status: AnswerStatus,
-    selected_index: Option<usize>,
-    selected_indices: Vec<usize>,
-    user_response: String,
-}
-
-impl AskAnswerOutput {
-    fn new(q: &PreparedQuestion, status: AnswerStatus, selected_indices: Vec<usize>, user_response: String) -> Self {
-        Self {
-            id: q.id.clone(),
-            question: q.raw_question.clone(),
-            status,
-            selected_index: selected_indices.first().copied(),
-            selected_indices,
-            user_response,
-        }
-    }
-
-    fn answered(q: &PreparedQuestion, selected_indices: Vec<usize>, user_response: String) -> Self {
-        Self::new(q, AnswerStatus::Answered, selected_indices, user_response)
-    }
-
-    fn skipped(q: &PreparedQuestion) -> Self {
-        Self::new(q, AnswerStatus::Skipped, Vec::new(), String::new())
-    }
-
-    fn unanswered(q: &PreparedQuestion) -> Self {
-        Self::new(q, AnswerStatus::Unanswered, Vec::new(), String::new())
-    }
 }
 
 #[derive(Debug, Clone)]
@@ -180,9 +122,17 @@ impl AskTool {
             )));
         }
 
-        let mut prepared: Vec<PreparedQuestion> = Vec::with_capacity(args.questions.len());
-        for (idx, q) in args.questions.into_iter().enumerate() {
-            let question = self.prepare_question(idx, q).await?;
+        let prepared_all = join_all(
+            args.questions
+                .into_iter()
+                .enumerate()
+                .map(|(idx, q)| self.prepare_question(idx, q)),
+        )
+        .await;
+
+        let mut prepared: Vec<PreparedQuestion> = Vec::with_capacity(prepared_all.len());
+        for result in prepared_all {
+            let question = result?;
             if prepared.iter().any(|earlier| earlier.id == question.id) {
                 return Err(AppError::Tool(format!("question id '{}' is used twice", question.id)));
             }
@@ -292,9 +242,10 @@ impl EngineTool for AskTool {
     }
 
     async fn execute(&self, args: Value) -> Result<ToolResult, AppError> {
-        let normalized = normalize_tool_arguments(args);
-        let parsed: AskArgs =
-            try_parse_tool_args(&normalized).map_err(|err| AppError::Tool(format!("invalid ask arguments: {err}")))?;
+        let parsed: AskArgs = match parse_tool_args(ASK_TOOL_NAME, args, || self.parameters()) {
+            Ok(parsed) => parsed,
+            Err(invalid) => return Ok(invalid),
+        };
         let prepared = self.prepare_questions(parsed).await?;
         let modal = build_modal_request(&prepared);
         let result = self.presenter.request_a2ui_modal(modal).await;
@@ -343,7 +294,14 @@ async fn recommend_with_decision(
             .and_then(|key| key.trim().parse::<usize>().ok())
             .filter(|&idx| idx < choices.len())
             .unwrap_or(0),
-        _ => 0,
+        Ok(Err(error)) => {
+            tracing::warn!(%error, "ask decision failed; recommending the first choice");
+            0
+        }
+        Err(elapsed) => {
+            tracing::warn!(%elapsed, "ask decision timed out; recommending the first choice");
+            0
+        }
     }
 }
 
@@ -391,334 +349,15 @@ fn disambiguate_label(base: &str, counts: &mut HashMap<String, usize>, used: &mu
     candidate
 }
 
-fn build_modal_request(questions: &[PreparedQuestion]) -> A2uiModalRequest {
-    let title = modal_title(questions);
-    let mut components = Vec::new();
-    let mut root_children = Vec::new();
-    let mut initial_answers = Map::new();
-
-    for q in questions {
-        let field_id = format!("q_{}", q.key);
-        components.push(build_question_component(&field_id, q));
-
-        if let Some(header) = &q.redacted_header {
-            let header_id = format!("header_{}", q.key);
-            let group_id = format!("group_{}", q.key);
-            components.push(A2uiComponent::new(
-                header_id.clone(),
-                A2uiComponentKind::Text {
-                    text: BoundString::literal(header.clone()),
-                    usage_hint: TextUsageHint::H3,
-                    tone: Some(SemanticTone::Accent),
-                },
-            ));
-            components.push(A2uiComponent::new(
-                group_id.clone(),
-                A2uiComponentKind::Column {
-                    children: vec![header_id, field_id],
-                    gap: Some(0),
-                },
-            ));
-            root_children.push(group_id);
-        } else {
-            root_children.push(field_id);
-        }
-
-        initial_answers.insert(q.key.clone(), initial_answer_value(q));
-    }
-
-    append_action_buttons(&mut components, &mut root_children);
-    components.push(A2uiComponent::new(
-        "root",
-        A2uiComponentKind::Column {
-            children: root_children,
-            gap: Some(1),
-        },
-    ));
-
-    let messages = vec![
-        A2uiMessage::CreateSurface(CreateSurface {
-            surface_id: ASK_SURFACE_ID.to_string(),
-            catalog_id: None,
-            placement: SurfacePlacement::Modal,
-            title: Some(title.clone()),
-            priority: 100,
-            root_id: "root".to_string(),
-        }),
-        A2uiMessage::UpdateComponents(UpdateComponents {
-            surface_id: ASK_SURFACE_ID.to_string(),
-            components,
-        }),
-        A2uiMessage::UpdateDataModel(UpdateDataModel {
-            surface_id: ASK_SURFACE_ID.to_string(),
-            path: None,
-            value: json!({ "answers": initial_answers }),
-        }),
-    ];
-
-    A2uiModalRequest {
-        surface_id: ASK_SURFACE_ID.to_string(),
-        title: Some(title),
-        messages,
-        timeout_ms: None,
-    }
-}
-
-fn modal_title(questions: &[PreparedQuestion]) -> String {
-    if questions.len() == 1
-        && let Some(header) = &questions[0].redacted_header
-    {
-        return header.clone();
-    }
-    "Clarification".to_string()
-}
-
-fn build_question_component(field_id: &str, q: &PreparedQuestion) -> A2uiComponent {
-    if q.choices.is_empty() {
-        return A2uiComponent::new(
-            field_id,
-            A2uiComponentKind::TextField {
-                label: Some(BoundString::literal(q.redacted_question.clone())),
-                placeholder: Some("Type your answer...".to_string()),
-                value_path: format!("/answers/{}", q.key),
-                multiline: false,
-                masked: false,
-            },
-        );
-    }
-
-    let options = q
-        .choices
-        .iter()
-        .enumerate()
-        .map(|(idx, choice)| ChoiceOption {
-            value: idx.to_string(),
-            label: BoundString::literal(choice.display_label.clone()),
-            description: choice.description.clone().map(BoundString::literal),
-        })
-        .collect();
-
-    A2uiComponent::new(
-        field_id,
-        A2uiComponentKind::ChoicePicker {
-            label: Some(BoundString::literal(q.redacted_question.clone())),
-            options,
-            selection_path: format!("/answers/{}", q.key),
-            multi_select: q.multi_select,
-            allow_other: q.allow_other,
-            other_path: q.allow_other.then(|| format!("/answers/{}_other", q.key)),
-        },
-    )
-}
-
-fn initial_answer_value(q: &PreparedQuestion) -> Value {
-    if q.choices.is_empty() {
-        return Value::String(String::new());
-    }
-    if q.multi_select {
-        return Value::Array(Vec::new());
-    }
-    match q.recommended_index {
-        Some(idx) => Value::String(idx.to_string()),
-        None => Value::Null,
-    }
-}
-
-fn append_action_buttons(components: &mut Vec<A2uiComponent>, root_children: &mut Vec<String>) {
-    components.push(A2uiComponent::new(
-        "cancel_btn",
-        A2uiComponentKind::Button {
-            label: BoundString::literal("Cancel"),
-            action: ActionBinding {
-                name: "cancel".to_string(),
-                context: BTreeMap::new(),
-            },
-            variant: ButtonVariant::Secondary,
-        },
-    ));
-    components.push(A2uiComponent::new(
-        "submit_btn",
-        A2uiComponentKind::Button {
-            label: BoundString::literal("Submit"),
-            action: ActionBinding {
-                name: "submit".to_string(),
-                context: BTreeMap::new(),
-            },
-            variant: ButtonVariant::Primary,
-        },
-    ));
-    components.push(A2uiComponent::new(
-        "actions",
-        A2uiComponentKind::Row {
-            children: vec!["cancel_btn".to_string(), "submit_btn".to_string()],
-            gap: Some(1),
-            justify: Some(RowJustify::End),
-        },
-    ));
-    root_children.push("actions".to_string());
-}
-
-fn build_output(questions: &[PreparedQuestion], result: Option<A2uiModalResult>) -> AskOutput {
-    match result {
-        None => unanswered_output(AskOutcome::Undelivered, questions),
-        Some(A2uiModalResult::Cancelled) => unanswered_output(AskOutcome::Cancelled, questions),
-        Some(A2uiModalResult::TimedOut) => unanswered_output(AskOutcome::TimedOut, questions),
-        Some(A2uiModalResult::Submitted { data_model, .. }) => AskOutput {
-            outcome: AskOutcome::Submitted,
-            answers: questions
-                .iter()
-                .map(|q| extract_question_answer(q, &data_model))
-                .collect(),
-        },
-    }
-}
-
-fn unanswered_output(outcome: AskOutcome, questions: &[PreparedQuestion]) -> AskOutput {
-    AskOutput {
-        outcome,
-        answers: questions.iter().map(AskAnswerOutput::unanswered).collect(),
-    }
-}
-
-fn extract_question_answer(q: &PreparedQuestion, data_model: &Value) -> AskAnswerOutput {
-    let answer_val = data_model.pointer(&format!("/answers/{}", q.key));
-    let other_text = data_model
-        .pointer(&format!("/answers/{}_other", q.key))
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .map(strip_recommended_suffix)
-        .filter(|s| !s.is_empty())
-        .map(str::to_string);
-
-    if q.choices.is_empty() {
-        return extract_free_text_answer(q, answer_val);
-    }
-    if q.multi_select {
-        return extract_multi_select_answer(q, answer_val, other_text);
-    }
-    extract_single_select_answer(q, answer_val, other_text)
-}
-
-fn extract_free_text_answer(q: &PreparedQuestion, answer_val: Option<&Value>) -> AskAnswerOutput {
-    let text = answer_val
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .map(strip_recommended_suffix)
-        .unwrap_or("")
-        .to_string();
-    if text.is_empty() {
-        return AskAnswerOutput::skipped(q);
-    }
-    AskAnswerOutput::answered(q, Vec::new(), text)
-}
-
-fn extract_single_select_answer(
-    q: &PreparedQuestion,
-    answer_val: Option<&Value>,
-    other_text: Option<String>,
-) -> AskAnswerOutput {
-    if is_other_selection(answer_val) {
-        return custom_text_answer(q, other_text.unwrap_or_default());
-    }
-    if let Some(idx) = answer_val.and_then(|v| resolve_choice_index(q, v)) {
-        let raw = strip_recommended_suffix(&q.raw_labels[idx]).to_string();
-        return AskAnswerOutput::answered(q, vec![idx], raw);
-    }
-    if let Some(text) = other_text {
-        return custom_text_answer(q, text);
-    }
-    if q.allow_other
-        && let Some(raw) = answer_val
-            .and_then(Value::as_str)
-            .map(str::trim)
-            .map(strip_recommended_suffix)
-            .filter(|s| !s.is_empty())
-    {
-        return custom_text_answer(q, raw.to_string());
-    }
-    AskAnswerOutput::skipped(q)
-}
-
-fn extract_multi_select_answer(
-    q: &PreparedQuestion,
-    answer_val: Option<&Value>,
-    other_text: Option<String>,
-) -> AskAnswerOutput {
-    let items: Vec<&Value> = match answer_val {
-        Some(Value::Array(arr)) => arr.iter().collect(),
-        Some(other) => vec![other],
-        None => Vec::new(),
-    };
-
-    let mut selected_indices = Vec::new();
-    let mut parts = Vec::new();
-    let mut saw_other = false;
-
-    for item in items {
-        if is_other_selection(Some(item)) {
-            saw_other = true;
-            continue;
-        }
-        if let Some(idx) = resolve_choice_index(q, item)
-            && !selected_indices.contains(&idx)
-        {
-            selected_indices.push(idx);
-            parts.push(strip_recommended_suffix(&q.raw_labels[idx]).to_string());
-        }
-    }
-
-    if (saw_other || q.allow_other)
-        && let Some(other) = other_text
-    {
-        parts.push(other);
-    }
-
-    if parts.is_empty() {
-        return AskAnswerOutput::skipped(q);
-    }
-
-    AskAnswerOutput::answered(q, selected_indices, parts.join(", "))
-}
-
-fn custom_text_answer(q: &PreparedQuestion, text: String) -> AskAnswerOutput {
-    if text.is_empty() {
-        return AskAnswerOutput::skipped(q);
-    }
-    AskAnswerOutput::answered(q, Vec::new(), text)
-}
-
-fn is_other_selection(value: Option<&Value>) -> bool {
-    value
-        .and_then(Value::as_str)
-        .is_some_and(|s| s == OTHER_SENTINEL || s.eq_ignore_ascii_case("other"))
-}
-
-fn resolve_choice_index(q: &PreparedQuestion, value: &Value) -> Option<usize> {
-    if let Some(idx) = value.as_u64().and_then(|n| usize::try_from(n).ok()) {
-        return (idx < q.raw_labels.len()).then_some(idx);
-    }
-    let text = value.as_str()?.trim();
-    if let Ok(idx) = text.parse::<usize>()
-        && idx < q.raw_labels.len()
-    {
-        return Some(idx);
-    }
-    let clean = strip_recommended_suffix(text);
-    q.choices
-        .iter()
-        .position(|c| c.display_label == text || c.deduped_label == clean)
-}
-
-fn strip_recommended_suffix(text: &str) -> &str {
-    text.strip_suffix(RECOMMENDED_SUFFIX).unwrap_or(text)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::decision::{DecisionAnswer, DecisionModel, DecisionResponse};
-    use rho_harness_core::a2ui::A2uiUserAction;
+    use rho_harness_core::a2ui::{
+        A2uiComponentKind, A2uiMessage, A2uiModalRequest, A2uiModalResult, A2uiUserAction, BoundString, ChoiceOption,
+    };
     use rho_harness_core::presentation::{ActivityToken, SessionStatus, ToolLine, ToolStreamPort, WelcomeDisplay};
+    use serde_json::json;
     use std::sync::Mutex;
 
     struct MockPresenter {
@@ -1114,67 +753,94 @@ mod tests {
         assert_eq!(options[1].label, BoundString::literal("Postgres"));
     }
 
-    #[test]
-    fn build_modal_request_groups_headers_with_zero_gap() {
-        let questions = vec![
-            PreparedQuestion {
-                id: "auth".to_string(),
-                key: "q1".to_string(),
-                raw_question: "Pick auth method".to_string(),
-                redacted_question: "Pick auth method".to_string(),
-                redacted_header: Some("Auth".to_string()),
-                raw_labels: Vec::new(),
-                choices: Vec::new(),
-                multi_select: false,
-                allow_other: false,
-                recommended_index: None,
-            },
-            PreparedQuestion {
-                id: "region".to_string(),
-                key: "q2".to_string(),
-                raw_question: "Enter region".to_string(),
-                redacted_question: "Enter region".to_string(),
-                redacted_header: None,
-                raw_labels: Vec::new(),
-                choices: Vec::new(),
-                multi_select: false,
-                allow_other: false,
-                recommended_index: None,
-            },
-        ];
-        let req = build_modal_request(&questions);
-        let components = req
+    #[tokio::test]
+    async fn string_typed_booleans_and_numbers_are_coerced_to_schema_types() {
+        let presenter = MockPresenter::returning(Some(submitted(json!({
+            "answers": { "q1": ["0"] }
+        }))));
+        let tool = AskTool::new(presenter.clone());
+
+        let result = tool
+            .execute(json!({
+                "questions": [{
+                    "question": "Pick DBs?",
+                    "multi_select": "true",
+                    "recommended": "1",
+                    "choices": [{ "label": "SQLite" }, { "label": "Postgres" }]
+                }]
+            }))
+            .await
+            .unwrap();
+
+        assert!(!result.is_error, "{}", result.content);
+        let request = &presenter.requests()[0];
+        let picker_multi_select = request
             .messages
             .iter()
             .find_map(|msg| match msg {
+                A2uiMessage::UpdateComponents(uc) => uc.components.iter().find_map(|c| match &c.kind {
+                    A2uiComponentKind::ChoicePicker { multi_select, .. } => Some(*multi_select),
+                    _ => None,
+                }),
+                _ => None,
+            })
+            .expect("ChoicePicker present");
+        assert!(picker_multi_select);
+        assert_eq!(
+            choice_picker_options(request)[1].label,
+            BoundString::literal("Postgres (Recommended)")
+        );
+    }
+
+    #[tokio::test]
+    async fn malformed_arguments_are_reported_as_tool_errors() {
+        let presenter = MockPresenter::returning(None);
+        let tool = AskTool::new(presenter.clone());
+
+        let result = tool.execute(json!({ "questions": "nope" })).await.unwrap();
+
+        assert!(result.is_error);
+        assert!(
+            result.content.contains("Invalid arguments for ask"),
+            "{}",
+            result.content
+        );
+        assert!(presenter.requests().is_empty());
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn decision_calls_for_all_questions_run_concurrently_in_order() {
+        let presenter = MockPresenter::returning(Some(submitted(json!({ "answers": {} }))));
+        let decision: DecisionHandle = Arc::new(FakeDecisionModel {
+            choice: Some("1".to_string()),
+            delay: Duration::from_millis(500),
+        });
+        let tool = AskTool::new(presenter.clone())
+            .with_decision(decision)
+            .with_decision_timeout(Duration::from_secs(1));
+        let choices = json!([{ "label": "A" }, { "label": "B" }]);
+        let questions: Vec<Value> = (0..MAX_QUESTIONS)
+            .map(|i| json!({ "question": format!("Q{i}?"), "choices": choices }))
+            .collect();
+
+        let started = tokio::time::Instant::now();
+        tool.execute(json!({ "questions": questions })).await.unwrap();
+
+        assert!(started.elapsed() < Duration::from_secs(1), "{:?}", started.elapsed());
+        let requests = presenter.requests();
+        let labels: Vec<BoundString> = requests[0]
+            .messages
+            .iter()
+            .filter_map(|msg| match msg {
                 A2uiMessage::UpdateComponents(uc) => Some(&uc.components),
                 _ => None,
             })
-            .expect("UpdateComponents present");
-
-        let root = components.iter().find(|c| c.id == "root").expect("root present");
-        let A2uiComponentKind::Column {
-            children: root_children,
-            gap: root_gap,
-        } = &root.kind
-        else {
-            panic!("expected root Column");
-        };
-        assert_eq!(*root_gap, Some(1));
-        assert_eq!(root_children, &vec!["group_q1", "q_q2", "actions"]);
-
-        let group = components
-            .iter()
-            .find(|c| c.id == "group_q1")
-            .expect("group_q1 present");
-        let A2uiComponentKind::Column {
-            children: group_children,
-            gap: group_gap,
-        } = &group.kind
-        else {
-            panic!("expected group_q1 Column");
-        };
-        assert_eq!(*group_gap, Some(0));
-        assert_eq!(group_children, &vec!["header_q1", "q_q1"]);
+            .flatten()
+            .filter_map(|c| match &c.kind {
+                A2uiComponentKind::ChoicePicker { options, .. } => Some(options[1].label.clone()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(labels, vec![BoundString::literal("B (Recommended)"); MAX_QUESTIONS]);
     }
 }
