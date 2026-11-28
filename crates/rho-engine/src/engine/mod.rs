@@ -75,6 +75,15 @@ pub struct AgentEngine {
     pub(crate) presenter: Option<Arc<dyn rho_harness_core::presentation::Presenter>>,
 }
 
+/// Tells the user that a configured decision model could not be built; `feature` then runs without it.
+pub(in crate::engine) fn report_unavailable_decision(
+    presenter: &dyn rho_harness_core::presentation::presenter::Presenter,
+    feature: &str,
+    error: &AppError,
+) {
+    presenter.print_notice(&format!("[{feature} unavailable, running without it: {error}]"));
+}
+
 #[derive(Default)]
 pub(crate) struct EngineMcp {
     pub(crate) diagnostics: Vec<crate::mcp::McpDiagnostic>,
@@ -154,12 +163,12 @@ impl AgentEngine {
             .workflows
             .as_ref()
             .ok_or_else(|| "workflows are not available in this session".to_string())?;
-        let project = self.project_context().await.ok().map(Arc::new);
+        let project = self.project_context().await.map_err(|error| error.to_string())?;
         Ok(runner.bind(&crate::tools::engine_tool::TurnToolContext {
             cancellation: Some(cancellation),
             progress,
             monitor: Some(self.agent_monitor.clone()),
-            project,
+            project: Some(Arc::new(project)),
             session: Some(self.session_manager.clone()),
             inbox: Some(self.inbox()),
             ..Default::default()
@@ -273,10 +282,13 @@ impl AgentEngine {
     }
 
     pub async fn instruction_files(&self) -> Vec<String> {
-        self.project_context()
-            .await
-            .map(|ctx| ctx.instruction_files.into_iter().map(|(path, _)| path).collect())
-            .unwrap_or_default()
+        match self.project_context().await {
+            Ok(ctx) => ctx.instruction_files.into_iter().map(|(path, _)| path).collect(),
+            Err(error) => {
+                tracing::warn!(%error, "could not load instruction files");
+                Vec::new()
+            }
+        }
     }
 
     pub async fn activate_path_instructions(&self, path: &std::path::Path) {

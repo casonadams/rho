@@ -335,17 +335,22 @@ impl AgentEngineBuilder {
             None => None,
         };
         let pending_relocation = Arc::new(std::sync::Mutex::new(None));
-        let ask_decision = if self.tools.is_none()
-            && self.config.ui.a2ui.decision_assist
-            && self.presenter.as_ref().is_some_and(|p| p.has_interactive_ui())
-        {
-            router
-                .build_role_decision(&self.config, &["widget", "judge", "guard"])
-                .await
-                .ok()
-                .flatten()
-        } else {
-            None
+        let ask_decision = match self.presenter.as_deref() {
+            Some(presenter)
+                if self.tools.is_none() && self.config.ui.a2ui.decision_assist && presenter.has_interactive_ui() =>
+            {
+                match router
+                    .build_role_decision(&self.config, &["widget", "judge", "guard"])
+                    .await
+                {
+                    Ok(decision) => decision,
+                    Err(error) => {
+                        super::report_unavailable_decision(presenter, "Decision assist", &error);
+                        None
+                    }
+                }
+            }
+            _ => None,
         };
         let EngineTools { tools, subagents, mcp } = build_engine_tools(
             &base_dir,

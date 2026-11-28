@@ -340,6 +340,7 @@ mod tests {
         let presenter: Arc<dyn Presenter> = Arc::new(NoopPresenter);
         let sink = engine.create_approval_sink(&presenter);
         let mut loop_state = TurnLoopState {
+            project: Arc::new(crate::engine::context::ProjectContext::for_tests(&temp_dir)),
             visible_history: Vec::new(),
             checkpoint: None,
             current_prompt: String::new(),

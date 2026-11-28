@@ -22,6 +22,7 @@ use super::types::TurnRequest;
 const CACHE_EXPIRY_MARGIN: std::time::Duration = std::time::Duration::from_secs(30);
 
 pub(super) struct TurnRunnerParams<'a> {
+    pub project: Arc<crate::engine::context::ProjectContext>,
     pub prompt: &'a str,
     pub preamble: &'a str,
     pub budget: usize,
@@ -52,7 +53,15 @@ struct TurnPrompt<'a> {
     added_tokens: usize,
 }
 
+/// The system prompt a turn is sent with, and the project context it was built from.
+struct TurnContext {
+    preamble: String,
+    project: Arc<crate::engine::context::ProjectContext>,
+}
+
 pub(super) struct TurnLoopState {
+    /// Loaded once when the turn is prepared and reused by every step of the turn.
+    pub project: Arc<crate::engine::context::ProjectContext>,
     pub visible_history: Vec<ChatMessage>,
     pub checkpoint: Option<Vec<ChatMessage>>,
     pub current_prompt: String,
@@ -216,11 +225,12 @@ impl AgentEngine {
     async fn build_ready_turn(
         &self,
         prompt: TurnPrompt<'_>,
-        preamble: String,
+        context: TurnContext,
         loaded: LoadedHistory,
         presenter: &Arc<dyn Presenter>,
         turn_started_at: std::time::Instant,
     ) -> Result<PreparedTurn> {
+        let TurnContext { preamble, project } = context;
         let LoadedHistory {
             messages: history,
             outdates_usage,
@@ -237,11 +247,12 @@ impl AgentEngine {
         self.run_tracker.pruned(decision);
         let sink = self.create_approval_sink(presenter);
         let loop_state = TurnLoopState {
+            project,
             visible_history: history,
             checkpoint,
             current_prompt: prompt.sent,
             current_budget: self.config.max_turns,
-            thinking_level: self.resolve_turn_thinking_level(prompt.typed).await,
+            thinking_level: self.resolve_turn_thinking_level(prompt.typed, presenter.as_ref()).await,
             compaction: TurnCompaction::default(),
             turn_started_at,
         };
@@ -259,13 +270,13 @@ impl AgentEngine {
         turn_started_at: std::time::Instant,
     ) -> Result<PreparedTurn> {
         self.require_model()?;
-        let context = self.project_context().await?;
-        let mut preamble = context.build_system_prompt();
+        let project = Arc::new(self.project_context().await?);
+        let mut preamble = project.build_system_prompt();
         crate::mcp::append_server_instructions(&mut preamble, &self.mcp.instructions);
         let notes = self.turn_notes.pending();
         let sent = crate::engine::context::format_turn_prompt(
             &crate::engine::notes::with_notes(&notes, prompt),
-            context.git_status.as_deref(),
+            project.git_status.as_deref(),
         );
         let added_tokens =
             rho_harness_core::tokens::estimate_text_tokens(&preamble, &self.config.model).saturating_add(
@@ -278,7 +289,13 @@ impl AgentEngine {
             added_tokens,
         };
         let ready = self
-            .build_ready_turn(turn_prompt, preamble, loaded, presenter, turn_started_at)
+            .build_ready_turn(
+                turn_prompt,
+                TurnContext { preamble, project },
+                loaded,
+                presenter,
+                turn_started_at,
+            )
             .await?;
         self.turn_notes.consume(notes.len());
         Ok(ready)
@@ -309,7 +326,7 @@ impl AgentEngine {
             .steering(request.steering.clone())
             .inbox(Some(self.inbox()))
             .monitor(Some(self.agent_monitor.clone()))
-            .project_context(self.project_context().await.ok().map(Arc::new))
+            .project_context(Some(params.project))
             .worktrees(self.worktrees.clone())
             .context_budget(Some(
                 self.context_policy()
@@ -393,6 +410,7 @@ impl AgentEngine {
         let runner = self
             .build_turn_runner(
                 TurnRunnerParams {
+                    project: Arc::clone(&loop_state.project),
                     prompt: &loop_state.current_prompt,
                     preamble,
                     budget: loop_state.current_budget,
@@ -565,6 +583,32 @@ mod tests {
                 .any(|n| n.contains("Guard model 'mystery/model' unavailable")),
             "{notices:?}"
         );
+    }
+
+    #[tokio::test]
+    async fn prepared_turn_keeps_the_project_context_it_loaded() {
+        use crate::test_support::CapturingPresenter;
+        use rho_harness_core::presentation::presenter::Presenter;
+
+        let dir = crate::test_support::TestDir::new();
+        let app_config = Config {
+            auth_file: dir.join("auth.json"),
+            ..Config::default()
+        };
+        let engine = mock_engine(
+            Arc::new(MockAdapter::text("response")),
+            MockEngineConfig::new(&dir, app_config),
+        );
+        engine.project_context().await.unwrap();
+        engine.project_context.lock().await.as_mut().unwrap().1.git_status = Some("cached".to_string());
+        let presenter: Arc<dyn Presenter> = Arc::new(CapturingPresenter::default());
+
+        let prepared = engine
+            .prepare_turn("hi", &presenter, std::time::Instant::now())
+            .await
+            .unwrap();
+
+        assert_eq!(prepared.loop_state.project.git_status.as_deref(), Some("cached"));
     }
 
     #[test]

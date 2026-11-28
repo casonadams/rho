@@ -3,6 +3,7 @@ use std::time::Duration;
 
 use crate::decision::{DecisionModel, DecisionRequest};
 use crate::engine::AgentEngine;
+use rho_harness_core::presentation::presenter::Presenter;
 use rho_harness_core::text::truncate_chars;
 use rho_harness_core::thinking::ThinkingLevel;
 
@@ -54,17 +55,30 @@ pub async fn classify_thinking_effort(decision: &dyn DecisionModel, prompt: &str
             .and_then(|answer| answer.as_choice())
             .map(map_effort_choice)
             .unwrap_or(ThinkingLevel::Medium),
-        Ok(Err(_)) | Err(_) => ThinkingLevel::Medium,
+        Ok(Err(error)) => {
+            tracing::warn!(%error, "thinking classifier failed; using medium");
+            ThinkingLevel::Medium
+        }
+        Err(_) => ThinkingLevel::Medium,
     }
 }
 
 impl AgentEngine {
-    pub(super) async fn resolve_turn_thinking_level(&self, prompt: &str) -> Option<ThinkingLevel> {
+    pub(super) async fn resolve_turn_thinking_level(
+        &self,
+        prompt: &str,
+        presenter: &dyn Presenter,
+    ) -> Option<ThinkingLevel> {
         if !ThinkingLevel::from_setting(self.config.thinking_level.as_deref()).is_auto() {
             return None;
         }
-        let Ok(Some(decision)) = self.router.build_role_decision(&self.config, &["judge", "guard"]).await else {
-            return Some(ThinkingLevel::Medium);
+        let decision = match self.router.build_role_decision(&self.config, &["judge", "guard"]).await {
+            Ok(Some(decision)) => decision,
+            Ok(None) => return Some(ThinkingLevel::Medium),
+            Err(error) => {
+                crate::engine::report_unavailable_decision(presenter, "Automatic thinking level", &error);
+                return Some(ThinkingLevel::Medium);
+            }
         };
         Some(classify_thinking_effort(decision.as_ref(), prompt, AUTO_THINKING_TIMEOUT).await)
     }
@@ -75,7 +89,12 @@ mod tests {
     use super::*;
     use crate::decision::types::test_util::MockDecisionModel;
     use crate::decision::{DecisionAnswer, DecisionResponse};
+    use crate::engine::eval::mock::{MockEngineConfig, mock_engine};
+    use crate::provider::adapter::MockAdapter;
+    use crate::test_support::{CapturingPresenter, TestDir};
+    use rho_harness_core::config::Config;
     use rho_harness_core::error::AppError;
+    use std::sync::Arc;
 
     fn choice_response(choice: &str) -> DecisionResponse {
         DecisionResponse {
@@ -136,6 +155,51 @@ mod tests {
         };
         let level = classify_thinking_effort(&model, "refactor architecture", AUTO_THINKING_TIMEOUT).await;
         assert_eq!(level, ThinkingLevel::Medium);
+    }
+
+    fn auto_engine(dir: &TestDir, judge: Option<&str>) -> AgentEngine {
+        let mut app_config = Config {
+            auth_file: dir.join("auth.json"),
+            thinking_level: Some("auto".to_string()),
+            ..Config::default()
+        };
+        if let Some(judge) = judge {
+            app_config.model_roles.insert("judge".to_string(), judge.to_string());
+        }
+        mock_engine(
+            Arc::new(MockAdapter::text("ok")),
+            MockEngineConfig::new(dir, app_config),
+        )
+    }
+
+    #[tokio::test]
+    async fn unconfigured_judge_falls_back_to_medium_without_a_notice() {
+        let dir = TestDir::new();
+        let engine = auto_engine(&dir, None);
+        let presenter = CapturingPresenter::default();
+        assert_eq!(
+            engine.resolve_turn_thinking_level("refactor", &presenter).await,
+            Some(ThinkingLevel::Medium)
+        );
+        assert!(presenter.notices.lock().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn unbuildable_judge_falls_back_to_medium_with_a_notice() {
+        let dir = TestDir::new();
+        let engine = auto_engine(&dir, Some("mystery/model"));
+        let presenter = CapturingPresenter::default();
+        assert_eq!(
+            engine.resolve_turn_thinking_level("refactor", &presenter).await,
+            Some(ThinkingLevel::Medium)
+        );
+        let notices = presenter.notices.lock().unwrap();
+        assert_eq!(notices.len(), 1, "{notices:?}");
+        assert!(
+            notices[0].starts_with("[Automatic thinking level unavailable"),
+            "{notices:?}"
+        );
+        assert!(notices[0].contains("mystery"), "{notices:?}");
     }
 
     #[tokio::test]
