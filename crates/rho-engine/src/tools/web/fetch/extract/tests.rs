@@ -5,14 +5,6 @@ use super::markdown::resolve_markdown_links;
 use super::*;
 
 #[test]
-fn fetch_mode_names_are_case_insensitive_and_unknown_names_extract_as_auto() {
-    assert_eq!(FetchMode::parse(Some("FULL")), FetchMode::Full);
-    assert_eq!(FetchMode::parse(Some("Main")), FetchMode::Main);
-    assert_eq!(FetchMode::parse(Some("bogus")), FetchMode::Auto);
-    assert_eq!(FetchMode::parse(None), FetchMode::Auto);
-}
-
-#[test]
 fn test_extract_html_semantic_main() {
     let article_text = "Important article content with enough detail for extraction. ".repeat(12);
     let html = format!(
@@ -176,7 +168,7 @@ fn test_extract_override_structured_formats() {
         content_type: "text/plain",
         url_str: "https://example.com/data",
         mode: FetchMode::Auto,
-        format_override: Some("json"),
+        format_override: Some(WebFetchFormat::Json),
     })
     .unwrap();
     assert!(json_text.contains("\"foo\": \"bar\""));
@@ -186,7 +178,7 @@ fn test_extract_override_structured_formats() {
         content_type: "text/plain",
         url_str: "https://example.com/data",
         mode: FetchMode::Auto,
-        format_override: Some("csv"),
+        format_override: Some(WebFetchFormat::Csv),
     })
     .unwrap();
     assert!(csv_text.contains("| a | b |"));
@@ -196,7 +188,7 @@ fn test_extract_override_structured_formats() {
         content_type: "text/plain",
         url_str: "https://example.com/data",
         mode: FetchMode::Auto,
-        format_override: Some("tsv"),
+        format_override: Some(WebFetchFormat::Tsv),
     })
     .unwrap();
     assert!(tsv_text.contains("| a | b |"));
@@ -206,7 +198,7 @@ fn test_extract_override_structured_formats() {
         content_type: "text/plain",
         url_str: "https://example.com/feed.xml",
         mode: FetchMode::Auto,
-        format_override: Some("xml"),
+        format_override: Some(WebFetchFormat::Xml),
     })
     .unwrap();
     assert!(xml_text.contains("test"));
@@ -216,7 +208,7 @@ fn test_extract_override_structured_formats() {
         content_type: "text/plain",
         url_str: "https://example.com/rss",
         mode: FetchMode::Auto,
-        format_override: Some("rss"),
+        format_override: Some(WebFetchFormat::Rss),
     })
     .unwrap();
     assert!(rss_text.contains("News"));
@@ -226,53 +218,33 @@ fn test_extract_override_structured_formats() {
         content_type: "text/plain",
         url_str: "https://example.com/atom",
         mode: FetchMode::Auto,
-        format_override: Some("atom"),
+        format_override: Some(WebFetchFormat::Atom),
     })
     .unwrap();
     assert!(atom_text.contains("Atom"));
 }
 
 #[test]
-fn test_extract_override_document_and_fallback_formats() {
+fn test_extract_override_document_formats() {
     let md_text = extract_text(ExtractTextParams {
         body: "# Header\n[link](/test)",
         content_type: "text/plain",
         url_str: "https://example.com/doc",
         mode: FetchMode::Auto,
-        format_override: Some("markdown"),
+        format_override: Some(WebFetchFormat::Markdown),
     })
     .unwrap();
     assert!(md_text.contains("https://example.com/test"));
-
-    let md_short = extract_text(ExtractTextParams {
-        body: "# Header\n[link](/test)",
-        content_type: "text/plain",
-        url_str: "https://example.com/doc",
-        mode: FetchMode::Auto,
-        format_override: Some("md"),
-    })
-    .unwrap();
-    assert!(md_short.contains("https://example.com/test"));
 
     let html_text = extract_text(ExtractTextParams {
         body: "<html><body><p>Hello world</p></body></html>",
         content_type: "text/plain",
         url_str: "https://example.com/page",
         mode: FetchMode::Auto,
-        format_override: Some("html"),
+        format_override: Some(WebFetchFormat::Html),
     })
     .unwrap();
     assert!(html_text.contains("Hello world"));
-
-    let unknown_format = extract_text(ExtractTextParams {
-        body: "plain text fallback",
-        content_type: "text/plain",
-        url_str: "https://example.com/page",
-        mode: FetchMode::Auto,
-        format_override: Some("custom-unknown"),
-    })
-    .unwrap();
-    assert_eq!(unknown_format, "plain text fallback");
 }
 
 fn nested_articles(depth: usize, text: &str) -> String {

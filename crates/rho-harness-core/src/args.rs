@@ -267,10 +267,129 @@ pub struct WebFetchArgs {
     pub offset: Option<usize>,
     /// Maximum number of lines to return (default 200 unless configured)
     pub limit: Option<usize>,
-    /// Extraction mode: "auto" (main content, falling back to the full page; default), "main" (main content or error), or "full"
-    pub mode: Option<String>,
-    /// Optional format override when detection is wrong ("html", "json", "markdown", "csv", "tsv", "xml", "rss", "atom", "pdf")
-    pub format: Option<String>,
+    pub mode: Option<WebFetchMode>,
+    pub format: Option<WebFetchFormat>,
+}
+
+/// Extraction mode: "auto" (main content, falling back to the full page; default), "main" (main content or error), or "full"
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum WebFetchMode {
+    #[default]
+    Auto,
+    Main,
+    Full,
+}
+
+impl WebFetchMode {
+    pub const ALL: [Self; 3] = [Self::Auto, Self::Main, Self::Full];
+
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Auto => "auto",
+            Self::Main => "main",
+            Self::Full => "full",
+        }
+    }
+}
+
+/// Optional format override when detection is wrong
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum WebFetchFormat {
+    Html,
+    Json,
+    Markdown,
+    Csv,
+    Tsv,
+    Xml,
+    Rss,
+    Atom,
+    Pdf,
+}
+
+impl WebFetchFormat {
+    pub const ALL: [Self; 9] = [
+        Self::Html,
+        Self::Json,
+        Self::Markdown,
+        Self::Csv,
+        Self::Tsv,
+        Self::Xml,
+        Self::Rss,
+        Self::Atom,
+        Self::Pdf,
+    ];
+
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Html => "html",
+            Self::Json => "json",
+            Self::Markdown => "markdown",
+            Self::Csv => "csv",
+            Self::Tsv => "tsv",
+            Self::Xml => "xml",
+            Self::Rss => "rss",
+            Self::Atom => "atom",
+            Self::Pdf => "pdf",
+        }
+    }
+}
+
+fn parse_fetch_option<T: Copy>(kind: &str, value: &str, all: &[T], name: fn(T) -> &'static str) -> Result<T, String> {
+    all.iter()
+        .copied()
+        .find(|candidate| name(*candidate).eq_ignore_ascii_case(value.trim()))
+        .ok_or_else(|| {
+            let names: Vec<&str> = all.iter().map(|candidate| name(*candidate)).collect();
+            format!(
+                "unknown web_fetch {kind} '{value}': expected one of {}",
+                names.join(", ")
+            )
+        })
+}
+
+impl std::str::FromStr for WebFetchMode {
+    type Err = String;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        parse_fetch_option("mode", value, &Self::ALL, Self::as_str)
+    }
+}
+
+impl std::str::FromStr for WebFetchFormat {
+    type Err = String;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        if value.trim().eq_ignore_ascii_case("md") {
+            return Ok(Self::Markdown);
+        }
+        parse_fetch_option("format", value, &Self::ALL, Self::as_str)
+    }
+}
+
+fn deserialize_from_str<'de, D, T>(deserializer: D) -> Result<T, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: std::str::FromStr<Err = String>,
+{
+    String::deserialize(deserializer)?
+        .parse()
+        .map_err(serde::de::Error::custom)
+}
+
+impl<'de> Deserialize<'de> for WebFetchMode {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        deserialize_from_str(deserializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for WebFetchFormat {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        deserialize_from_str(deserializer)
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
@@ -565,7 +684,7 @@ pub mod rg {
     pub use super::{RgArgs, RgOutputMode};
 }
 pub mod web_fetch {
-    pub use super::WebFetchArgs;
+    pub use super::{WebFetchArgs, WebFetchFormat, WebFetchMode};
 }
 pub mod web_search {
     pub use super::{WebSearchArgs, WebSearchRecency};
@@ -599,6 +718,69 @@ mod tests {
         assert_eq!(write_text(&json!({"text": "t", "content": "c"})), Some("t"));
         assert_eq!(write_text(&json!({"content": "c"})), Some("c"));
         assert_eq!(write_text(&json!({})), None);
+    }
+
+    fn fetch_args(field: &str, value: &str) -> Result<serde_json::Value, String> {
+        serde_json::from_value::<WebFetchArgs>(serde_json::json!({ "url": "https://example.com", field: value }))
+            .map(|args| serde_json::to_value(args).unwrap()[field].clone())
+            .map_err(|error| error.to_string())
+    }
+
+    #[test]
+    fn web_fetch_mode_and_format_accept_any_case_and_save_canonical_names() {
+        let cases = [
+            ("mode", "auto", "auto"),
+            ("mode", "Main", "main"),
+            ("mode", "FULL", "full"),
+            ("format", "html", "html"),
+            ("format", "JSON", "json"),
+            ("format", "Markdown", "markdown"),
+            ("format", "md", "markdown"),
+            ("format", "CSV", "csv"),
+            ("format", "tsv", "tsv"),
+            ("format", "Xml", "xml"),
+            ("format", "rss", "rss"),
+            ("format", "ATOM", "atom"),
+            ("format", "PDF", "pdf"),
+        ];
+        for (field, input, expected) in cases {
+            assert_eq!(
+                fetch_args(field, input),
+                Ok(serde_json::json!(expected)),
+                "{field}={input}"
+            );
+        }
+    }
+
+    #[test]
+    fn web_fetch_rejects_unknown_mode_and_format_naming_the_valid_values() {
+        let cases = [
+            (
+                "mode",
+                "bogus",
+                "unknown web_fetch mode 'bogus': expected one of auto, main, full",
+            ),
+            (
+                "format",
+                "custom-unknown",
+                "unknown web_fetch format 'custom-unknown': expected one of html, json, markdown, csv, tsv, xml, rss, atom, pdf",
+            ),
+        ];
+        for (field, input, expected) in cases {
+            let error = fetch_args(field, input).unwrap_err();
+            assert!(error.contains(expected), "{error}");
+        }
+    }
+
+    #[test]
+    fn web_fetch_schema_lists_mode_and_format_values() {
+        let schema = serde_json::to_string(&schemars::schema_for!(WebFetchArgs)).unwrap();
+        for listed in [
+            r#"["auto","main","full"]"#,
+            r#"["html","json","markdown","csv","tsv","xml","rss","atom","pdf"]"#,
+        ] {
+            assert!(schema.contains(listed), "{schema}");
+        }
     }
 
     #[test]

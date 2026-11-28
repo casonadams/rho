@@ -169,7 +169,8 @@ history:
 
 Every setting below can be set in `config.toml` (global or project), with `rho config <key> <value>`, or
 through the environment variable shown. Numeric limits must be greater than zero; booleans accept
-`true`/`false`, `yes`/`no`, or `1`/`0` in the environment and in `rho config` alike.
+`true`/`false`, `yes`/`no`, or `1`/`0` in the environment and in `rho config` alike. `rho config` and
+`/settings` change only the key they set, keeping comments, ordering, and keys rho does not know.
 
 | Key | Environment variable | Default | Meaning |
 | --- | --- | --- | --- |

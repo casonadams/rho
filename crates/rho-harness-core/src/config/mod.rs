@@ -2,6 +2,7 @@
 //! with validation and atomic persistence for settings.
 
 pub mod cli;
+mod edit;
 pub mod mcp;
 mod merge;
 mod scalar;

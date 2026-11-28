@@ -10,6 +10,7 @@ pub(crate) use data::{extract_csv, extract_json, extract_pdf_bytes};
 pub(crate) use feed::extract_feed_or_xml;
 pub(crate) use html::extract_html;
 pub(crate) use markdown::resolve_markdown_links;
+pub(crate) use rho_harness_core::args::{WebFetchFormat, WebFetchMode as FetchMode};
 use rho_harness_core::error::{AppError, Result};
 
 pub(crate) struct ExtractTextParams<'a> {
@@ -17,33 +18,7 @@ pub(crate) struct ExtractTextParams<'a> {
     pub content_type: &'a str,
     pub url_str: &'a str,
     pub mode: FetchMode,
-    pub format_override: Option<&'a str>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum FetchMode {
-    Auto,
-    Main,
-    Full,
-}
-
-impl FetchMode {
-    /// Unknown names extract as `Auto`.
-    pub fn parse(mode: Option<&str>) -> Self {
-        match mode.map(str::to_lowercase).as_deref() {
-            Some("main") => Self::Main,
-            Some("full") => Self::Full,
-            _ => Self::Auto,
-        }
-    }
-
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Auto => "auto",
-            Self::Main => "main",
-            Self::Full => "full",
-        }
-    }
+    pub format_override: Option<WebFetchFormat>,
 }
 
 fn extract_delimited(body: &str, ct_lower: &str, url_str: &str) -> String {
@@ -73,19 +48,17 @@ fn is_html(ct_lower: &str, body: &str) -> bool {
         || body.trim_start().to_ascii_lowercase().starts_with("<html")
 }
 
-fn delimiter_for_format(fmt: &str) -> u8 {
-    if fmt.eq_ignore_ascii_case("tsv") { b'\t' } else { b',' }
-}
-
-fn extract_override_text(fmt: &str, body: &str, url_str: &str, mode: FetchMode) -> Option<Result<String>> {
-    let lower = fmt.to_lowercase();
-    match lower.as_str() {
-        "json" => Some(Ok(extract_json(body))),
-        "csv" | "tsv" => Some(Ok(extract_csv(body, delimiter_for_format(&lower)))),
-        "xml" | "rss" | "atom" => Some(Ok(extract_feed_or_xml(body, url_str))),
-        "markdown" | "md" => Some(Ok(resolve_markdown_links(body, url_str))),
-        "html" => Some(extract_html(body, url_str, mode)),
-        _ => None,
+fn extract_override_text(format: WebFetchFormat, body: &str, url_str: &str, mode: FetchMode) -> Option<Result<String>> {
+    match format {
+        WebFetchFormat::Json => Some(Ok(extract_json(body))),
+        WebFetchFormat::Csv => Some(Ok(extract_csv(body, b','))),
+        WebFetchFormat::Tsv => Some(Ok(extract_csv(body, b'\t'))),
+        WebFetchFormat::Xml | WebFetchFormat::Rss | WebFetchFormat::Atom => {
+            Some(Ok(extract_feed_or_xml(body, url_str)))
+        }
+        WebFetchFormat::Markdown => Some(Ok(resolve_markdown_links(body, url_str))),
+        WebFetchFormat::Html => Some(extract_html(body, url_str, mode)),
+        WebFetchFormat::Pdf => None,
     }
 }
 
@@ -119,8 +92,8 @@ fn extract_inferred_text(body: &str, ct_lower: &str, url_str: &str, mode: FetchM
 
 pub(crate) fn extract_text(params: ExtractTextParams<'_>) -> Result<String> {
     let ct_lower = params.content_type.to_lowercase();
-    if let Some(fmt) = params.format_override
-        && let Some(text_res) = extract_override_text(fmt, params.body, params.url_str, params.mode)
+    if let Some(format) = params.format_override
+        && let Some(text_res) = extract_override_text(format, params.body, params.url_str, params.mode)
     {
         return text_res;
     }

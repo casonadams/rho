@@ -22,6 +22,7 @@ chrono.workspace = true
 clap.workspace = true
 dotenvy = "0.15"
 toml.workspace = true
+toml_edit.workspace = true
 tokio = { workspace = true, features = ["sync", "rt", "macros", "fs", "io-util"] }
 uuid = { workspace = true, features = ["v4"] }
 tiktoken-rs.workspace = true

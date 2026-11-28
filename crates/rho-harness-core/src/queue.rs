@@ -3,7 +3,7 @@ use std::collections::VecDeque;
 use std::str::FromStr;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
-#[serde(rename_all = "kebab-case")]
+#[serde(rename_all = "kebab-case", try_from = "String")]
 pub enum QueueMode {
     #[default]
     OneAtATime,
@@ -19,6 +19,14 @@ impl FromStr for QueueMode {
             "all" => Ok(Self::All),
             _ => Err(format!("invalid queue mode: '{s}', expected 'one-at-a-time' or 'all'")),
         }
+    }
+}
+
+impl TryFrom<String> for QueueMode {
+    type Error = String;
+
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        value.parse()
     }
 }
 
@@ -90,6 +98,37 @@ mod tests {
         assert_eq!("one-at-a-time".parse::<QueueMode>().unwrap(), QueueMode::OneAtATime);
         assert_eq!("all".parse::<QueueMode>().unwrap(), QueueMode::All);
         assert!("invalid".parse::<QueueMode>().is_err());
+    }
+
+    #[test]
+    fn config_files_accept_the_same_queue_mode_spellings_as_the_cli() {
+        #[derive(Deserialize)]
+        struct File {
+            mode: QueueMode,
+        }
+        for spelling in [
+            "one-at-a-time",
+            "one_at_a_time",
+            "one",
+            "ONE",
+            "all",
+            "All",
+            "invalid",
+            "",
+        ] {
+            let from_cli = spelling.parse::<QueueMode>();
+            let from_file = toml::from_str::<File>(&format!("mode = {spelling:?}")).map(|file| file.mode);
+            assert_eq!(from_file.as_ref().ok(), from_cli.as_ref().ok(), "{spelling}");
+            if let Err(error) = from_cli {
+                assert!(from_file.unwrap_err().to_string().contains(&error), "{spelling}");
+            }
+        }
+    }
+
+    #[test]
+    fn queue_mode_saves_its_canonical_name() {
+        let saved = toml::Value::try_from(QueueMode::OneAtATime).unwrap();
+        assert_eq!(saved.as_str(), Some("one-at-a-time"));
     }
 
     #[test]

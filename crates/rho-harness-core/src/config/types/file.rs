@@ -8,7 +8,7 @@ use std::collections::BTreeMap;
 pub struct ModelsConfig {
     pub default: Option<String>,
     pub roles: BTreeMap<String, String>,
-    /// Non-string or invalid keys kept so saving a setting never deletes them.
+    /// Non-string or invalid keys, kept so loading can warn about them.
     pub extra: BTreeMap<String, toml::Value>,
 }
 
@@ -21,13 +21,13 @@ impl ModelsConfig {
         self.roles.get(role).map(String::as_str)
     }
 
-    pub fn set_role(&mut self, role: &str, value: Option<String>) {
+    pub fn set_role(&mut self, role: &ModelRole, value: Option<String>) {
         match value {
             Some(spec) => {
-                self.roles.insert(role.to_string(), spec);
+                self.roles.insert(role.key().to_string(), spec);
             }
             None => {
-                self.roles.remove(role);
+                self.roles.remove(role.key());
             }
         }
     }
@@ -127,8 +127,8 @@ pub(crate) struct FileConfig {
     pub worktree: Option<WorktreeConfigFile>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub recap: Option<RecapConfigFile>,
-    /// Keys this version does not know (for example `model` and `provider` from v0.10), kept so
-    /// saving a setting never deletes them.
+    /// Top-level keys this version does not know (for example `model` and `provider` from v0.10).
+    /// Saving a setting edits `config.toml` in place, so unknown keys survive at every level.
     #[serde(flatten)]
     pub extra: BTreeMap<String, toml::Value>,
 }

@@ -30,9 +30,9 @@ pub(crate) struct WebFetchTool {
     pub config: WebFetchConfig,
 }
 
-struct FetchOptions<'a> {
+struct FetchOptions {
     mode: extract::FetchMode,
-    format_override: Option<&'a str>,
+    format_override: Option<extract::WebFetchFormat>,
 }
 
 impl WebFetchTool {
@@ -40,15 +40,11 @@ impl WebFetchTool {
         Self { http, cache, config }
     }
 
-    async fn get_or_fetch_resource(
-        &self,
-        url_str: &str,
-        options: FetchOptions<'_>,
-    ) -> Result<CachedResource, AppError> {
+    async fn get_or_fetch_resource(&self, url_str: &str, options: FetchOptions) -> Result<CachedResource, AppError> {
         let cache_key = format!(
             "{url_str}:{}:{}",
             options.mode.as_str(),
-            options.format_override.unwrap_or("")
+            options.format_override.map_or("", extract::WebFetchFormat::as_str)
         );
         if let Some(cached) = self.cache.get(&cache_key).await {
             return Ok(cached);
@@ -68,12 +64,11 @@ impl WebFetchTool {
             return Ok(ToolResult::error("Empty URL provided for fetch"));
         }
 
-        let mode = extract::FetchMode::parse(args.mode.as_deref());
         let offset = args.offset.unwrap_or(1).max(1);
         let limit = args.limit.unwrap_or(self.config.default_limit);
         let options = FetchOptions {
-            mode,
-            format_override: args.format.as_deref(),
+            mode: args.mode.unwrap_or_default(),
+            format_override: args.format,
         };
 
         let resource = match self.get_or_fetch_resource(url_str, options).await {
@@ -100,10 +95,12 @@ impl WebFetchTool {
         }
     }
 
-    async fn fetch_and_extract(&self, url_str: &str, options: FetchOptions<'_>) -> Result<(String, String), AppError> {
+    async fn fetch_and_extract(&self, url_str: &str, options: FetchOptions) -> Result<(String, String), AppError> {
         let resp = self.http.get_bytes(self.make_http_request(url_str)).await?;
 
-        if encoding::is_pdf(&resp.body, &resp.content_type) || options.format_override == Some("pdf") {
+        if encoding::is_pdf(&resp.body, &resp.content_type)
+            || options.format_override == Some(extract::WebFetchFormat::Pdf)
+        {
             let text = extract::extract_pdf_bytes(resp.body).await?;
             return Ok((text, resp.final_url));
         }

@@ -568,6 +568,83 @@ async fn saving_a_setting_keeps_keys_this_version_does_not_know() {
     assert_eq!(saved.extra["future_top_level"]["flag"].as_bool(), Some(true));
 }
 
+const COMMENTED_CONFIG: &str = r#"# personal settings
+max_turns = 3 # turn cap
+
+[ui]
+# appearance
+future_key = "kept"
+hide_thinking = false
+
+[tools.web.search]
+future_engine_option = 1
+"#;
+
+#[tokio::test]
+async fn saving_a_setting_keeps_comments_order_and_unknown_nested_keys() {
+    let dir = crate::test_support::temp_dir();
+    write_config(&dir, COMMENTED_CONFIG);
+
+    Config::set_file_value(&dir, "ui.hide_thinking", "true").unwrap();
+    Config::save_web_search_enabled_async(&dir, false).await.unwrap();
+
+    let content = std::fs::read_to_string(dir.join("config.toml")).unwrap();
+    let expected = COMMENTED_CONFIG
+        .replace("hide_thinking = false", "hide_thinking = true")
+        .replace(
+            "future_engine_option = 1\n",
+            "future_engine_option = 1\nenabled = false\n",
+        );
+    assert_eq!(content, expected);
+}
+
+#[test]
+fn saving_a_setting_creates_only_the_missing_tables_it_needs() {
+    let dir = crate::test_support::temp_dir();
+    write_config(&dir, "max_turns = 3\n");
+
+    Config::set_file_value(&dir, "tools.web.fetch.enabled", "false").unwrap();
+
+    let content = std::fs::read_to_string(dir.join("config.toml")).unwrap();
+    assert_eq!(content, "max_turns = 3\n\n[tools.web.fetch]\nenabled = false\n");
+}
+
+#[test]
+fn saving_a_setting_replaces_an_alias_spelling_of_the_same_key() {
+    let dir = crate::test_support::temp_dir();
+    write_config(&dir, "thinking = \"low\"\n\n[ui]\nthinking_hidden = true\n");
+
+    Config::set_file_value(&dir, "ui.hide_thinking", "false").unwrap();
+    Config::set_file_value(&dir, "thinking_level", "high").unwrap();
+
+    let content = std::fs::read_to_string(dir.join("config.toml")).unwrap();
+    assert_eq!(content, "thinking_level = \"high\"\n\n[ui]\nhide_thinking = false\n");
+}
+
+#[test]
+fn an_invalid_value_is_rejected_without_touching_the_file() {
+    let dir = crate::test_support::temp_dir();
+    write_config(&dir, COMMENTED_CONFIG);
+
+    for (key, value) in [("max_turns", "0"), ("ui.hide_thinking", "maybe"), ("unknown", "x")] {
+        assert!(Config::set_file_value(&dir, key, value).is_err(), "{key}");
+    }
+
+    let content = std::fs::read_to_string(dir.join("config.toml")).unwrap();
+    assert_eq!(content, COMMENTED_CONFIG);
+}
+
+#[tokio::test]
+async fn clearing_the_default_thinking_level_removes_only_that_key() {
+    let dir = crate::test_support::temp_dir();
+    write_config(&dir, "thinking_level = \"high\"\n# keep\nmax_turns = 3\n");
+
+    Config::save_default_thinking_level_async(&dir, None).await.unwrap();
+
+    let content = std::fs::read_to_string(dir.join("config.toml")).unwrap();
+    assert_eq!(content, "# keep\nmax_turns = 3\n");
+}
+
 #[test]
 fn a_v0_10_file_restores_the_default_model_and_warns() {
     let mut config = Config::default();

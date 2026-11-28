@@ -2,6 +2,7 @@ use crate::error::{AppError, Result};
 use std::path::Path;
 use std::str::FromStr;
 
+use super::edit::update_config_file;
 use super::scalar::{parse_bool, parse_positive, parse_retention_days};
 use super::types::{
     BashConfigFile, ConfigKey, FileConfig, LspConfigFile, McpServerConfig, ModelRole, PermissionConfig,
@@ -11,37 +12,37 @@ use super::validate::parse_search_engine;
 
 impl super::Config {
     pub fn set_file_value(config_dir: &Path, key: &str, value: &str) -> Result<()> {
-        let path = config_dir.join("config.toml");
-        let mut file_config = read_file_config(&path)?;
-        apply_config_key(&mut file_config, key, value)?;
-        write_file_config(&path, &file_config)
+        let setting = Setting::parse(key)?;
+        update_config_file(&config_dir.join("config.toml"), &setting.toml_keys(), |file_config| {
+            setting.apply(file_config, value)
+        })
     }
 
     pub async fn set_file_value_async(config_dir: &Path, key: &str, value: &str) -> Result<()> {
-        let path = config_dir.join("config.toml");
-        let mut file_config = read_file_config_async(&path).await?;
-        apply_config_key(&mut file_config, key, value)?;
-        write_file_config_async(&path, &file_config).await
+        let (config_dir, key, value) = (config_dir.to_path_buf(), key.to_string(), value.to_string());
+        run_blocking(move || Self::set_file_value(&config_dir, &key, &value)).await
     }
 
     pub async fn save_default_model_async(config_dir: &Path, model: &str, provider: &str) -> Result<()> {
-        let path = config_dir.join("config.toml");
-        let mut file_config = read_file_config_async(&path).await?;
         let spec = if provider.trim().is_empty() {
             model.to_string()
         } else {
             crate::provider::ModelRoute::new(provider, model).to_string()
         };
-        file_config.models.default = Some(spec);
-        retire_legacy_model_keys(&mut file_config);
-        write_file_config_async(&path, &file_config).await
+        Self::set_file_value_async(config_dir, ConfigKey::Model.as_str(), &spec).await
     }
 
     pub async fn save_default_thinking_level_async(config_dir: &Path, thinking_level: Option<&str>) -> Result<()> {
         let path = config_dir.join("config.toml");
-        let mut file_config = read_file_config_async(&path).await?;
-        file_config.thinking_level = thinking_level.map(ToString::to_string);
-        write_file_config_async(&path, &file_config).await
+        let thinking_level = thinking_level.map(ToString::to_string);
+        run_blocking(move || {
+            let keys = Setting::Key(ConfigKey::ThinkingLevel).toml_keys();
+            update_config_file(&path, &keys, |file_config| {
+                file_config.thinking_level = thinking_level;
+                Ok(())
+            })
+        })
+        .await
     }
 
     pub async fn save_ui_block_style_async(config_dir: &Path, style: &str) -> Result<()> {
@@ -94,6 +95,53 @@ impl super::Config {
 
     pub fn remove_mcp_server(config_dir: &Path, name: &str) -> Result<()> {
         super::mcp::remove_mcp_server_json(&config_dir.join("mcp.json"), name)
+    }
+}
+
+async fn run_blocking(job: impl FnOnce() -> Result<()> + Send + 'static) -> Result<()> {
+    tokio::task::spawn_blocking(job)
+        .await
+        .map_err(|error| AppError::Config(format!("Failed to save config: {error}")))?
+}
+
+enum Setting {
+    Role(ModelRole),
+    Key(ConfigKey),
+}
+
+impl Setting {
+    fn parse(key: &str) -> Result<Self> {
+        if let Some(raw_role) = key.strip_prefix("models.")
+            && raw_role != "default"
+        {
+            return ModelRole::parse(raw_role).map(Self::Role).map_err(AppError::Config);
+        }
+        ConfigKey::from_str(key).map(Self::Key).map_err(AppError::Config)
+    }
+
+    /// The dotted `config.toml` keys a write of this setting may change.
+    fn toml_keys(&self) -> Vec<String> {
+        match self {
+            Self::Role(role) => vec![format!("models.{}", role.key())],
+            Self::Key(ConfigKey::Model | ConfigKey::Provider) => {
+                vec![
+                    "models.default".to_string(),
+                    "model".to_string(),
+                    "provider".to_string(),
+                ]
+            }
+            Self::Key(key) => vec![key.as_str().to_string()],
+        }
+    }
+
+    fn apply(&self, file_config: &mut FileConfig, value: &str) -> Result<()> {
+        match self {
+            Self::Role(role) => {
+                file_config.models.set_role(role, parse_optional_model(value));
+                Ok(())
+            }
+            Self::Key(key) => apply_config_key(file_config, *key, value),
+        }
     }
 }
 
@@ -183,15 +231,7 @@ where
 }
 
 /// Every key is matched here, so adding a `ConfigKey` without a way to store it does not compile.
-fn apply_config_key(file_config: &mut FileConfig, key: &str, value: &str) -> Result<()> {
-    if let Some(raw_role) = key.strip_prefix("models.")
-        && raw_role != "default"
-    {
-        let role = ModelRole::parse(raw_role).map_err(AppError::Config)?;
-        file_config.models.set_role(role.as_str(), parse_optional_model(value));
-        return Ok(());
-    }
-    let key = ConfigKey::from_str(key).map_err(|error| AppError::Config(error.to_string()))?;
+fn apply_config_key(file_config: &mut FileConfig, key: ConfigKey, value: &str) -> Result<()> {
     let name = key.as_str();
     match key {
         ConfigKey::Model => {
@@ -203,9 +243,15 @@ fn apply_config_key(file_config: &mut FileConfig, key: &str, value: &str) -> Res
             retire_legacy_model_keys(file_config);
             file_config.models.default = Some(spec);
         }
-        ConfigKey::GuardModel => file_config.models.set_role("guard", parse_optional_model(value)),
-        ConfigKey::SmolModel => file_config.models.set_role("smol", parse_optional_model(value)),
-        ConfigKey::SlowModel => file_config.models.set_role("slow", parse_optional_model(value)),
+        ConfigKey::GuardModel => file_config
+            .models
+            .set_role(&ModelRole::GUARD, parse_optional_model(value)),
+        ConfigKey::SmolModel => file_config
+            .models
+            .set_role(&ModelRole::SMOL, parse_optional_model(value)),
+        ConfigKey::SlowModel => file_config
+            .models
+            .set_role(&ModelRole::SLOW, parse_optional_model(value)),
         ConfigKey::ThinkingLevel => {
             file_config.thinking_level =
                 crate::thinking::ThinkingLevel::parse_setting(value).map_err(AppError::Config)?;
@@ -292,47 +338,5 @@ fn apply_config_key(file_config: &mut FileConfig, key: &str, value: &str) -> Res
         ConfigKey::RecapIdleSeconds => set_opt_positive(&mut recap_section(file_config).idle_seconds, name, value)?,
         ConfigKey::RecapOnResume => set_opt_bool(&mut recap_section(file_config).on_resume, name, value)?,
     }
-    Ok(())
-}
-
-fn parse_file_config(content: &str) -> Result<FileConfig> {
-    toml::from_str(content).map_err(|error| AppError::Config(format!("Failed to parse config file: {error}")))
-}
-
-fn read_error(path: &Path, error: std::io::Error) -> AppError {
-    AppError::Config(format!("Failed to read config file {}: {error}", path.display()))
-}
-
-fn read_file_config(path: &Path) -> Result<FileConfig> {
-    match std::fs::read_to_string(path) {
-        Ok(content) => parse_file_config(&content),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(FileConfig::default()),
-        Err(error) => Err(read_error(path, error)),
-    }
-}
-
-async fn read_file_config_async(path: &Path) -> Result<FileConfig> {
-    match tokio::fs::read_to_string(path).await {
-        Ok(content) => parse_file_config(&content),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(FileConfig::default()),
-        Err(error) => Err(read_error(path, error)),
-    }
-}
-
-fn serialize_file_config(file_config: &FileConfig) -> Result<String> {
-    toml::to_string_pretty(file_config)
-        .map_err(|error| AppError::Config(format!("Failed to serialize config: {error}")))
-}
-
-const CONFIG_FILE_MODE: u32 = 0o600;
-
-fn write_file_config(path: &Path, file_config: &FileConfig) -> Result<()> {
-    crate::fs::write_atomic(path, serialize_file_config(file_config)?.as_bytes(), CONFIG_FILE_MODE)?;
-    Ok(())
-}
-
-async fn write_file_config_async(path: &Path, file_config: &FileConfig) -> Result<()> {
-    let contents = serialize_file_config(file_config)?.into_bytes();
-    crate::fs::write_atomic_async(path, contents, CONFIG_FILE_MODE).await?;
     Ok(())
 }

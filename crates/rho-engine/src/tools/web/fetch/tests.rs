@@ -149,6 +149,45 @@ fn fetch_args(url: &str) -> WebFetchArgs {
 }
 
 #[tokio::test]
+async fn unknown_mode_or_format_is_a_tool_error_naming_the_valid_values() {
+    use crate::tools::engine_tool::EngineTool;
+    let tool: &dyn EngineTool = &fetch_tool();
+    let cases = [
+        ("mode", "bogus", "expected one of auto, main, full"),
+        (
+            "format",
+            "docx",
+            "expected one of html, json, markdown, csv, tsv, xml, rss, atom, pdf",
+        ),
+    ];
+    for (field, value, expected) in cases {
+        let args = serde_json::json!({ "url": "http://127.0.0.1:9/", field: value });
+        let result = tool.execute(args).await.unwrap();
+        assert!(result.is_error, "{field}");
+        assert!(
+            result.content.contains("Invalid arguments for web_fetch"),
+            "{}",
+            result.content
+        );
+        assert!(result.content.contains(expected), "{}", result.content);
+    }
+}
+
+#[test]
+fn the_web_fetch_schema_describes_and_lists_mode_and_format() {
+    use crate::tools::engine_tool::EngineTool;
+    let schema = fetch_tool().parameters();
+    for (field, first) in [("mode", "auto"), ("format", "html")] {
+        let property = &schema["properties"][field];
+        assert_eq!(property["enum"][0], first, "{property}");
+        assert!(
+            property["description"].as_str().is_some_and(|text| !text.is_empty()),
+            "{property}"
+        );
+    }
+}
+
+#[tokio::test]
 async fn test_web_fetch_rejects_credentials_with_explanation() {
     let res = fetch_tool()
         .execute(fetch_args("http://user:pass@example.com"))
