@@ -37,9 +37,9 @@ with the age, turn count and session ID beside it.
 
 Session files (JSONL, one record per line) use format version 3, which stores each step of a turn
 once: when the turn completes, a small `checkpoint_node` record makes its saved steps a node of the
-conversation tree instead of copying them. rho still resumes version 2 files and keeps appending to
-them in version 2 form, so older releases can still open them. An older rho refuses a version 3
-file with `unsupported session version 3` rather than misreading it.
+conversation tree instead of copying them. Resuming a version 2 file upgrades it to version 3: rho
+rewrites its header line (replacing the file atomically) and keeps every earlier record as it was.
+An older rho refuses a version 3 file with `unsupported session version 3` rather than misreading it.
 
 In an interactive terminal, rho also writes the current session ID to
 `~/.config/rho/terminal-sessions/<tty>` (for example `ttys004`, or `pts-3` for `/dev/pts/3` on

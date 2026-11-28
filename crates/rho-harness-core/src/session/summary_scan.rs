@@ -157,8 +157,9 @@ pub(crate) fn scan_session(path: &Path, expected_id: &str) -> Result<(DateTime<U
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::session::SessionManager;
+    use crate::session::format::load_file;
     use crate::session::tests::{LEGACY_V2_ID, LEGACY_V2_SESSION, tool_round};
-    use crate::session::{SessionManager, load_file};
 
     async fn scan(manager: &SessionManager) -> ScannedSession {
         scan_session(&manager.file_path, &manager.session_id).unwrap().1

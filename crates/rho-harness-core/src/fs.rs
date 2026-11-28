@@ -12,6 +12,17 @@ pub const FSYNC_ENABLED: bool = !cfg!(any(test, feature = "skip-fsync"));
 /// The temp file is created with `mode` (unix permission bits) and chmod'ed explicitly,
 /// so the replacement carries that mode even when the previous file was more permissive.
 pub fn write_atomic(path: &Path, contents: &[u8], mode: u32) -> io::Result<()> {
+    replace_atomic(path, contents, mode, |_| Ok(())).map(drop)
+}
+
+/// Like `write_atomic`, but runs `before_rename` on the written temp file, which fails the
+/// replacement if it errs, and returns that file once it has replaced `path`.
+pub fn replace_atomic(
+    path: &Path,
+    contents: &[u8],
+    mode: u32,
+    before_rename: impl FnOnce(&File) -> io::Result<()>,
+) -> io::Result<File> {
     let target = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
     let dir = match target.parent() {
         Some(parent) if !parent.as_os_str().is_empty() => parent.to_path_buf(),
@@ -20,7 +31,7 @@ pub fn write_atomic(path: &Path, contents: &[u8], mode: u32) -> io::Result<()> {
     std::fs::create_dir_all(&dir)?;
     let name = target.file_name().unwrap_or_default().to_string_lossy();
     let temp = dir.join(format!(".{name}.{}.tmp", uuid::Uuid::new_v4()));
-    let result = write_temp_then_rename(&temp, &target, &dir, contents, mode);
+    let result = write_temp_then_rename(&temp, &target, &dir, contents, mode, before_rename);
     if result.is_err() {
         let _ = std::fs::remove_file(&temp);
     }
@@ -35,15 +46,23 @@ pub async fn write_atomic_async(path: &Path, contents: Vec<u8>, mode: u32) -> io
         .map_err(io::Error::other)?
 }
 
-fn write_temp_then_rename(temp: &Path, target: &Path, dir: &Path, contents: &[u8], mode: u32) -> io::Result<()> {
+fn write_temp_then_rename(
+    temp: &Path,
+    target: &Path,
+    dir: &Path,
+    contents: &[u8],
+    mode: u32,
+    before_rename: impl FnOnce(&File) -> io::Result<()>,
+) -> io::Result<File> {
     let mut file = create_temp(temp, mode)?;
     file.write_all(contents)?;
     if FSYNC_ENABLED {
         file.sync_all()?;
     }
-    drop(file);
+    before_rename(&file)?;
     std::fs::rename(temp, target)?;
-    sync_dir(dir)
+    sync_dir(dir)?;
+    Ok(file)
 }
 
 fn create_temp(temp: &Path, mode: u32) -> io::Result<File> {

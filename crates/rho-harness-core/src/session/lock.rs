@@ -90,8 +90,9 @@ impl Drop for SessionLock {
 }
 
 /// Registers a holder for `path`. Later holders in this process adopt the first holder's state;
-/// only the first, once it holds the OS lock, runs `load`.
-pub(crate) fn acquire(path: &Path, load: impl FnOnce() -> Result<StoreState>) -> Result<Arc<SessionLock>> {
+/// only the first, once it holds the OS lock, runs `load`. When `load` replaces the file at `path`,
+/// it swaps in a locked handle to the replacement.
+pub(crate) fn acquire(path: &Path, load: impl FnOnce(&mut File) -> Result<StoreState>) -> Result<Arc<SessionLock>> {
     let mut held = held();
     if let Some(entry) = held.get_mut(path) {
         entry.holders += 1;
@@ -101,7 +102,7 @@ pub(crate) fn acquire(path: &Path, load: impl FnOnce() -> Result<StoreState>) ->
             title: Arc::clone(&entry.title),
         }));
     }
-    let file = OpenOptions::new().read(true).append(true).open(path)?;
+    let mut file = OpenOptions::new().read(true).append(true).open(path)?;
     match file.try_lock() {
         Ok(()) => {}
         Err(TryLockError::WouldBlock) => {
@@ -109,7 +110,7 @@ pub(crate) fn acquire(path: &Path, load: impl FnOnce() -> Result<StoreState>) ->
         }
         Err(TryLockError::Error(error)) => return Err(error.into()),
     }
-    let loaded = match load() {
+    let loaded = match load(&mut file) {
         Ok(loaded) => loaded,
         Err(error) => {
             drop(file.unlock());

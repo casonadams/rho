@@ -4,6 +4,7 @@ use super::{
     tool_round,
 };
 use crate::model::ChatMessage;
+use crate::session::format::inject_write_hook;
 
 /// Runs one turn the way the engine does: two checkpointed tool rounds, then the final answer.
 async fn promoted_turn(store: &SessionManager, n: usize) -> Vec<ChatMessage> {
@@ -62,13 +63,28 @@ async fn promoted_turns_write_each_message_once() {
     }
 }
 
-#[tokio::test]
-async fn version_2_session_loads_and_keeps_its_format() {
-    let dir = temp_dir();
+const UPGRADED_V2_HEADER: &str =
+    r#"{"record_type":"header","version":3,"session_id":"legacy-v2","created_at":"2026-01-02T03:04:05Z"}"#;
+
+fn write_legacy_v2(dir: &std::path::Path) -> std::path::PathBuf {
     let path = dir.join(format!("{LEGACY_V2_ID}.jsonl"));
     std::fs::write(&path, LEGACY_V2_SESSION).unwrap();
+    path
+}
+
+fn legacy_v2_records() -> &'static str {
+    LEGACY_V2_SESSION.split_once('\n').unwrap().1
+}
+
+#[tokio::test]
+async fn resuming_a_version_2_session_upgrades_its_header_and_keeps_its_records() {
+    let dir = temp_dir();
+    let path = write_legacy_v2(&dir);
 
     let resumed = SessionManager::new(&dir, Some(LEGACY_V2_ID)).unwrap();
+
+    let log = std::fs::read_to_string(&path).unwrap();
+    assert_eq!(log, format!("{UPGRADED_V2_HEADER}\n{}", legacy_v2_records()));
     let [first, second] = legacy_v2_turns();
     assert_eq!(
         resumed.load_messages().await.unwrap(),
@@ -78,18 +94,60 @@ async fn version_2_session_loads_and_keeps_its_format() {
     assert_eq!(tree.get_node("node-1").unwrap().messages, first);
     assert_eq!(tree.get_node("node-2").unwrap().parent_id.as_deref(), Some("node-1"));
     assert_eq!(tree.active_leaf_id.as_deref(), Some("node-2"));
+}
+
+#[tokio::test]
+async fn an_upgraded_session_promotes_turns_by_reference() {
+    let dir = temp_dir();
+    let path = write_legacy_v2(&dir);
+    let resumed = SessionManager::new(&dir, Some(LEGACY_V2_ID)).unwrap();
 
     let third = promoted_turn(&resumed, 3).await;
     drop(resumed);
+
     let log = std::fs::read_to_string(&path).unwrap();
-    assert!(log.starts_with(LEGACY_V2_SESSION));
-    let appended: Vec<serde_json::Value> = log[LEGACY_V2_SESSION.len()..]
-        .lines()
-        .map(|line| serde_json::from_str(line).unwrap())
-        .collect();
-    assert_eq!(appended.last().unwrap()["record_type"], "tree_node");
+    let last: serde_json::Value = serde_json::from_str(log.lines().last().unwrap()).unwrap();
+    assert_eq!(last["record_type"], "checkpoint_node");
+    assert_eq!(log.matches("\"prompt-3\"").count(), 1);
     let reloaded = SessionManager::new(&dir, Some(LEGACY_V2_ID)).unwrap();
+    let [first, second] = legacy_v2_turns();
     assert_eq!(reloaded.load_messages().await.unwrap(), [first, second, third].concat());
+}
+
+#[tokio::test]
+async fn an_upgraded_session_stays_locked_against_other_openers() {
+    let dir = temp_dir();
+    let path = write_legacy_v2(&dir);
+    let resumed = SessionManager::new(&dir, Some(LEGACY_V2_ID)).unwrap();
+
+    let other_process = std::fs::OpenOptions::new().read(true).append(true).open(&path).unwrap();
+
+    assert!(matches!(
+        other_process.try_lock(),
+        Err(std::fs::TryLockError::WouldBlock)
+    ));
+    drop(resumed);
+    assert!(other_process.try_lock().is_ok());
+}
+
+#[tokio::test]
+async fn an_interrupted_upgrade_leaves_the_version_2_file_intact() {
+    let dir = temp_dir();
+    let path = write_legacy_v2(&dir);
+    inject_write_hook(&path, || Err(std::io::Error::other("interrupted before rename")));
+
+    let error = SessionManager::new(&dir, Some(LEGACY_V2_ID)).unwrap_err().to_string();
+
+    assert!(error.contains("interrupted before rename"), "{error}");
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), LEGACY_V2_SESSION);
+    let names: Vec<_> = std::fs::read_dir(&dir)
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    assert_eq!(names, vec![format!("{LEGACY_V2_ID}.jsonl")]);
+    let resumed = SessionManager::new(&dir, Some(LEGACY_V2_ID)).unwrap();
+    assert_eq!(resumed.load_messages().await.unwrap(), legacy_v2_turns().concat());
+    assert!(std::fs::read_to_string(&path).unwrap().starts_with(UPGRADED_V2_HEADER));
 }
 
 async fn setup_checkpoint(store: &SessionManager, id: &str) -> Vec<ChatMessage> {

@@ -1,6 +1,11 @@
 use super::SessionManager;
+use super::append::{Planned, tree_node};
+use super::format::{Durability, SessionRecord, StoreState};
+use super::fs::session_error;
+use super::tree::{SessionTree, TreeNodeData, TreeNodeKind};
 use crate::error::Result;
 use crate::model::{AssistantContent, ChatMessage, UserContent};
+use chrono::Utc;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -121,19 +126,75 @@ impl SessionManager {
         Ok(extract_turns(&messages))
     }
 
+    /// Makes the history end at `target_turn` and returns how many messages it keeps. The
+    /// discarded turns stay in the tree as a branch.
     pub async fn rewind_to_turn(&self, target_turn: usize) -> Result<usize> {
-        let messages = self.load_messages().await?;
-        let cutoff_idx = calculate_rewind_cutoff(&messages, target_turn);
-
-        if cutoff_idx == 0 || cutoff_idx >= messages.len() {
-            return Ok(messages.len());
-        }
-
-        let retained = messages[..cutoff_idx].to_vec();
-        let count = retained.len();
-        self.state.lock().await.integrity.check_canonical_batch(&retained)?;
-        self.clear_messages(&self.session_id).await?;
-        self.append_messages(&self.session_id, retained).await?;
-        Ok(count)
+        self.append(Durability::Durable, move |state, session_id| {
+            let cutoff = calculate_rewind_cutoff(&state.messages, target_turn);
+            if cutoff == 0 || cutoff >= state.messages.len() {
+                return Ok(Planned {
+                    records: Vec::new(),
+                    output: state.messages.len(),
+                });
+            }
+            if state.checkpoint.is_some() {
+                return Err(session_error(
+                    "pending run checkpoint must be continued before rewinding",
+                ));
+            }
+            Ok(Planned {
+                records: vec![rewind_record(state, session_id, cutoff)?],
+                output: cutoff,
+            })
+        })
+        .await
     }
+}
+
+/// The active path's nodes after its last compaction, and how many active messages precede them.
+fn uncompacted_tail<'a>(tree: &'a SessionTree, leaf_id: &str) -> (usize, Vec<&'a TreeNodeData>) {
+    let mut path = tree.ancestor_nodes(leaf_id);
+    match path.iter().rposition(|node| node.kind == TreeNodeKind::Compaction) {
+        Some(index) => {
+            let compacted = tree.ancestor_messages(&path[index].id).len();
+            (compacted, path.split_off(index + 1))
+        }
+        None => (0, path),
+    }
+}
+
+/// At a node boundary the active leaf moves back to the last kept node; inside a node, a sibling
+/// holding the node's kept messages becomes the leaf.
+fn rewind_record(state: &StoreState, session_id: &str, cutoff: usize) -> Result<SessionRecord> {
+    let leaf_id = state
+        .tree
+        .active_leaf_id
+        .as_deref()
+        .ok_or_else(|| session_error("session history has no active node"))?;
+    let (mut start, tail) = uncompacted_tail(&state.tree, leaf_id);
+    if start + tail.iter().map(|node| node.messages.len()).sum::<usize>() != state.messages.len() {
+        return Err(session_error("session history does not match its conversation tree"));
+    }
+    if cutoff < start {
+        return Err(session_error("cannot rewind to a turn before the last compaction"));
+    }
+    for node in tail {
+        let kept = cutoff - start;
+        if kept == 0 {
+            return Ok(SessionRecord::ActiveLeafChanged {
+                sequence: state.next_sequence,
+                session_id: session_id.to_string(),
+                timestamp: Utc::now(),
+                active_leaf_id: node.parent_id.clone(),
+            });
+        }
+        if kept < node.messages.len() {
+            let messages = node.messages[..kept].to_vec();
+            state.integrity.check_canonical_batch(&messages)?;
+            let prefix = TreeNodeData::turn(node.kind.clone(), node.parent_id.clone(), Utc::now(), messages);
+            return Ok(tree_node(state.next_sequence, session_id, prefix));
+        }
+        start += node.messages.len();
+    }
+    Err(session_error("rewind point is past the end of the session history"))
 }

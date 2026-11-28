@@ -1,14 +1,11 @@
 use super::SessionManager;
-use super::append::{Planned, tree_node};
+use super::append::Planned;
 use super::format::{Durability, SessionRecord};
 use super::fs::session_error;
-use super::tree::{TreeNodeData, TreeNodeKind};
+use super::tree::TreeNodeKind;
 use crate::error::Result;
 use crate::model::ChatMessage;
 use chrono::Utc;
-
-/// The first format version that promotes a checkpoint by reference instead of copying it.
-const CHECKPOINT_NODE_VERSION: u32 = 3;
 
 impl SessionManager {
     pub async fn load_checkpoint(&self) -> Result<Option<Vec<ChatMessage>>> {
@@ -76,31 +73,14 @@ impl SessionManager {
                 .ok_or_else(|| session_error("run checkpoint is missing"))?;
             let promoted: Vec<ChatMessage> = checkpoint.iter().chain(&messages).cloned().collect();
             state.integrity.check_canonical_batch(&promoted)?;
-            let node = TreeNodeData::turn(
-                TreeNodeKind::AssistantTurn,
-                state.tree.active_leaf_id.clone(),
-                Utc::now(),
-                Vec::new(),
-            );
-            let record = if state.version < CHECKPOINT_NODE_VERSION {
-                tree_node(
-                    state.next_sequence,
-                    session_id,
-                    TreeNodeData {
-                        messages: promoted,
-                        ..node
-                    },
-                )
-            } else {
-                SessionRecord::CheckpointNode {
-                    sequence: state.next_sequence,
-                    session_id: session_id.to_string(),
-                    timestamp: node.timestamp,
-                    node_id: node.id,
-                    parent_id: node.parent_id,
-                    kind: node.kind,
-                    messages,
-                }
+            let record = SessionRecord::CheckpointNode {
+                sequence: state.next_sequence,
+                session_id: session_id.to_string(),
+                timestamp: Utc::now(),
+                node_id: uuid::Uuid::new_v4().to_string(),
+                parent_id: state.tree.active_leaf_id.clone(),
+                kind: TreeNodeKind::AssistantTurn,
+                messages,
             };
             Ok(Planned {
                 records: vec![record],

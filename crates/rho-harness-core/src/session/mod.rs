@@ -37,8 +37,8 @@ pub use compaction::{
 pub const DEFAULT_CONTEXT_WINDOW_MESSAGES: usize = 24;
 pub const DEFAULT_COMPACTION_MAX_BYTES: usize = 8 * 1024;
 pub use crate::secrets::redact_credentials_text;
+pub(crate) use format::create_session_file;
 pub use format::{SessionEvent, SessionEventKind, SessionHeader, SessionRecord, StoreState};
-pub(crate) use format::{create_session_file, load_file};
 pub(crate) use fs::{
     new_session_id, run_blocking, session_error, set_private_directory_permissions, set_private_file_permissions,
     validate_session_id,
@@ -84,7 +84,6 @@ fn prepare_session_id(resume_id: Option<&str>) -> Result<String> {
 fn empty_store_state() -> StoreState {
     StoreState {
         created_at: chrono::Utc::now(),
-        version: format::SESSION_VERSION,
         next_sequence: 1,
         messages: Vec::new(),
         checkpoint: None,
@@ -98,7 +97,7 @@ fn empty_store_state() -> StoreState {
 fn open_session(path: &Path, session_id: &str, resume: bool) -> Result<Arc<lock::SessionLock>> {
     if resume {
         set_private_file_permissions(path)?;
-        lock::acquire(path, || load_file(path, session_id)).map_err(|error| match error {
+        lock::acquire(path, |locked| format::load_and_upgrade(path, session_id, locked)).map_err(|error| match error {
             crate::error::AppError::Io(io) if io.kind() == std::io::ErrorKind::NotFound => {
                 session_error(format!("unknown session id: {session_id}"))
             }
@@ -106,7 +105,7 @@ fn open_session(path: &Path, session_id: &str, resume: bool) -> Result<Arc<lock:
         })
     } else {
         create_session_file(path, session_id)?;
-        lock::acquire(path, || Ok(empty_store_state()))
+        lock::acquire(path, |_| Ok(empty_store_state()))
     }
 }
 

@@ -36,58 +36,186 @@ async fn test_session_turns_and_rewind() {
     assert_eq!(turns_after[0].user_prompt, "first prompt");
 }
 
+fn turn(n: usize) -> Vec<ChatMessage> {
+    vec![
+        ChatMessage::user(format!("prompt {n}")),
+        ChatMessage::assistant(format!("answer {n}")),
+    ]
+}
+
+/// Appends each batch as one node and returns the node ids, root first.
+async fn append_nodes(session: &SessionManager, batches: &[&[usize]]) -> Vec<String> {
+    let mut ids = Vec::new();
+    for turns in batches {
+        let batch = turns.iter().flat_map(|&n| turn(n)).collect();
+        session.append_messages(&session.session_id, batch).await.unwrap();
+        ids.push(session.active_leaf_id().await.unwrap().unwrap());
+    }
+    ids
+}
+
+fn log_lines(session: &SessionManager) -> Vec<String> {
+    let log = std::fs::read_to_string(&session.file_path).unwrap();
+    log.lines().map(str::to_string).collect()
+}
+
+async fn assert_reload_matches(session: SessionManager) {
+    let (tree, messages) = (
+        session.load_tree().await.unwrap(),
+        session.load_messages().await.unwrap(),
+    );
+    let (dir, id) = (
+        session.file_path.parent().unwrap().to_path_buf(),
+        session.session_id.clone(),
+    );
+    drop(session);
+    let resumed = SessionManager::new(&dir, Some(&id)).unwrap();
+    assert_eq!(resumed.load_tree().await.unwrap(), tree);
+    assert_eq!(resumed.load_messages().await.unwrap(), messages);
+}
+
 #[tokio::test]
-async fn rewind_over_compaction_summary_keeps_history() {
+async fn rewind_inside_a_node_writes_only_that_nodes_retained_prefix() {
     let dir = temp_dir();
     let session = SessionManager::new(&dir, None).unwrap();
-    let id = session.session_id.clone();
+    let ids = append_nodes(&session, &[&[1], &[2, 3], &[4]]).await;
+    let lines_before = log_lines(&session).len();
+
+    let retained = session.rewind_to_turn(2).await.unwrap();
+
+    assert_eq!(retained, 4);
+    let expected: Vec<ChatMessage> = [turn(1), turn(2)].concat();
+    assert_eq!(session.load_messages().await.unwrap(), expected);
+    let tree = session.load_tree().await.unwrap();
+    assert_eq!(tree.len(), 4);
+    assert!(ids.iter().all(|id| tree.get_node(id).is_some()));
+    let leaf = tree.get_node(tree.active_leaf_id.as_deref().unwrap()).unwrap();
+    assert_eq!(leaf.parent_id.as_deref(), Some(ids[0].as_str()));
+    assert_eq!(leaf.messages, turn(2));
+    let lines = log_lines(&session);
+    assert_eq!(lines.len(), lines_before + 1);
+    let log = lines.concat();
+    for (marker, copies) in [("prompt 1", 1), ("prompt 2", 2), ("prompt 3", 1), ("prompt 4", 1)] {
+        assert_eq!(log.matches(marker).count(), copies, "{marker}");
+    }
+    assert_reload_matches(session).await;
+}
+
+#[tokio::test]
+async fn rewind_to_a_node_boundary_only_moves_the_active_leaf() {
+    let dir = temp_dir();
+    let session = SessionManager::new(&dir, None).unwrap();
+    let ids = append_nodes(&session, &[&[1], &[2], &[3]]).await;
+    let lines_before = log_lines(&session);
+
+    let retained = session.rewind_to_turn(1).await.unwrap();
+
+    assert_eq!(retained, 2);
+    assert_eq!(session.load_messages().await.unwrap(), turn(1));
+    let tree = session.load_tree().await.unwrap();
+    assert_eq!(tree.len(), 3);
+    assert_eq!(tree.active_leaf_id.as_deref(), Some(ids[0].as_str()));
+    let lines = log_lines(&session);
+    assert_eq!(lines[..lines_before.len()], lines_before[..]);
+    let added: Vec<serde_json::Value> = lines[lines_before.len()..]
+        .iter()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    assert_eq!(added.len(), 1);
+    assert_eq!(added[0]["record_type"], "active_leaf_changed");
+    assert_eq!(added[0]["active_leaf_id"], ids[0].as_str());
+    assert_reload_matches(session).await;
+}
+
+#[tokio::test]
+async fn rewound_turns_stay_reachable_and_the_listing_counts_every_node() {
+    let dir = temp_dir();
+    let session = SessionManager::new(&dir, None).unwrap();
+    let ids = append_nodes(&session, &[&[1], &[2, 3]]).await;
+    session.rewind_to_turn(1).await.unwrap();
+
+    let restored = session.switch_branch(Some(ids[1].clone())).await.unwrap();
+
+    assert_eq!(restored, [turn(1), turn(2), turn(3)].concat());
+    let summaries = SessionManager::list_session_summaries(&dir).unwrap();
+    assert_eq!(summaries.len(), 1);
+    assert_eq!(summaries[0].turn_count, session.load_tree().await.unwrap().len());
+    assert_eq!(summaries[0].preview, "prompt 1");
+}
+
+#[tokio::test]
+async fn rewind_with_a_pending_checkpoint_is_refused() {
+    let dir = temp_dir();
+    let session = SessionManager::new(&dir, None).unwrap();
+    append_nodes(&session, &[&[1], &[2]]).await;
     session
-        .append_messages(
-            &id,
-            vec![
-                ChatMessage::user("first prompt"),
-                ChatMessage::assistant("first answer"),
-            ],
-        )
+        .save_checkpoint(vec![ChatMessage::user("unfinished")])
         .await
         .unwrap();
-    let summary = "Summary of first turn";
-    let metadata = crate::session::CompactionMetadata {
-        summary: summary.to_string(),
-        first_kept_node_id: None,
+    let lines_before = log_lines(&session);
+
+    let error = session.rewind_to_turn(1).await.unwrap_err().to_string();
+
+    assert!(error.contains("pending run checkpoint"), "{error}");
+    assert_eq!(log_lines(&session), lines_before);
+    assert_eq!(session.load_messages().await.unwrap(), [turn(1), turn(2)].concat());
+}
+
+fn compaction_metadata(first_kept_node_id: Option<String>) -> crate::session::CompactionMetadata {
+    crate::session::CompactionMetadata {
+        summary: "Summary".to_string(),
+        first_kept_node_id,
         first_kept_message_index: None,
         tokens_before: 10,
         tokens_after: 5,
         read_files: Vec::new(),
         modified_files: Vec::new(),
         custom_instructions: None,
-    };
-    session.append_compaction(summary, metadata).await.unwrap();
+    }
+}
+
+#[tokio::test]
+async fn rewind_after_a_compaction_keeps_the_summary() {
+    let dir = temp_dir();
+    let session = SessionManager::new(&dir, None).unwrap();
+    append_nodes(&session, &[&[1]]).await;
     session
-        .append_messages(
-            &id,
-            vec![
-                ChatMessage::user("second prompt"),
-                ChatMessage::assistant("second answer"),
-            ],
-        )
+        .append_compaction("Summary", compaction_metadata(None))
         .await
         .unwrap();
+    let ids = append_nodes(&session, &[&[2], &[3]]).await;
+
+    let retained = session.rewind_to_turn(1).await.unwrap();
+
+    assert_eq!(retained, 3);
+    let messages = session.load_messages().await.unwrap();
+    assert!(matches!(&messages[0], ChatMessage::System { content } if content == "Summary"));
+    assert_eq!(messages[1..], turn(2)[..]);
+    assert_eq!(
+        session.active_leaf_id().await.unwrap().as_deref(),
+        Some(ids[0].as_str())
+    );
+    assert_reload_matches(session).await;
+}
+
+#[tokio::test]
+async fn rewind_into_history_kept_by_a_compaction_is_refused() {
+    let dir = temp_dir();
+    let session = SessionManager::new(&dir, None).unwrap();
+    let kept = append_nodes(&session, &[&[1], &[2]]).await;
     session
-        .append_messages(
-            &id,
-            vec![
-                ChatMessage::user("third prompt"),
-                ChatMessage::assistant("third answer"),
-            ],
-        )
+        .append_compaction("Summary", compaction_metadata(Some(kept[0].clone())))
         .await
         .unwrap();
+    append_nodes(&session, &[&[3]]).await;
     let before = session.load_messages().await.unwrap();
+    let lines_before = log_lines(&session);
 
-    assert!(session.rewind_to_turn(1).await.is_err());
+    let error = session.rewind_to_turn(1).await.unwrap_err().to_string();
 
-    assert_eq!(session.load_messages().await.unwrap().len(), before.len());
+    assert!(error.contains("before the last compaction"), "{error}");
+    assert_eq!(session.load_messages().await.unwrap(), before);
+    assert_eq!(log_lines(&session), lines_before);
 }
 
 async fn setup_root_and_branch_a(session: &SessionManager) -> (String, String) {

@@ -121,7 +121,7 @@ commands:
 | `/resume`   | **Resume Session**               | Interactive session selector to resume historical conversations.              |
 | `/compact`  | **Manual Compaction**            | Summarizes earlier turns to reclaim context window capacity.                  |
 | `/tree`     | **Conversation Tree**            | Visualize turn DAG, switch branches, and label checkpoints.                   |
-| `/rewind`   | **Rewind Session**               | Rewind conversation history to an earlier checkpoint turn.                    |
+| `/rewind`   | **Rewind Session**               | Rewind conversation history to an earlier turn; rewound turns stay in `/tree`. |
 | `/fork [target] [turn\|id]` | **Fork Session**   | Forks session from a turn or node; optional `pane`, `hsplit`, `vsplit`, `window`, or `tab` opens in a new mux/terminal (safe mid-turn). |
 | `/clone`    | **Clone Session**                | Duplicates active branch into a new session file.                             |
 | `/name`     | **Name Session**                 | Assigns a human-readable display name to the session.                         |

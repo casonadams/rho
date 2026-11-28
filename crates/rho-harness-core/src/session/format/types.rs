@@ -7,7 +7,8 @@ use super::super::tree::{SessionTree, TitleSource, TreeNodeData, TreeNodeKind};
 use super::super::validation::CanonicalHistory;
 
 pub const SESSION_VERSION: u32 = 3;
-/// The oldest version this rho reads. Version 2 promotes a checkpoint by copying it into a `tree_node`.
+/// The oldest version this rho reads, and upgrades to `SESSION_VERSION` on resume. Version 2
+/// promotes a checkpoint by copying it into a `tree_node`.
 pub const OLDEST_SESSION_VERSION: u32 = 2;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -139,8 +140,6 @@ pub enum SessionEventKind {
 #[derive(Debug)]
 pub struct StoreState {
     pub created_at: DateTime<Utc>,
-    /// The header version, which decides the form new records take in this file.
-    pub version: u32,
     pub next_sequence: u64,
     pub messages: Vec<ChatMessage>,
     pub checkpoint: Option<Vec<ChatMessage>>,

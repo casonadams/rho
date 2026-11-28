@@ -68,7 +68,8 @@ type WriteHook = Box<dyn FnOnce() -> std::io::Result<()> + Send>;
 #[cfg(test)]
 static WRITE_HOOKS: std::sync::Mutex<Vec<(std::path::PathBuf, WriteHook)>> = std::sync::Mutex::new(Vec::new());
 
-/// Runs `hook` once, after the next write to `path` has reached the file and before it is fsynced.
+/// Runs `hook` once, after the next write to `path` has reached the file and before it is fsynced,
+/// or for a header upgrade, after the rewritten file is written and before it replaces `path`.
 #[cfg(test)]
 pub(crate) fn inject_write_hook(path: &Path, hook: impl FnOnce() -> std::io::Result<()> + Send + 'static) {
     WRITE_HOOKS.lock().unwrap().push((path.to_path_buf(), Box::new(hook)));
@@ -175,18 +176,51 @@ pub(crate) async fn append_records(
 }
 
 pub(crate) fn load_file(path: &Path, expected_id: &str) -> Result<StoreState> {
-    parse_read_result(std::fs::read(path), expected_id)
+    parse_committed_bytes(&read_session(path, expected_id)?, expected_id)
 }
 
-fn parse_read_result(read: std::io::Result<Vec<u8>>, expected_id: &str) -> Result<StoreState> {
-    let bytes = match read {
-        Ok(bytes) => bytes,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            return Err(session_error(format!("unknown session id: {expected_id}")));
-        }
-        Err(error) => return Err(error.into()),
+/// Loads the session at `path`; an older version gets its header rewritten to `SESSION_VERSION`
+/// with every record line kept, and the session lock in `locked` moves to the rewritten file.
+pub(crate) fn load_and_upgrade(path: &Path, expected_id: &str, locked: &mut std::fs::File) -> Result<StoreState> {
+    let bytes = read_session(path, expected_id)?;
+    let state = parse_committed_bytes(&bytes, expected_id)?;
+    let header_end = bytes.iter().position(|&b| b == b'\n').unwrap_or(bytes.len());
+    let header = parse_header(&bytes[..header_end])?;
+    if header.version < SESSION_VERSION {
+        let records = &bytes[header_end + 1..=bytes.iter().rposition(|&b| b == b'\n').unwrap_or(header_end)];
+        upgrade_header(path, header, records, locked)?;
+    }
+    Ok(state)
+}
+
+fn upgrade_header(path: &Path, header: SessionHeader, records: &[u8], locked: &mut std::fs::File) -> Result<()> {
+    let upgraded = SessionHeader {
+        version: SESSION_VERSION,
+        ..header
     };
-    parse_committed_bytes(&bytes, expected_id)
+    let mut contents =
+        serde_json::to_vec(&upgraded).map_err(|_| session_error("session header serialization failed"))?;
+    contents.push(b'\n');
+    contents.extend_from_slice(records);
+    let replacement = crate::fs::replace_atomic(path, &contents, 0o600, |temp| {
+        temp.try_lock().map_err(std::io::Error::from)?;
+        #[cfg(test)]
+        run_write_hook(path)?;
+        Ok(())
+    })?;
+    let previous = std::mem::replace(locked, replacement);
+    drop(previous.unlock());
+    Ok(())
+}
+
+fn read_session(path: &Path, expected_id: &str) -> Result<Vec<u8>> {
+    match std::fs::read(path) {
+        Ok(bytes) => Ok(bytes),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            Err(session_error(format!("unknown session id: {expected_id}")))
+        }
+        Err(error) => Err(error.into()),
+    }
 }
 
 fn parse_committed_bytes(bytes: &[u8], expected_id: &str) -> Result<StoreState> {
@@ -204,7 +238,6 @@ fn parse_committed_bytes(bytes: &[u8], expected_id: &str) -> Result<StoreState> 
     validate_header(&header, expected_id)?;
     let mut state = empty_store_state();
     state.created_at = header.created_at;
-    state.version = header.version;
     let mut messages_stale = false;
     for line in lines {
         if line.is_empty() {

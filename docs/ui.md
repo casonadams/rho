@@ -179,7 +179,7 @@ autocomplete):
 | `/session`                  | Display token capacity, cost, context window utilization, and diagnostics (alias: `/tokens`).             |
 | `/compact [instructions]`   | Summarize earlier context to reclaim context window space.                                                |
 | `/tree`                     | Open interactive conversation turn and branch DAG tree viewer.                                            |
-| `/rewind <turn>`            | Rewind context to a specific prior turn in the active branch.                                             |
+| `/rewind <turn>`            | Rewind context to a specific prior turn in the active branch. The rewound turns, including an unfinished one, stay in `/tree` as a branch you can switch back to. Turns before the last compaction cannot be rewound to. |
 | `/fork [pane\|hsplit\|vsplit\|window\|tab] [turn\|id]` | Fork session from a turn or node; optional target opens it in a new multiplexer/terminal pane, window, or tab (safe mid-turn). |
 | `/clone`                    | Duplicate active branch into a new session.                                                               |
 | `/name [name]`              | Name the current session; the name titles it in `/resume`.                                                |

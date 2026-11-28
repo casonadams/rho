@@ -391,8 +391,10 @@ impl AgentEngine {
         Ok(messages)
     }
 
-    /// Rewinds the session to `target_turn`; the shorter context starts its budget notices over.
+    /// Rewinds the session to `target_turn`, after an unfinished turn joins the history so it stays
+    /// in the tree with the other rewound turns; the shorter context starts its budget notices over.
     pub async fn rewind_to_turn(&self, target_turn: usize) -> Result<usize> {
+        self.promote_unfinished_turn().await?;
         let retained = self.session_manager.rewind_to_turn(target_turn).await?;
         self.context.reset_notices();
         Ok(retained)

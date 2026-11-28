@@ -65,6 +65,36 @@ mod branch {
         assert!(!summary.contains(secret));
         assert!(summary.contains("[REDACTED]"));
     }
+
+    #[tokio::test]
+    async fn rewind_keeps_an_unfinished_turn_in_the_tree() {
+        let (engine, _dir) = test_engine("rewind", None, None).await;
+        let session = &engine.session_manager;
+        for n in 1..=2 {
+            let turn = vec![
+                ChatMessage::user(format!("prompt {n}")),
+                ChatMessage::assistant(format!("answer {n}")),
+            ];
+            session.append_messages(&session.session_id, turn).await.unwrap();
+        }
+        let first_turn = session.load_messages().await.unwrap()[..2].to_vec();
+        session
+            .save_checkpoint(vec![ChatMessage::user("unfinished prompt")])
+            .await
+            .unwrap();
+
+        let retained = engine.rewind_to_turn(1).await.unwrap();
+
+        assert_eq!(retained, 2);
+        assert_eq!(session.load_messages().await.unwrap(), first_turn);
+        assert!(session.load_checkpoint().await.unwrap().is_none());
+        let tree = session.load_tree().await.unwrap();
+        assert!(
+            tree.nodes
+                .values()
+                .any(|node| node.messages.first() == Some(&ChatMessage::user("unfinished prompt")))
+        );
+    }
 }
 
 mod compactor {
