@@ -58,7 +58,7 @@ const TITLE_HINTS: &[(&str, &str)] = &[
     ("Select Theme", "↑/↓ preview • Enter select • Esc cancel"),
     (
         "Conversation Tree",
-        "↑/↓ select • Enter navigate • Shift+L label • Esc cancel",
+        "↑/↓ select • Enter navigate • Ctrl+L label • Esc cancel",
     ),
     ("Settings", "↑/↓ select • Enter toggle/open • Esc close"),
     ("Models", "↑/↓ select • Enter choose • Esc back"),

@@ -7,7 +7,7 @@ use crate::repl::live::modal::{
 use crate::repl::live::turn::{TurnModelSwitchInput, apply_turn_model_switch};
 use crate::ui::TerminalRenderer;
 use crate::ui::interactive::NullBackend;
-use crate::ui::interactive::{EditorState, FooterState, LayoutInput, TerminalController, layout};
+use crate::ui::interactive::{EditorState, FooterState, LayoutInput, ModalMode, TerminalController, layout};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use rho_harness_core::auth::StoredCredential;
 use rho_harness_core::config::{Config, McpConfig, McpServerConfig};
@@ -981,16 +981,83 @@ fn tree_selector_modal_selection() {
 }
 
 #[test]
-fn tree_selector_modal_shift_l_labels_checkpoint() {
+fn tree_selector_returns_node_id_when_label_has_spaces_and_brackets() {
+    let tree = make_tree_with_node("node-7", Some("release [v1] final"));
+    let mut controller = crate::repl::test_controller();
+    open_tree_selector(&tree, &mut controller);
+
+    let enter = KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE);
+    assert_eq!(
+        handle_modal_key(&mut controller, enter, &mut None).unwrap(),
+        ModalKeyResult::TreeNodeSelected {
+            node_id: "node-7".into()
+        }
+    );
+}
+
+#[test]
+fn tree_selector_modal_has_empty_subtitle_and_search() {
+    let tree = make_tree_with_node("node-1", None);
+    let mut controller = crate::repl::test_controller();
+    open_tree_selector(&tree, &mut controller);
+
+    let modal = controller.state().active_modal().unwrap();
+    assert_eq!(modal.title, "Conversation Tree");
+    assert_eq!(modal.body, "");
+    assert!(modal.is_searchable);
+}
+
+#[test]
+fn tree_selector_ctrl_c_clears_filter_before_cancelling() {
+    let tree = make_tree_with_node("node-1", None);
+    let mut controller = crate::repl::test_controller();
+    open_tree_selector(&tree, &mut controller);
+
+    let typed = KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE);
+    handle_modal_key(&mut controller, typed, &mut None).unwrap();
+    let ctrl_c = KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL);
+    handle_modal_key(&mut controller, ctrl_c, &mut None).unwrap();
+    let modal = controller
+        .state()
+        .active_modal()
+        .expect("filter clear keeps the modal open");
+    assert_eq!(modal.filter_query, "");
+
+    handle_modal_key(&mut controller, ctrl_c, &mut None).unwrap();
+    assert!(controller.state().active_modal().is_none());
+}
+
+#[test]
+fn tree_selector_typed_capital_l_filters_instead_of_labeling() {
+    let tree = make_tree_with_node("node-9", None);
+    let mut controller = crate::repl::test_controller();
+    open_tree_selector(&tree, &mut controller);
+
+    let capital_l = KeyEvent::new(KeyCode::Char('L'), KeyModifiers::SHIFT);
+    assert_eq!(
+        handle_modal_key(&mut controller, capital_l, &mut None).unwrap(),
+        ModalKeyResult::Handled
+    );
+    let modal = controller.state().active_modal().unwrap();
+    assert_eq!(modal.filter_query, "L");
+    assert!(matches!(modal.mode, ModalMode::Select));
+}
+
+#[test]
+fn tree_selector_ctrl_l_labels_checkpoint() {
     let tree = make_tree_with_node("node-42", None);
     let mut controller = crate::repl::test_controller();
     open_tree_selector(&tree, &mut controller);
 
-    let shift_l = KeyEvent::new(KeyCode::Char('L'), KeyModifiers::SHIFT);
+    let ctrl_l = KeyEvent::new(KeyCode::Char('l'), KeyModifiers::CONTROL);
     assert_eq!(
-        handle_modal_key(&mut controller, shift_l, &mut None).unwrap(),
+        handle_modal_key(&mut controller, ctrl_l, &mut None).unwrap(),
         ModalKeyResult::Handled
     );
+    assert!(matches!(
+        controller.state().active_modal().unwrap().mode,
+        ModalMode::Input { .. }
+    ));
 
     for c in ['a', 'b'] {
         let key = KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE);
@@ -1004,6 +1071,46 @@ fn tree_selector_modal_shift_l_labels_checkpoint() {
         ModalKeyResult::NodeLabelUpdated {
             node_id: "node-42".into(),
             label: "ab".into()
+        }
+    );
+}
+
+fn select_role_option_by_label(session: &ReplSession, label: &str) -> ModalKeyResult {
+    use rho_harness_core::config::ModelRole;
+    let mut controller = crate::repl::test_controller();
+    super::super::modal::open_role_model_selector(session, &mut controller, &ModelRole::SMOL);
+    let modal = controller.state_mut().active_modal_mut().unwrap();
+    modal.selected = modal.options.iter().position(|o| o.label == label).unwrap();
+    let enter = KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE);
+    handle_modal_key(&mut controller, enter, &mut None).unwrap()
+}
+
+#[test]
+fn role_selector_provider_named_none_selects_that_route() {
+    use rho_harness_core::config::ModelRole;
+    use rho_harness_core::provider::ModelRoute;
+    let (_dir, mut session) = setup_claude_session();
+    session.catalog = crate::repl::interactive::models::catalog_with("none", &["gpt-x"]);
+    assert_eq!(
+        select_role_option_by_label(&session, "none/gpt-x"),
+        ModalKeyResult::RoleModelSelected {
+            role: ModelRole::SMOL,
+            model: Some(ModelRoute::new("none", "gpt-x")),
+        }
+    );
+}
+
+#[test]
+fn role_selector_model_named_none_selects_that_route() {
+    use rho_harness_core::config::ModelRole;
+    use rho_harness_core::provider::ModelRoute;
+    let (_dir, mut session) = setup_claude_session();
+    session.catalog = crate::repl::interactive::models::catalog_with("claude", &["none"]);
+    assert_eq!(
+        select_role_option_by_label(&session, "claude/none"),
+        ModalKeyResult::RoleModelSelected {
+            role: ModelRole::SMOL,
+            model: Some(ModelRoute::new("claude", "none")),
         }
     );
 }
@@ -1137,21 +1244,16 @@ fn role_model_selector_lifecycle() {
             key(&mut controller, KeyCode::Enter),
             ModalKeyResult::RoleModelSelected {
                 role: role.clone(),
-                model: "None".into(),
-                provider: "none".into()
+                model: None,
             }
         );
 
         super::super::modal::open_role_model_selector(&session, &mut controller, &role);
         key(&mut controller, KeyCode::Down);
         match key(&mut controller, KeyCode::Enter) {
-            ModalKeyResult::RoleModelSelected {
-                role: picked,
-                model,
-                provider,
-            } => {
+            ModalKeyResult::RoleModelSelected { role: picked, model } => {
                 assert_eq!(picked, role);
-                assert!(!model.is_empty() && !provider.is_empty());
+                assert!(model.is_some());
             }
             other => panic!("expected RoleModelSelected, got {other:?}"),
         }

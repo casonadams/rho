@@ -5,6 +5,7 @@ use crate::repl::live::navigation::update_footer;
 use crate::ui::TerminalRenderer;
 use crate::ui::interactive::{TerminalBackend, TerminalController};
 use rho_harness_core::config::ModelRole;
+use rho_harness_core::provider::ModelRoute;
 
 use super::ModalKeyResult;
 
@@ -196,14 +197,9 @@ pub(crate) async fn handle_role_model_selected<B: TerminalBackend>(
     session: &mut ReplSession,
     controller: &mut TerminalController<B>,
     role: &ModelRole,
-    model: &str,
-    provider: &str,
+    model: Option<&ModelRoute>,
 ) -> Result<bool> {
-    let spec = if model.eq_ignore_ascii_case("none") || provider.eq_ignore_ascii_case("none") {
-        None
-    } else {
-        Some(rho_harness_core::provider::ModelRoute::new(provider, model).to_string())
-    };
+    let spec = model.map(ModelRoute::to_string);
 
     let key = role.key();
     match &spec {
@@ -292,8 +288,8 @@ pub(crate) async fn apply_shared_modal_action<B: TerminalBackend>(
         ModalKeyResult::SearchEngineSelected { engine: name } => {
             handle_search_engine_selected(session, controller, name).await
         }
-        ModalKeyResult::RoleModelSelected { role, model, provider } => {
-            handle_role_model_selected(session, controller, role, model, provider).await
+        ModalKeyResult::RoleModelSelected { role, model } => {
+            handle_role_model_selected(session, controller, role, model.as_ref()).await
         }
         _ => Ok(false),
     }

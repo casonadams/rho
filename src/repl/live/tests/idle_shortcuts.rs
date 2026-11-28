@@ -134,7 +134,10 @@ fn test_modal_tree_input_ctrl_c_clears_input_text() {
     let mut controller = crate::repl::test_controller();
     super::super::modal::open_tree_selector(&tree, &mut controller);
 
-    send_modal_key(&mut controller, KeyEvent::new(KeyCode::Char('L'), KeyModifiers::SHIFT));
+    send_modal_key(
+        &mut controller,
+        KeyEvent::new(KeyCode::Char('l'), KeyModifiers::CONTROL),
+    );
     send_modal_key(&mut controller, KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE));
     assert_eq!(controller.state().active_modal().unwrap().input.text(), "x");
 

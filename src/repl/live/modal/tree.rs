@@ -22,25 +22,18 @@ pub fn open_tree_selector<B: TerminalBackend>(tree: &SessionTree, controller: &m
         } else {
             entry.id.clone()
         };
-        options.push(ModalOption::new(label, Some(desc)));
+        options.push(ModalOption::new(label, Some(desc)).with_value(entry.id.clone()));
     }
 
-    let mut modal =
-        ModalState::new("Conversation Tree", "Select a checkpoint to navigate to:", options).with_kind(ModalKind::Tree);
+    let mut modal = ModalState::new("Conversation Tree", "", options)
+        .with_search(true)
+        .with_kind(ModalKind::Tree);
     modal.selected = initial_selection;
     controller.state_mut().push_modal(modal);
 }
 
 fn selected_tree_node_id<B: TerminalBackend>(controller: &TerminalController<B>) -> Option<String> {
-    let opt = controller.state().active_modal().and_then(|m| m.selected_option())?;
-    let desc = opt.description.as_deref().unwrap_or("");
-    Some(desc.split_whitespace().last().unwrap_or(desc).to_string())
-}
-
-fn pop_and_redraw_tree<B: TerminalBackend>(controller: &mut TerminalController<B>) -> Result<ModalKeyResult> {
-    controller.state_mut().pop_modal();
-    controller.redraw()?;
-    Ok(ModalKeyResult::Handled)
+    controller.state().active_modal()?.selected_option()?.value.clone()
 }
 
 fn enter_tree_label_mode<B: TerminalBackend>(controller: &mut TerminalController<B>) -> Result<ModalKeyResult> {
@@ -51,30 +44,15 @@ fn enter_tree_label_mode<B: TerminalBackend>(controller: &mut TerminalController
     Ok(ModalKeyResult::Handled)
 }
 
-fn handle_tree_enter<B: TerminalBackend>(controller: &mut TerminalController<B>) -> Result<ModalKeyResult> {
-    let Some(node_id) = selected_tree_node_id(controller) else {
-        return pop_and_redraw_tree(controller);
-    };
-    controller.state_mut().pop_modal();
-    Ok(ModalKeyResult::TreeNodeSelected { node_id })
-}
-
 fn handle_tree_select_key<B: TerminalBackend>(
     controller: &mut TerminalController<B>,
-    key: &KeyEvent,
+    key: KeyEvent,
 ) -> Result<ModalKeyResult> {
-    match key.code {
-        KeyCode::Enter => handle_tree_enter(controller),
-        KeyCode::Esc | KeyCode::Char('c')
-            if key.modifiers.contains(KeyModifiers::CONTROL) || key.code == KeyCode::Esc =>
-        {
-            pop_and_redraw_tree(controller)
-        }
-        _ => {
-            super::handle_selector_nav(controller, key)?;
-            Ok(ModalKeyResult::Handled)
-        }
-    }
+    super::dispatch_simple_selector(controller, key, |opt| {
+        opt.value
+            .clone()
+            .map(|node_id| ModalKeyResult::TreeNodeSelected { node_id })
+    })
 }
 
 pub fn handle_tree_key<B: TerminalBackend>(
@@ -89,12 +67,11 @@ pub fn handle_tree_key<B: TerminalBackend>(
         return handle_tree_input_key(controller, key);
     }
 
-    let label_shortcut =
-        matches!(key.code, KeyCode::Char('l') | KeyCode::Char('L')) && key.modifiers.contains(KeyModifiers::SHIFT);
+    let label_shortcut = key.code == KeyCode::Char('l') && key.modifiers.contains(KeyModifiers::CONTROL);
     if label_shortcut {
         return enter_tree_label_mode(controller);
     }
-    handle_tree_select_key(controller, &key)
+    handle_tree_select_key(controller, key)
 }
 
 fn exit_tree_input_mode<B: TerminalBackend>(controller: &mut TerminalController<B>) -> Result<ModalKeyResult> {

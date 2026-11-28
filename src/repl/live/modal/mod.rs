@@ -14,6 +14,7 @@ use crate::ui::interactive::{
 };
 use crossterm::event::{KeyCode, KeyEvent};
 use rho_harness_core::config::ModelRole;
+use rho_harness_core::provider::ModelRoute;
 
 pub use interaction::{PendingModal, install_interaction};
 pub use selectors::{
@@ -68,8 +69,7 @@ pub enum ModalKeyResult {
     },
     RoleModelSelected {
         role: ModelRole,
-        model: String,
-        provider: String,
+        model: Option<ModelRoute>,
     },
     OpenToolsMenu,
     OpenSearchEngineSelector,
@@ -320,6 +320,23 @@ pub(crate) fn handle_selector_key<B: TerminalBackend>(
     }
 }
 
+/// Closes the selector and maps its highlighted option; `Handled` when `on_enter` yields nothing.
+pub(crate) fn select_highlighted<B: TerminalBackend, F>(
+    controller: &mut TerminalController<B>,
+    on_enter: F,
+) -> Result<ModalKeyResult>
+where
+    F: FnOnce(&crate::ui::interactive::ModalOption) -> Option<ModalKeyResult>,
+{
+    let selected = controller
+        .state()
+        .active_modal()
+        .and_then(|m| m.selected_option())
+        .cloned();
+    pop_and_cancel(controller)?;
+    Ok(selected.as_ref().and_then(on_enter).unwrap_or(ModalKeyResult::Handled))
+}
+
 pub(crate) fn dispatch_simple_selector<B: TerminalBackend, F>(
     controller: &mut TerminalController<B>,
     key: KeyEvent,
@@ -328,15 +345,7 @@ pub(crate) fn dispatch_simple_selector<B: TerminalBackend, F>(
 where
     F: FnOnce(&crate::ui::interactive::ModalOption) -> Option<ModalKeyResult>,
 {
-    handle_selector_key(controller, key, |controller| {
-        let selected = controller
-            .state()
-            .active_modal()
-            .and_then(|m| m.selected_option())
-            .cloned();
-        pop_and_cancel(controller)?;
-        Ok(selected.as_ref().and_then(on_enter).unwrap_or(ModalKeyResult::Handled))
-    })
+    handle_selector_key(controller, key, |controller| select_highlighted(controller, on_enter))
 }
 
 pub fn handle_modal_paste<B: TerminalBackend>(controller: &mut TerminalController<B>, text: &str) -> bool {

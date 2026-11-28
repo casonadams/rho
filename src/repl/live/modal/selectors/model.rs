@@ -1,13 +1,23 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
-use super::super::{ModalKeyResult, handle_selector_key};
+use super::super::{ModalKeyResult, handle_selector_key, select_highlighted};
 use crate::error::Result;
 use crate::repl::ReplSession;
 use crate::ui::interactive::{ModalKind, ModalOption, ModalState, TerminalBackend, TerminalController};
 use rho_harness_core::config::ModelRole;
+use rho_harness_core::provider::ModelRoute;
 
 fn is_default_model(session: &ReplSession, canonical_id: &str) -> bool {
     session.config.default_model.as_deref() == Some(canonical_id)
+}
+
+fn item_route(item: &crate::repl::interactive::ModelItem) -> ModelRoute {
+    ModelRoute::new(&item.provider, &item.id)
+}
+
+/// The route an option's value carries, as written by `ModelRoute::to_string`.
+fn route_from_value(value: &str) -> Option<ModelRoute> {
+    value.contains('/').then(|| ModelRoute::parse(value, None, ""))
 }
 
 fn build_model_option(session: &ReplSession, item: &crate::repl::interactive::ModelItem) -> ModalOption {
@@ -27,6 +37,7 @@ fn build_model_option(session: &ReplSession, item: &crate::repl::interactive::Mo
             item.provider, active_mark, default_mark, item.description
         )),
     )
+    .with_value(item_route(item).to_string())
 }
 
 pub fn open_model_selector<B: TerminalBackend>(session: &ReplSession, controller: &mut TerminalController<B>) {
@@ -83,10 +94,13 @@ fn role_selector_options(session: &ReplSession, role: &ModelRole) -> (Vec<ModalO
             selected = i + 1;
         }
         let mark = if is_current { "✓" } else { "" };
-        options.push(ModalOption::new(
-            canonical,
-            Some(format!("{}\t{}\t\t{}", item.provider, mark, item.description)),
-        ));
+        options.push(
+            ModalOption::new(
+                canonical,
+                Some(format!("{}\t{}\t\t{}", item.provider, mark, item.description)),
+            )
+            .with_value(item_route(item).to_string()),
+        );
     }
     (options, selected)
 }
@@ -125,26 +139,22 @@ pub fn refresh_open_model_selector<B: TerminalBackend>(session: &ReplSession, co
     }
 }
 
-fn extract_selected_model<B: TerminalBackend>(controller: &TerminalController<B>) -> Option<(String, String)> {
-    let opt = controller.state().active_modal().and_then(|m| m.selected_option())?;
-    let label = opt.label.clone();
-    if label == "None" {
-        return Some(("None".to_string(), "none".to_string()));
-    }
-    let described = opt.description.as_deref().and_then(|d| d.split('\t').next());
-    let route = rho_harness_core::provider::ModelRoute::parse(&label, None, described.unwrap_or("anthropic"));
-    Some((label, route.connection.to_string()))
+/// Maps the highlighted model option to `ModelSelected`; `None` when it carries no route.
+fn model_selection(opt: &ModalOption, save_as_default: bool) -> Option<ModalKeyResult> {
+    let route = route_from_value(opt.value.as_deref()?)?;
+    Some(ModalKeyResult::ModelSelected {
+        model: route.to_string(),
+        provider: route.connection.to_string(),
+        save_as_default,
+    })
 }
 
-/// Closes the selector and reports its highlighted model through `selected`.
-fn pop_and_select<B: TerminalBackend>(
-    controller: &mut TerminalController<B>,
-    selected: impl FnOnce(String, String) -> ModalKeyResult,
-) -> Result<ModalKeyResult> {
-    let choice = extract_selected_model(controller);
-    controller.state_mut().pop_modal();
-    controller.redraw()?;
-    Ok(choice.map_or(ModalKeyResult::Handled, |(model, provider)| selected(model, provider)))
+/// `None` for the clear option (no route), `Some(route)` for a model; `None` when the value is malformed.
+fn role_selection(opt: &ModalOption) -> Option<Option<ModelRoute>> {
+    match opt.value.as_deref() {
+        None => Some(None),
+        Some(value) => route_from_value(value).map(Some),
+    }
 }
 
 pub fn handle_model_key<B: TerminalBackend>(
@@ -153,17 +163,11 @@ pub fn handle_model_key<B: TerminalBackend>(
 ) -> Result<ModalKeyResult> {
     let ctrl_s = key.code == KeyCode::Char('s') && key.modifiers.contains(KeyModifiers::CONTROL);
     let save_as_default = ctrl_s || controller.state().active_modal().is_some_and(|m| m.save_as_default);
-    let select = |controller: &mut TerminalController<B>| {
-        pop_and_select(controller, |model, provider| ModalKeyResult::ModelSelected {
-            model,
-            provider,
-            save_as_default,
-        })
-    };
+    let on_enter = move |opt: &ModalOption| model_selection(opt, save_as_default);
     if ctrl_s {
-        return select(controller);
+        return select_highlighted(controller, on_enter);
     }
-    handle_selector_key(controller, key, select)
+    handle_selector_key(controller, key, |controller| select_highlighted(controller, on_enter))
 }
 
 pub fn handle_role_model_key<B: TerminalBackend>(
@@ -172,10 +176,8 @@ pub fn handle_role_model_key<B: TerminalBackend>(
     role: ModelRole,
 ) -> Result<ModalKeyResult> {
     handle_selector_key(controller, key, |controller| {
-        pop_and_select(controller, |model, provider| ModalKeyResult::RoleModelSelected {
-            role,
-            model,
-            provider,
+        select_highlighted(controller, move |opt| {
+            role_selection(opt).map(|model| ModalKeyResult::RoleModelSelected { role, model })
         })
     })
 }

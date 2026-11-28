@@ -4,6 +4,7 @@ use crate::repl::live::modal::ModalKeyResult;
 use crate::ui::interactive::NullBackend;
 use crate::ui::interactive::TerminalController;
 use rho_harness_core::config::ModelRole;
+use rho_harness_core::provider::ModelRoute;
 
 pub(super) async fn setup_modal_action_harness(
     temp: &std::path::Path,
@@ -144,8 +145,7 @@ async fn test_modal_action_guard_model_selected() {
         apply_modal_key_result(
             ModalKeyResult::RoleModelSelected {
                 role: ModelRole::GUARD,
-                model: "qwen2.5-coder:7b".to_string(),
-                provider: "local".to_string(),
+                model: Some(ModelRoute::new("local", "qwen2.5-coder:7b")),
             },
             ctx,
             &mut batch
@@ -166,8 +166,7 @@ async fn test_modal_action_guard_model_selected() {
         apply_modal_key_result(
             ModalKeyResult::RoleModelSelected {
                 role: ModelRole::GUARD,
-                model: "none".to_string(),
-                provider: "none".to_string(),
+                model: None,
             },
             ctx,
             &mut batch
@@ -539,8 +538,7 @@ async fn test_role_model_selection_updates_models_menu_in_place() {
     assert!(
         tctx.dispatch(ModalKeyResult::RoleModelSelected {
             role: ModelRole::GUARD,
-            model: "qwen2.5-coder:7b".to_string(),
-            provider: "ollama".to_string(),
+            model: Some(ModelRoute::new("ollama", "qwen2.5-coder:7b")),
         })
         .await
     );
@@ -652,8 +650,7 @@ async fn test_modal_action_remaining_role_model_selections_update_config() {
         (
             ModalKeyResult::RoleModelSelected {
                 role: ModelRole::SMOL,
-                model: "haiku".to_string(),
-                provider: "anthropic".to_string(),
+                model: Some(ModelRoute::new("anthropic", "haiku")),
             },
             "smol",
             Some("anthropic/haiku"),
@@ -661,8 +658,7 @@ async fn test_modal_action_remaining_role_model_selections_update_config() {
         (
             ModalKeyResult::RoleModelSelected {
                 role: ModelRole::SLOW,
-                model: "opus".to_string(),
-                provider: "anthropic".to_string(),
+                model: Some(ModelRoute::new("anthropic", "opus")),
             },
             "slow",
             Some("anthropic/opus"),
@@ -670,8 +666,7 @@ async fn test_modal_action_remaining_role_model_selections_update_config() {
         (
             ModalKeyResult::RoleModelSelected {
                 role: ModelRole::SLOW,
-                model: "anthropic/claude-3.7-sonnet".to_string(),
-                provider: "openrouter".to_string(),
+                model: Some(ModelRoute::new("openrouter", "anthropic/claude-3.7-sonnet")),
             },
             "slow",
             Some("openrouter/anthropic/claude-3.7-sonnet"),
@@ -679,8 +674,7 @@ async fn test_modal_action_remaining_role_model_selections_update_config() {
         (
             ModalKeyResult::RoleModelSelected {
                 role: ModelRole::SMOL,
-                model: "claude:me@work.com/haiku".to_string(),
-                provider: "claude:me@work.com".to_string(),
+                model: Some(ModelRoute::new("claude:me@work.com", "claude:me@work.com/haiku")),
             },
             "smol",
             Some("claude:me@work.com/haiku"),

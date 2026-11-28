@@ -75,8 +75,9 @@ pub fn handle_session_key<B: TerminalBackend>(
         modal.pending_delete = None;
     }
     crate::repl::live::modal::dispatch_simple_selector(controller, key, |opt| {
-        let session_id = opt.value.clone().unwrap_or_default();
-        Some(ModalKeyResult::SessionSelected { session_id })
+        opt.value
+            .clone()
+            .map(|session_id| ModalKeyResult::SessionSelected { session_id })
     })
 }
 
@@ -141,6 +142,23 @@ mod tests {
         let again = handle_session_key(&mut controller, CTRL_D).unwrap();
         assert!(matches!(again, ModalKeyResult::Handled));
         assert_eq!(controller.state().active_modal().unwrap().all_options.len(), 2);
+    }
+
+    #[test]
+    fn session_option_without_value_selects_nothing() {
+        use crate::ui::interactive::{ModalKind, ModalOption, ModalState};
+
+        let mut controller = crate::repl::test_controller();
+        let orphan = ModalOption::new("orphan", None::<&str>);
+        let modal = ModalState::new("Sessions", "", vec![orphan]).with_kind(ModalKind::Session);
+        controller.state_mut().push_modal(modal);
+
+        let enter = KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE);
+        assert_eq!(
+            handle_session_key(&mut controller, enter).unwrap(),
+            ModalKeyResult::Handled
+        );
+        assert!(controller.state().active_modal().is_none());
     }
 
     #[tokio::test]
