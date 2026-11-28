@@ -286,6 +286,9 @@ async fn a_successful_model_switch_updates_the_session_and_the_engine_together()
 #[tokio::test]
 async fn test_handle_auth_and_config_results() {
     let temp = tempfile::tempdir().unwrap();
+    // Reload reads RHO_HOME's config; disabling MCP there keeps host-global MCP servers out of the rebuild.
+    let _home = rho_test_support::EnvVarGuard::set("RHO_HOME", temp.path().to_str().unwrap());
+    std::fs::write(temp.path().join("config.toml"), "[mcp]\nenabled = false\n").unwrap();
     let (mut session, mut engine) = setup_test_session(temp.path()).await;
 
     let orig_provider = session.config.provider.clone();

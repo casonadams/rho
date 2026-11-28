@@ -48,13 +48,14 @@ async fn setup_reload_session(home: &std::path::Path) -> (crate::repl::ReplSessi
     use clap::Parser;
     use rho_harness_core::config::Config;
 
+    // Disabling MCP keeps host-global MCP servers out of the config loads and engine builds here.
+    std::fs::write(home.join("config.toml"), "max_turns = 42\n[mcp]\nenabled = false\n").unwrap();
     let config = Config::load(None).unwrap();
     config.ensure_dirs().unwrap();
     let mut session = crate::repl::ReplSession::new(config, AuthStore::default(), None)
         .with_cli(Some(Cli::parse_from(["rho", "--max-turns", "9"])));
     session.config.model = "runtime-model".to_string();
     let engine = session.new_engine(None).await.unwrap();
-    std::fs::write(home.join("config.toml"), "max_turns = 42\n").unwrap();
     (session, engine)
 }
 
