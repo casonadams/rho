@@ -53,7 +53,7 @@ pub fn tools_result(names: &[&str]) -> Reply {
     Reply::Result(json!({ "tools": tools }))
 }
 
-async fn read_request(socket: &mut TcpStream) -> Option<Value> {
+pub async fn read_request(socket: &mut TcpStream) -> Option<Value> {
     let mut buf = Vec::new();
     let mut chunk = [0u8; 4096];
     loop {

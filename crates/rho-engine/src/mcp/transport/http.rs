@@ -1,6 +1,7 @@
 use super::super::oauth::{McpOAuth, login_hint};
-use super::super::types::{JsonRpcNotification, JsonRpcRequest, JsonRpcResponse};
+use super::super::types::{JsonRpcNotification, JsonRpcRequest};
 use super::Inbound;
+use super::route::{Routed, reply_to_server_request, route_message, server_error};
 use crate::http::CLIENT;
 use crate::provider::sse::SseLineDecoder;
 use futures::StreamExt;
@@ -29,59 +30,55 @@ enum Reply {
     Unauthorized(String),
 }
 
-fn try_parse_target_response(data_lines: &mut Vec<String>, target_id: i64, inbound: &Inbound) -> Option<Result<Value>> {
+fn complete_sse_message(line: &str, data_lines: &mut Vec<String>) -> Option<Value> {
+    if !line.is_empty() {
+        if let Some(stripped) = line.strip_prefix("data:") {
+            data_lines.push(stripped.trim().to_string());
+        }
+        return None;
+    }
     if data_lines.is_empty() {
         return None;
     }
     let combined = data_lines.join("\n");
     data_lines.clear();
-    let message = serde_json::from_str::<Value>(&combined).ok()?;
-    if let Some(method) = message.get("method").and_then(Value::as_str) {
-        if message.get("id").is_none() {
-            inbound.dispatch(method);
-        }
-        return None;
-    }
-    let resp = serde_json::from_value::<JsonRpcResponse>(message).ok()?;
-    if resp.id.as_i64() != Some(target_id) {
-        return None;
-    }
-    if let Some(err) = resp.error {
-        return Some(Err(AppError::Mcp(format!(
-            "MCP error: {} (code {})",
-            err.message, err.code
-        ))));
-    }
-    Some(Ok(resp.result.unwrap_or(Value::Null)))
+    serde_json::from_str(&combined).ok()
 }
 
-fn process_sse_line(
-    line: &str,
-    data_lines: &mut Vec<String>,
-    target_id: i64,
-    inbound: &Inbound,
-) -> Option<Result<Value>> {
-    if line.is_empty() {
-        try_parse_target_response(data_lines, target_id, inbound)
-    } else {
-        if let Some(stripped) = line.strip_prefix("data:") {
-            data_lines.push(stripped.trim().to_string());
-        }
-        None
-    }
-}
-
-fn scan_sse_chunk(
-    decoder: &mut SseLineDecoder,
-    data_lines: &mut Vec<String>,
-    chunk: &[u8],
-    target_id: i64,
-    inbound: &Inbound,
-) -> Option<Result<Value>> {
+fn scan_sse_chunk(decoder: &mut SseLineDecoder, data_lines: &mut Vec<String>, chunk: &[u8]) -> Vec<Value> {
     decoder
         .decode_raw_lines(chunk)
         .iter()
-        .find_map(|line| process_sse_line(line, data_lines, target_id, inbound))
+        .filter_map(|line| complete_sse_message(line, data_lines))
+        .collect()
+}
+
+fn unauthorized_challenge(res: &reqwest::Response) -> Option<String> {
+    (res.status() == reqwest::StatusCode::UNAUTHORIZED).then(|| {
+        res.headers()
+            .get(reqwest::header::WWW_AUTHENTICATE)
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("")
+            .to_string()
+    })
+}
+
+fn insert_configured_headers(
+    map: &mut reqwest::header::HeaderMap,
+    headers: &BTreeMap<String, String>,
+    url: &str,
+) -> Result<()> {
+    for (k, v) in headers {
+        let name = reqwest::header::HeaderName::from_bytes(k.as_bytes());
+        let value = reqwest::header::HeaderValue::from_str(v);
+        let (Ok(name), Ok(value)) = (name, value) else {
+            return Err(AppError::Config(format!(
+                "MCP header '{k}' configured for '{url}' is not a valid HTTP header"
+            )));
+        };
+        map.insert(name, value);
+    }
+    Ok(())
 }
 
 impl HttpTransport {
@@ -118,7 +115,7 @@ impl HttpTransport {
         self.kind
     }
 
-    async fn build_request_headers(&self, bearer: Option<&str>) -> reqwest::header::HeaderMap {
+    async fn build_request_headers(&self, bearer: Option<&str>) -> Result<reqwest::header::HeaderMap> {
         let mut map = reqwest::header::HeaderMap::new();
         map.insert(
             reqwest::header::CONTENT_TYPE,
@@ -133,28 +130,29 @@ impl HttpTransport {
             reqwest::header::HeaderValue::from_static(MCP_PROTOCOL_VERSION_HEADER),
         );
 
-        for (k, v) in &self.headers {
-            if let (Ok(name), Ok(val)) = (
-                reqwest::header::HeaderName::from_bytes(k.as_bytes()),
-                reqwest::header::HeaderValue::from_str(v),
-            ) {
-                map.insert(name, val);
-            }
-        }
+        insert_configured_headers(&mut map, &self.headers, &self.url)?;
 
-        if let Some(token) = bearer
-            && let Ok(val) = reqwest::header::HeaderValue::from_str(&format!("Bearer {token}"))
-        {
+        if let Some(token) = bearer {
+            let val = reqwest::header::HeaderValue::from_str(&format!("Bearer {token}")).map_err(|_| {
+                AppError::Auth(format!(
+                    "access token for '{}' is not a valid Authorization header",
+                    self.url
+                ))
+            })?;
             map.insert(reqwest::header::AUTHORIZATION, val);
         }
 
-        if let Some(session_id) = self.session_id.read().await.as_deref()
-            && let Ok(val) = reqwest::header::HeaderValue::from_str(session_id)
-        {
+        if let Some(session_id) = self.session_id.read().await.as_deref() {
+            let val = reqwest::header::HeaderValue::from_str(session_id).map_err(|_| {
+                AppError::Mcp(format!(
+                    "session id from '{}' is not a valid mcp-session-id header",
+                    self.url
+                ))
+            })?;
             map.insert(reqwest::header::HeaderName::from_static("mcp-session-id"), val);
         }
 
-        map
+        Ok(map)
     }
 
     async fn record_session_id(&self, headers: &reqwest::header::HeaderMap) {
@@ -166,21 +164,37 @@ impl HttpTransport {
         }
     }
 
-    async fn parse_sse_response(&self, res: reqwest::Response, target_id: i64) -> Result<Value> {
+    async fn parse_sse_response(&self, res: reqwest::Response, method: &str, target_id: i64) -> Result<Value> {
         let mut stream = res.bytes_stream();
         let mut decoder = SseLineDecoder::new();
         let mut data_lines = Vec::new();
 
         while let Some(chunk_res) = stream.next().await {
             let chunk = chunk_res.map_err(|e| AppError::Mcp(format!("SSE stream error: {e}")))?;
-            if let Some(res) = scan_sse_chunk(&mut decoder, &mut data_lines, &chunk, target_id, &self.inbound) {
-                return res;
+            for message in scan_sse_chunk(&mut decoder, &mut data_lines, &chunk) {
+                if let Some(value) = self.handle_sse_message(message, method, target_id).await? {
+                    return Ok(value);
+                }
             }
         }
 
         Err(AppError::Mcp(
             "SSE stream closed without returning response".to_string(),
         ))
+    }
+
+    async fn handle_sse_message(&self, message: Value, method: &str, target_id: i64) -> Result<Option<Value>> {
+        match route_message(message) {
+            Some(Routed::Notification(notification)) => self.inbound.dispatch(&notification),
+            Some(Routed::Request { id, method: request }) => {
+                self.post_message(&reply_to_server_request(id, &request)).await?;
+            }
+            Some(Routed::Response(id, outcome)) if id.as_i64() == Some(target_id) => {
+                return outcome.map(Some).map_err(|e| server_error(method, &e));
+            }
+            Some(Routed::Response(..)) | None => {}
+        }
+        Ok(None)
     }
 
     async fn bearer(&self) -> Result<Option<String>> {
@@ -201,11 +215,11 @@ impl HttpTransport {
         }
     }
 
-    async fn send(&self, method: &str, id: i64, payload: &JsonRpcRequest, bearer: Option<&str>) -> Result<Reply> {
+    async fn post(&self, body: &impl serde::Serialize, bearer: Option<&str>) -> Result<reqwest::Response> {
         let res = CLIENT
             .post(&self.url)
-            .headers(self.build_request_headers(bearer).await)
-            .json(payload)
+            .headers(self.build_request_headers(bearer).await?)
+            .json(body)
             .send()
             .await
             .map_err(|e| {
@@ -217,53 +231,63 @@ impl HttpTransport {
                 }
             })?;
 
-        let status = res.status();
-        let res_headers = res.headers().clone();
         let had_session = self.session_id.read().await.is_some();
-        self.record_session_id(&res_headers).await;
+        self.record_session_id(res.headers()).await;
 
-        if status == reqwest::StatusCode::NOT_FOUND && had_session {
+        if res.status() == reqwest::StatusCode::NOT_FOUND && had_session {
             return Err(AppError::McpNotDelivered(format!(
                 "MCP session at '{}' expired",
                 self.url
             )));
         }
+        Ok(res)
+    }
 
-        if status == reqwest::StatusCode::UNAUTHORIZED {
-            let www_auth = res_headers
-                .get(reqwest::header::WWW_AUTHENTICATE)
-                .and_then(|v| v.to_str().ok())
-                .unwrap_or("");
-            return Ok(Reply::Unauthorized(www_auth.to_string()));
+    async fn http_error(&self, res: reqwest::Response) -> AppError {
+        let status = res.status();
+        let body = res.text().await.unwrap_or_default();
+        AppError::Mcp(format!("HTTP error {status} from '{}': {body}", self.url))
+    }
+
+    async fn post_message(&self, body: &impl serde::Serialize) -> Result<()> {
+        let bearer = self.bearer().await?;
+        let res = self.post(body, bearer.as_deref()).await?;
+        if let Some(www_auth) = unauthorized_challenge(&res) {
+            return Err(self.unauthorized(&www_auth));
+        }
+        if !res.status().is_success() {
+            return Err(self.http_error(res).await);
+        }
+        Ok(())
+    }
+
+    async fn send(&self, method: &str, id: i64, payload: &JsonRpcRequest, bearer: Option<&str>) -> Result<Reply> {
+        let res = self.post(payload, bearer).await?;
+        if let Some(www_auth) = unauthorized_challenge(&res) {
+            return Ok(Reply::Unauthorized(www_auth));
+        }
+        if !res.status().is_success() {
+            return Err(self.http_error(res).await);
         }
 
-        if !status.is_success() {
-            let body = res.text().await.unwrap_or_default();
-            return Err(AppError::Mcp(format!(
-                "HTTP error {status} from '{}': {body}",
-                self.url
-            )));
-        }
-
-        let content_type = res_headers
+        let is_sse = res
+            .headers()
             .get(reqwest::header::CONTENT_TYPE)
             .and_then(|v| v.to_str().ok())
-            .unwrap_or("");
-
-        if content_type.contains("text/event-stream") {
-            return self.parse_sse_response(res, id).await.map(Reply::Value);
+            .is_some_and(|content_type| content_type.contains("text/event-stream"));
+        if is_sse {
+            return self.parse_sse_response(res, method, id).await.map(Reply::Value);
         }
-        let json: JsonRpcResponse = res
+        let message: Value = res
             .json()
             .await
             .map_err(|e| AppError::Mcp(format!("Failed to parse JSON-RPC response: {e}")))?;
-        if let Some(err) = json.error {
-            return Err(AppError::Mcp(format!(
-                "MCP error from {method}: {} (code {})",
-                err.message, err.code
-            )));
+        match route_message(message) {
+            Some(Routed::Response(_, outcome)) => outcome.map(Reply::Value).map_err(|e| server_error(method, &e)),
+            _ => Err(AppError::Mcp(
+                "Failed to parse JSON-RPC response: not a response object".to_string(),
+            )),
         }
-        Ok(Reply::Value(json.result.unwrap_or(Value::Null)))
     }
 
     async fn send_authorized(&self, method: &str, id: i64, payload: &JsonRpcRequest) -> Result<Value> {
@@ -291,18 +315,7 @@ impl HttpTransport {
     }
 
     pub async fn notify(&self, method: &str, params: Option<Value>) -> Result<()> {
-        let notif_payload = JsonRpcNotification::new(method, params);
-        let bearer = self.bearer().await.ok().flatten();
-        let headers = self.build_request_headers(bearer.as_deref()).await;
-
-        let _ = CLIENT
-            .post(&self.url)
-            .headers(headers)
-            .json(&notif_payload)
-            .send()
-            .await;
-
-        Ok(())
+        self.post_message(&JsonRpcNotification::new(method, params)).await
     }
 }
 
@@ -459,15 +472,154 @@ mod tests {
         assert!(rpc_err.to_string().contains("MCP error from ping"));
     }
 
+    async fn loopback() -> (TcpListener, String) {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}/mcp", listener.local_addr().unwrap());
+        (listener, url)
+    }
+
+    async fn answer_once(listener: &TcpListener, response: &str) -> Value {
+        let (mut socket, _) = listener.accept().await.unwrap();
+        let request = crate::mcp::test_server::read_request(&mut socket).await.unwrap();
+        socket.write_all(response.as_bytes()).await.unwrap();
+        request
+    }
+
+    fn transport(url: String, headers: BTreeMap<String, String>) -> Arc<McpTransport> {
+        let idle = Some(std::time::Duration::from_secs(1));
+        McpTransport::new_http(url, McpTransportKind::StreamableHttp, headers, idle, None)
+    }
+
+    const ACCEPTED: &str = "HTTP/1.1 202 Accepted\r\nConnection: close\r\nContent-Length: 0\r\n\r\n";
+    const SSE_HEAD: &str = "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nConnection: close\r\n\r\n";
+
+    #[tokio::test]
+    async fn server_ping_inside_an_sse_stream_is_answered() {
+        let (listener, url) = loopback().await;
+        tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            crate::mcp::test_server::read_request(&mut stream).await;
+            let ping = r#"{"jsonrpc":"2.0","id":"srv-1","method":"ping"}"#;
+            stream
+                .write_all(format!("{SSE_HEAD}data: {ping}\n\n").as_bytes())
+                .await
+                .unwrap();
+            let reply = answer_once(&listener, ACCEPTED).await;
+            let done = serde_json::json!({ "jsonrpc": "2.0", "id": 1, "result": reply });
+            stream.write_all(format!("data: {done}\n\n").as_bytes()).await.unwrap();
+        });
+
+        let res = transport(url, BTreeMap::new())
+            .request("tools/list", None)
+            .await
+            .unwrap();
+
+        assert_eq!(
+            res,
+            serde_json::json!({ "jsonrpc": "2.0", "id": "srv-1", "result": {} })
+        );
+    }
+
+    #[tokio::test]
+    async fn sse_error_responses_name_the_method() {
+        let (listener, url) = loopback().await;
+        tokio::spawn(async move {
+            let err = r#"{"jsonrpc":"2.0","id":1,"error":{"code":-32602,"message":"Bad params"}}"#;
+            answer_once(&listener, &format!("{SSE_HEAD}data: {err}\n\n")).await;
+        });
+
+        let err = transport(url, BTreeMap::new())
+            .request("tools/call", None)
+            .await
+            .unwrap_err();
+
+        assert!(matches!(err, AppError::Mcp(_)), "{err}");
+        assert!(
+            err.to_string()
+                .contains("MCP error from tools/call: Bad params (code -32602)"),
+            "{err}"
+        );
+    }
+
+    #[tokio::test]
+    async fn invalid_configured_headers_are_reported_by_name_without_the_value() {
+        for (name, value) in [("X-Bad", "secret\nvalue"), ("Bad Name", "secret")] {
+            let (listener, url) = loopback().await;
+            drop(listener);
+            let headers = BTreeMap::from([(name.to_string(), value.to_string())]);
+
+            let err = transport(url, headers).request("tools/list", None).await.unwrap_err();
+
+            assert!(matches!(err, AppError::Config(_)), "{err}");
+            assert!(err.to_string().contains(&format!("'{name}'")), "{err}");
+            assert!(!err.to_string().contains("secret"), "{err}");
+        }
+    }
+
+    #[tokio::test]
+    async fn notify_reports_rejected_notifications() {
+        let cases = [
+            ("500 Internal Server Error", "HTTP error 500"),
+            ("401 Unauthorized", "Unauthorized"),
+        ];
+        for (status, expected) in cases {
+            let (listener, url) = loopback().await;
+            let response = format!("HTTP/1.1 {status}\r\nConnection: close\r\nContent-Length: 0\r\n\r\n");
+            tokio::spawn(async move { answer_once(&listener, &response).await });
+
+            let err = transport(url, BTreeMap::new())
+                .notify("notifications/initialized", None)
+                .await
+                .unwrap_err();
+
+            assert!(err.to_string().contains(expected), "{status}: {err}");
+        }
+    }
+
+    #[tokio::test]
+    async fn notify_reports_a_refused_connection_as_not_delivered() {
+        let (listener, url) = loopback().await;
+        drop(listener);
+
+        let err = transport(url, BTreeMap::new())
+            .notify("notifications/initialized", None)
+            .await
+            .unwrap_err();
+
+        assert!(matches!(err, AppError::McpNotDelivered(_)), "{err}");
+    }
+
+    #[tokio::test]
+    async fn notify_records_the_session_id() {
+        let (listener, url) = loopback().await;
+        let server = tokio::spawn(async move {
+            let accepted =
+                "HTTP/1.1 202 Accepted\r\nConnection: close\r\nMcp-Session-Id: s-42\r\nContent-Length: 0\r\n\r\n";
+            answer_once(&listener, accepted).await;
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut buf = vec![0u8; 4096];
+            let n = socket.read(&mut buf).await.unwrap();
+            String::from_utf8_lossy(&buf[..n]).to_string()
+        });
+        let transport = transport(url, BTreeMap::new());
+
+        transport.notify("notifications/initialized", None).await.unwrap();
+        let _ = transport.request("tools/list", None).await;
+
+        assert!(server.await.unwrap().contains("mcp-session-id: s-42"));
+    }
+
     #[test]
     fn sse_chunk_split_inside_multibyte_character_decodes_intact() {
         let event = "data: {\"jsonrpc\":\"2.0\",\"id\":7,\"result\":\"héllo\"}\n\n".as_bytes();
         let split = event.iter().position(|b| *b == 0xC3).unwrap() + 1;
         let mut decoder = SseLineDecoder::new();
         let mut data_lines = Vec::new();
-        let slot = Inbound::default();
-        assert!(scan_sse_chunk(&mut decoder, &mut data_lines, &event[..split], 7, &slot).is_none());
-        let result = scan_sse_chunk(&mut decoder, &mut data_lines, &event[split..], 7, &slot);
-        assert_eq!(result.unwrap().unwrap(), serde_json::json!("héllo"));
+        assert!(scan_sse_chunk(&mut decoder, &mut data_lines, &event[..split]).is_empty());
+        let messages = scan_sse_chunk(&mut decoder, &mut data_lines, &event[split..]);
+        assert_eq!(
+            messages,
+            [serde_json::json!({ "jsonrpc": "2.0", "id": 7, "result": "héllo" })]
+        );
     }
 }

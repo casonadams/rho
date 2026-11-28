@@ -21,6 +21,31 @@ echo "{\"jsonrpc\":\"2.0\",\"id\":$id,\"result\":{\"status\":\"ok\"}}"
     assert_eq!(result, serde_json::json!({"status": "ok"}));
 }
 
+#[tokio::test]
+async fn stdio_server_requests_are_answered() {
+    let script = r#"
+read line
+echo '{"jsonrpc":"2.0","id":"srv-1","method":"ping"}'
+read ping_reply
+echo '{"jsonrpc":"2.0","id":7,"method":"roots/list"}'
+read roots_reply
+echo "{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":[$ping_reply,$roots_reply]}"
+"#;
+    let config = McpServerConfig::stdio("/bin/sh", vec!["-c".to_string(), script.to_string()]);
+    let (stdin, stdout, handle) = McpProcess::spawn(&config, &std::env::temp_dir()).unwrap();
+    let transport = McpTransport::new_stdio(stdin, stdout, handle, Some(Duration::from_secs(1)));
+
+    let replies = transport.request("tools/list", None).await.unwrap();
+
+    assert_eq!(
+        replies,
+        serde_json::json!([
+            { "jsonrpc": "2.0", "id": "srv-1", "result": {} },
+            { "jsonrpc": "2.0", "id": 7, "error": { "code": -32601, "message": "Method not found: roots/list" } }
+        ])
+    );
+}
+
 async fn progress_every(inbound: Inbound, period: Duration) {
     loop {
         tokio::time::sleep(period).await;

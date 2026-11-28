@@ -51,6 +51,26 @@ pub struct JsonRpcResponse {
     pub error: Option<JsonRpcError>,
 }
 
+impl JsonRpcResponse {
+    pub fn success(id: Value, result: Value) -> Self {
+        Self {
+            jsonrpc: JSONRPC_VERSION.to_string(),
+            id,
+            result: Some(result),
+            error: None,
+        }
+    }
+
+    pub fn failure(id: Value, error: JsonRpcError) -> Self {
+        Self {
+            jsonrpc: JSONRPC_VERSION.to_string(),
+            id,
+            result: None,
+            error: Some(error),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct JsonRpcError {
     pub code: i64,

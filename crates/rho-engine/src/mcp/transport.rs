@@ -1,4 +1,5 @@
 pub mod http;
+mod route;
 pub mod stdio;
 
 pub use http::HttpTransport;
@@ -136,7 +137,9 @@ impl Drop for CancelOnDrop {
         let (inner, id) = (self.inner.clone(), self.id);
         runtime.spawn(async move {
             let params = serde_json::json!({ "requestId": id, "reason": "client cancelled the request" });
-            let _ = inner.notify("notifications/cancelled", Some(params)).await;
+            if let Err(err) = inner.notify("notifications/cancelled", Some(params)).await {
+                tracing::debug!("best-effort MCP cancellation of abandoned request {id} not delivered: {err}");
+            }
         });
     }
 }
