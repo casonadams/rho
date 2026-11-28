@@ -93,14 +93,17 @@ pub(crate) fn is_hard_quota(body: &str) -> bool {
 }
 
 pub fn error_message_or_excerpt(body: &str) -> String {
-    serde_json::from_str::<serde_json::Value>(body)
-        .ok()
-        .and_then(|v| {
-            v.pointer("/error/message")
-                .and_then(serde_json::Value::as_str)
-                .map(str::to_string)
-        })
-        .unwrap_or_else(|| body_excerpt(body))
+    let parsed = serde_json::from_str::<serde_json::Value>(body).ok();
+    let message = parsed.as_ref().and_then(|v| {
+        ["/error/message", "/message", "/error"]
+            .iter()
+            .find_map(|pointer| v.pointer(pointer).and_then(serde_json::Value::as_str))
+    });
+    match message {
+        Some(message) => message.to_string(),
+        None if body.trim().is_empty() => "unknown error".to_string(),
+        None => body_excerpt(body),
+    }
 }
 
 pub fn body_excerpt(body: &str) -> String {
@@ -326,6 +329,25 @@ mod tests {
             overflow.into_app_error(friendly),
             AppError::ContextOverflow(_)
         ));
+    }
+
+    #[test]
+    fn error_message_is_extracted_from_each_body_shape() {
+        let long = "x".repeat(400);
+        let cases = [
+            (r#"{"error":{"message":"bad key"}}"#, "bad key"),
+            (r#"{"error":{"message":"nested"},"message":"top"}"#, "nested"),
+            (r#"{"message":"top level"}"#, "top level"),
+            (r#"{"error":"plain string"}"#, "plain string"),
+            (r#"{"error":{"code":5}}"#, r#"{"error":{"code":5}}"#),
+            ("<html>Bad Gateway</html>", "<html>Bad Gateway</html>"),
+            (long.as_str(), &long[..300]),
+            ("", "unknown error"),
+            ("  \n ", "unknown error"),
+        ];
+        for (body, expected) in cases {
+            assert_eq!(error_message_or_excerpt(body), expected, "{body}");
+        }
     }
 
     #[test]

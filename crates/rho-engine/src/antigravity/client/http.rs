@@ -2,7 +2,7 @@
 //! headers, error mapping, and the metadata POST helper.
 
 use crate::http::{CLIENT, bearer, header_value};
-use crate::provider::error::{HttpFailure, body_excerpt};
+use crate::provider::error::{HttpFailure, error_message_or_excerpt};
 use reqwest::header::{HeaderMap, HeaderValue};
 use std::time::Duration;
 
@@ -70,17 +70,16 @@ fn format_error_details(message: &str, details: &[serde_json::Value]) -> String 
 }
 
 fn parse_error_message(body: &str) -> String {
+    let message = error_message_or_excerpt(body);
     let Ok(v) = serde_json::from_str::<serde_json::Value>(body) else {
-        return body_excerpt(body);
+        return message;
     };
     let Some(err) = v.get("error") else {
-        return body_excerpt(body);
+        return message;
     };
-    let message = err.get("message").and_then(|m| m.as_str()).unwrap_or("unknown error");
-    if let Some(details) = err.get("details").and_then(|d| d.as_array()) {
-        format_error_details(message, details)
-    } else {
-        format!("{message} (body: {v})")
+    match err.get("details").and_then(|d| d.as_array()) {
+        Some(details) => format_error_details(&message, details),
+        None => format!("{message} (body: {v})"),
     }
 }
 

@@ -1,3 +1,4 @@
+use crate::provider::error::error_message_or_excerpt;
 use serde::de::DeserializeOwned;
 use std::sync::LazyLock;
 use std::time::Duration;
@@ -80,7 +81,10 @@ pub(crate) async fn get_json(
             .text()
             .await
             .unwrap_or_else(|e| format!("(failed to read error body: {e})"));
-        return Err(failed(format!("returned HTTP {status}: {}", backend_message(&body))));
+        return Err(failed(format!(
+            "returned HTTP {status}: {}",
+            error_message_or_excerpt(&body)
+        )));
     }
     response
         .json()
@@ -89,7 +93,7 @@ pub(crate) async fn get_json(
 }
 
 pub(crate) fn friendly_oauth_error(name: &str, login: &str, status: Option<u16>, body: &str) -> String {
-    let message = backend_message(body);
+    let message = error_message_or_excerpt(body);
     match status {
         Some(401) => format!("{name} OAuth session expired or credentials are invalid. Run 'rho login {login}'."),
         Some(429) => format!("{name} rate limit or usage limit reached. Wait a bit and retry. Backend: {message}"),
@@ -104,28 +108,6 @@ pub(crate) fn friendly_oauth_error(name: &str, login: &str, status: Option<u16>,
             format!("{prefix}{clean}")
         }
     }
-}
-
-fn backend_message(body: &str) -> String {
-    serde_json::from_str::<serde_json::Value>(body)
-        .ok()
-        .and_then(|v| {
-            if let Some(msg) = v.get("error").and_then(|e| e.get("message")).and_then(|m| m.as_str()) {
-                Some(msg.to_string())
-            } else if let Some(msg) = v.get("message").and_then(|m| m.as_str()) {
-                Some(msg.to_string())
-            } else {
-                v.get("error").and_then(|e| e.as_str()).map(|err| err.to_string())
-            }
-        })
-        .unwrap_or_else(|| {
-            let s = crate::provider::error::body_excerpt(body);
-            if s.trim().is_empty() {
-                "unknown error".to_string()
-            } else {
-                s
-            }
-        })
 }
 
 #[cfg(test)]

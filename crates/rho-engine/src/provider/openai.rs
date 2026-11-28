@@ -5,7 +5,9 @@
 
 use reqwest::header::{AUTHORIZATION, CONTENT_TYPE, HeaderMap, HeaderValue};
 use rho_harness_core::error::AppError;
-use rho_harness_core::model::{AssistantContent, ChatMessage, ToolCall, ToolFunction, UserContent};
+use rho_harness_core::model::{
+    AssistantContent, ChatMessage, ImageContent, ToolCall, ToolFunction, ToolResultContent, UserContent,
+};
 use serde::Deserialize;
 use serde_json::{Value, json};
 use std::collections::HashMap;
@@ -14,7 +16,8 @@ use crate::engine::metrics::StructuralUsage;
 use crate::provider::adapter::{
     FinishReason, ModelAdapter, ModelCompletionRequest, ModelEventStream, ModelStreamEvent, ModelToolDefinition,
 };
-use crate::provider::sse::{SseLineDecoder, SseStreamParser, unfold_sse_stream};
+use crate::provider::error::{HttpFailure, classify_stream_error};
+use crate::provider::sse::{SseLineDecoder, SseStreamParser, open_sse_stream};
 
 #[derive(Clone)]
 pub struct OpenAiClient {
@@ -64,43 +67,56 @@ impl OpenAiClient {
         format!("{}/chat/completions", self.base_url)
     }
 
-    fn build_headers(&self) -> HeaderMap {
+    fn build_headers(&self) -> Result<HeaderMap, HttpFailure> {
         let mut headers = self.extra_headers.clone();
         headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
-        if !self.api_key.trim().is_empty()
-            && let Ok(auth_val) = HeaderValue::from_str(&format!("Bearer {}", self.api_key.trim()))
-        {
-            headers.insert(AUTHORIZATION, auth_val);
+        let api_key = self.api_key.trim();
+        if !api_key.is_empty() {
+            headers.insert(AUTHORIZATION, crate::http::bearer(api_key)?);
         }
-        headers
+        Ok(headers)
     }
 }
 
-fn convert_openai_user(content: &[UserContent]) -> Value {
+fn image_part(img: &ImageContent) -> Value {
+    json!({
+        "type": "image_url",
+        "image_url": { "url": format!("data:{};base64,{}", img.media_type_or_png(), img.data) }
+    })
+}
+
+fn convert_openai_user(content: &[UserContent]) -> Vec<Value> {
+    let mut messages = Vec::new();
     let mut parts = Vec::new();
+    let mut tool_images = Vec::new();
     for part in content {
         match part {
-            UserContent::Text(t) => {
-                parts.push(json!({ "type": "text", "text": t.text }));
-            }
-            UserContent::Image(img) => {
-                let mime = img.media_type_or_png();
-                let data_url = format!("data:{mime};base64,{}", img.data);
-                parts.push(json!({
-                    "type": "image_url",
-                    "image_url": { "url": data_url }
-                }));
-            }
+            UserContent::Text(t) => parts.push(json!({ "type": "text", "text": t.text })),
+            UserContent::Image(img) => parts.push(image_part(img)),
             UserContent::ToolResult(res) => {
-                let text = res.text();
-                return json!({
+                messages.push(json!({
                     "role": "tool",
                     "tool_call_id": res.call,
-                    "content": text,
-                });
+                    "content": res.text(),
+                }));
+                tool_images.extend(res.content.iter().filter_map(|item| match item {
+                    ToolResultContent::Image(img) => Some(image_part(img)),
+                    _ => None,
+                }));
             }
         }
     }
+    if !tool_images.is_empty() {
+        parts.push(json!({ "type": "text", "text": "Images returned by the tool calls above:" }));
+        parts.extend(tool_images);
+    }
+    if !parts.is_empty() {
+        messages.push(user_message(parts));
+    }
+    messages
+}
+
+fn user_message(parts: Vec<Value>) -> Value {
     if parts.len() == 1 && parts[0]["type"] == "text" {
         json!({
             "role": "user",
@@ -144,14 +160,14 @@ fn convert_openai_assistant(content: &[AssistantContent]) -> Value {
     Value::Object(obj)
 }
 
-fn convert_chat_message(msg: &ChatMessage) -> Value {
+fn convert_chat_message(msg: &ChatMessage) -> Vec<Value> {
     match msg {
-        ChatMessage::System { content } => json!({
+        ChatMessage::System { content } => vec![json!({
             "role": "system",
             "content": content,
-        }),
+        })],
         ChatMessage::User { content } => convert_openai_user(content),
-        ChatMessage::Assistant { content, .. } => convert_openai_assistant(content),
+        ChatMessage::Assistant { content, .. } => vec![convert_openai_assistant(content)],
     }
 }
 
@@ -178,7 +194,7 @@ pub fn build_request_body(req: &ModelCompletionRequest, model: &str, stream: boo
     {
         messages.push(json!({ "role": "system", "content": preamble.trim() }));
     }
-    messages.extend(req.messages.iter().map(convert_chat_message));
+    messages.extend(req.messages.iter().flat_map(convert_chat_message));
     if !req.prompt.trim().is_empty() {
         messages.push(json!({ "role": "user", "content": req.prompt.trim() }));
     }
@@ -261,6 +277,47 @@ struct PromptTokensDetails {
 struct ChatChunk {
     choices: Option<Vec<ChunkChoice>>,
     usage: Option<ChunkUsage>,
+    error: Option<ChunkError>,
+}
+
+#[derive(Deserialize)]
+struct ChunkError {
+    code: Option<Value>,
+    #[serde(rename = "type")]
+    kind: Option<String>,
+    message: Option<String>,
+}
+
+impl ChunkError {
+    fn into_app_error(self) -> AppError {
+        let code_kind = match &self.code {
+            Some(Value::String(code)) => Some(code.as_str()),
+            Some(Value::Number(code)) => match code.as_u64() {
+                Some(429) => Some("rate_limit_exceeded"),
+                Some(408 | 500 | 502 | 503 | 504 | 529) => Some("server_error"),
+                _ => None,
+            },
+            _ => None,
+        };
+        let kind = code_kind.or(self.kind.as_deref());
+        let message = self.message.unwrap_or_else(|| "unknown error".to_string());
+        classify_stream_error(kind, message)
+    }
+}
+
+fn finish_event(finish: &str) -> Result<ModelStreamEvent, AppError> {
+    let reason = match finish {
+        "error" => {
+            let message = "The model stream ended with finish_reason \"error\"".to_string();
+            return Err(classify_stream_error(None, message));
+        }
+        "stop" => FinishReason::Stop,
+        "tool_calls" => FinishReason::ToolCalls,
+        "length" => FinishReason::Length,
+        "content_filter" => FinishReason::ContentFilter,
+        _ => FinishReason::Other,
+    };
+    Ok(ModelStreamEvent::Finish(reason))
 }
 
 impl OpenAiSseParser {
@@ -325,14 +382,7 @@ impl OpenAiSseParser {
         }
         if let Some(finish) = choice.finish_reason {
             self.flush_pending_tools(events);
-            let reason = match finish.as_str() {
-                "stop" => FinishReason::Stop,
-                "tool_calls" => FinishReason::ToolCalls,
-                "length" => FinishReason::Length,
-                "content_filter" => FinishReason::ContentFilter,
-                _ => FinishReason::Other,
-            };
-            events.push(Ok(ModelStreamEvent::Finish(reason)));
+            events.push(finish_event(&finish));
         }
     }
 
@@ -368,6 +418,10 @@ impl SseStreamParser for OpenAiSseParser {
             let Ok(chunk) = serde_json::from_str::<ChatChunk>(&line) else {
                 continue;
             };
+            if let Some(error) = chunk.error {
+                events.push(Err(error.into_app_error()));
+                continue;
+            }
             if let Some(choices) = chunk.choices {
                 for choice in choices {
                     self.handle_choice(choice, &mut events);
@@ -392,30 +446,29 @@ impl ModelAdapter for OpenAiClient {
     }
 
     async fn stream(&self, req: ModelCompletionRequest) -> Result<ModelEventStream, AppError> {
-        use crate::provider::error::HttpFailure;
         let body = build_request_body(&req, &self.model, true);
-        let provider = self.provider_name.as_str();
-        let resp = crate::http::post_json_checked(&self.endpoint_url(), self.build_headers(), &body)
-            .await
-            .map_err(|failure| match failure {
-                HttpFailure::Status {
-                    status,
-                    body,
-                    retry_after,
-                } => HttpFailure::Status {
-                    status,
-                    body: format!("HTTP {status} from {provider}: {body}"),
-                    retry_after,
-                },
-                HttpFailure::Transport(error) => {
-                    HttpFailure::Transport(format!("Failed to connect to {provider}: {error}"))
-                }
-                local => local,
-            })
-            .map_err(|failure| failure.into_app_error(|_, body| body.to_string()))?;
+        let opened = match self.build_headers() {
+            Ok(headers) => crate::http::post_json_checked(&self.endpoint_url(), headers, &body).await,
+            Err(failure) => Err(failure),
+        };
+        let opened = opened.map_err(|failure| name_provider(failure, &self.provider_name));
+        open_sse_stream(opened, |_, body| body.to_string(), OpenAiSseParser::new())
+    }
+}
 
-        let parser = OpenAiSseParser::new();
-        Ok(unfold_sse_stream(resp.bytes_stream(), parser))
+fn name_provider(failure: HttpFailure, provider: &str) -> HttpFailure {
+    match failure {
+        HttpFailure::Status {
+            status,
+            body,
+            retry_after,
+        } => HttpFailure::Status {
+            status,
+            body: format!("HTTP {status} from {provider}: {body}"),
+            retry_after,
+        },
+        HttpFailure::Transport(error) => HttpFailure::Transport(format!("Failed to connect to {provider}: {error}")),
+        local @ HttpFailure::Local(_) => local,
     }
 }
 
@@ -423,32 +476,19 @@ impl ModelAdapter for OpenAiClient {
 mod tests {
     use super::*;
     use rho_harness_core::model::{
-        AssistantContent, ChatMessage, ImageContent, TextContent, ToolCall, ToolFunction, ToolResult, UserContent,
+        AssistantContent, ChatMessage, ImageContent, TextContent, ToolCall, ToolFunction, ToolResult,
+        ToolResultContent, UserContent,
     };
 
     #[test]
     fn test_convert_openai_user_and_assistant() {
-        let user_msg = ChatMessage::User {
-            content: vec![
-                UserContent::Text(TextContent::new("Hello")),
-                UserContent::Image(ImageContent {
-                    data: "base64data".to_string(),
-                    media_type: Some("image/jpeg".to_string()),
-                }),
-                UserContent::ToolResult(ToolResult::new("call-1", "bash", "output")),
-            ],
-        };
-        let user_val = convert_chat_message(&user_msg);
-        assert_eq!(user_val["role"], "tool");
-        assert_eq!(user_val["tool_call_id"], "call-1");
-
         let single_user = ChatMessage::user("plain prompt");
-        let single_val = convert_chat_message(&single_user);
+        let [single_val] = convert_chat_message(&single_user).try_into().unwrap();
         assert_eq!(single_val["role"], "user");
         assert_eq!(single_val["content"], "plain prompt");
 
         let system_msg = ChatMessage::system("system instruction");
-        let sys_val = convert_chat_message(&system_msg);
+        let [sys_val] = convert_chat_message(&system_msg).try_into().unwrap();
         assert_eq!(sys_val["role"], "system");
 
         let asst_msg = ChatMessage::Assistant {
@@ -461,10 +501,128 @@ mod tests {
                 )),
             ],
         };
-        let asst_val = convert_chat_message(&asst_msg);
+        let [asst_val] = convert_chat_message(&asst_msg).try_into().unwrap();
         assert_eq!(asst_val["role"], "assistant");
         assert_eq!(asst_val["content"], "I will help");
         assert_eq!(asst_val["tool_calls"][0]["id"], "call-9");
+    }
+
+    #[test]
+    fn user_turn_keeps_every_tool_result_then_text_and_images() {
+        let image = |data: &str, mime: &str| ImageContent {
+            data: data.to_string(),
+            media_type: Some(mime.to_string()),
+        };
+        let mut first = ToolResult::new("call-1", "screenshot", "shot taken");
+        first
+            .content
+            .push(ToolResultContent::Image(image("toolpng", "image/png")));
+        let req = ModelCompletionRequest {
+            messages: vec![ChatMessage::User {
+                content: vec![
+                    UserContent::ToolResult(first),
+                    UserContent::Text(TextContent::new("Hello")),
+                    UserContent::ToolResult(ToolResult::new("call-2", "bash", "output")),
+                    UserContent::Image(image("userjpg", "image/jpeg")),
+                ],
+            }],
+            ..Default::default()
+        };
+
+        let body = build_request_body(&req, "m", false);
+
+        assert_eq!(
+            body["messages"],
+            json!([
+                {"role": "tool", "tool_call_id": "call-1", "content": "shot taken"},
+                {"role": "tool", "tool_call_id": "call-2", "content": "output"},
+                {"role": "user", "content": [
+                    {"type": "text", "text": "Hello"},
+                    {"type": "image_url", "image_url": {"url": "data:image/jpeg;base64,userjpg"}},
+                    {"type": "text", "text": "Images returned by the tool calls above:"},
+                    {"type": "image_url", "image_url": {"url": "data:image/png;base64,toolpng"}},
+                ]},
+            ])
+        );
+    }
+
+    #[test]
+    fn error_chunks_and_error_finish_surface_as_typed_errors() {
+        let cases = [
+            (
+                r#"{"error":{"code":429,"message":"Rate limit exceeded"}}"#,
+                "rate_limited",
+            ),
+            (
+                r#"{"error":{"code":"insufficient_quota","message":"out of credit"}}"#,
+                "provider",
+            ),
+            (
+                r#"{"error":{"code":502,"message":"Provider overloaded"}}"#,
+                "unavailable",
+            ),
+            (
+                r#"{"error":{"code":"server_is_overloaded","message":"busy"}}"#,
+                "unavailable",
+            ),
+            (r#"{"choices":[{"delta":{},"finish_reason":"error"}]}"#, "provider"),
+            (
+                r#"{"error":{"code":"server_error","message":"upstream died"},"choices":[{"delta":{"content":""},"finish_reason":"error"}]}"#,
+                "unavailable",
+            ),
+        ];
+        for (line, expected) in cases {
+            let events = OpenAiSseParser::new().feed(format!("data: {line}\n\n").as_bytes());
+            let kind = match events.as_slice() {
+                [Err(AppError::RateLimited { .. })] => "rate_limited",
+                [Err(AppError::ProviderUnavailable { .. })] => "unavailable",
+                [Err(AppError::Provider(_))] => "provider",
+                other => panic!("{line}: {other:?}"),
+            };
+            assert_eq!(kind, expected, "{line}");
+        }
+    }
+
+    #[test]
+    fn unsendable_api_key_fails_locally_instead_of_dropping_authorization() {
+        let client = OpenAiClient::new("http://unused", "sk-secret\nvalue", "m", "openai");
+        let failure = client.build_headers().unwrap_err();
+        assert!(matches!(failure, HttpFailure::Local(_)), "{failure:?}");
+        assert!(!failure.body().contains("sk-secret"), "{failure:?}");
+
+        let headers = OpenAiClient::new("http://unused", " abc ", "m", "openai")
+            .build_headers()
+            .unwrap();
+        assert_eq!(headers[AUTHORIZATION], "Bearer abc");
+        let anonymous = OpenAiClient::new("http://unused", "", "m", "openai");
+        assert!(!anonymous.build_headers().unwrap().contains_key(AUTHORIZATION));
+    }
+
+    #[tokio::test]
+    async fn stream_with_unsendable_key_fails_before_connecting() {
+        let client = OpenAiClient::new("http://unused.invalid", "sk-secret\nvalue", "m", "openai");
+        let Err(error) = client.stream(ModelCompletionRequest::default()).await else {
+            panic!("stream opened with an unsendable key");
+        };
+        assert!(
+            matches!(&error, AppError::Provider(m) if m.contains("cannot be sent")),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn open_failures_name_the_provider() {
+        let cases = [
+            (HttpFailure::status(401, "bad key"), "HTTP 401 from groq: bad key"),
+            (
+                HttpFailure::Transport("refused".into()),
+                "Failed to connect to groq: refused",
+            ),
+            (HttpFailure::Local("no key".into()), "no key"),
+        ];
+        for (failure, expected) in cases {
+            assert_eq!(name_provider(failure, "groq").body(), expected);
+        }
     }
 
     #[test]

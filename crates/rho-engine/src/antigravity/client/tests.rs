@@ -150,6 +150,28 @@ fn friendly_error_formats_server_and_network_error_cases() {
 }
 
 #[test]
+fn friendly_error_keeps_backend_details() {
+    let cases = [
+        (
+            r#"{"error":{"message":"Invalid","details":[{"fieldViolations":[{"field":"model","description":"unknown"}]}]}}"#,
+            "Antigravity API error (400): Invalid (details: model: unknown)",
+        ),
+        (
+            r#"{"error":{"message":"Invalid","details":[]}}"#,
+            "Antigravity API error (400): Invalid (raw details: [])",
+        ),
+        (
+            r#"{"error":{"message":"Invalid"}}"#,
+            r#"Antigravity API error (400): Invalid (body: {"error":{"message":"Invalid"}})"#,
+        ),
+        ("plain failure", "Antigravity API error (400): plain failure"),
+    ];
+    for (body, expected) in cases {
+        assert_eq!(friendly_error(Some(400), body), expected, "{body}");
+    }
+}
+
+#[test]
 fn antigravity_headers_sets_expected_keys() {
     let headers = antigravity_headers("test-secret-token").unwrap();
     let actual = (
