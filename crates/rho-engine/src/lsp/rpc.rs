@@ -29,6 +29,9 @@ pub trait ServerMessages: Send + Sync {
 /// Documented cap on one message body; a larger `Content-Length` closes the connection.
 const MAX_MESSAGE_BYTES: usize = 64 * 1024 * 1024;
 const MAX_HEADER_LINE: u64 = 8 * 1024;
+const INITIAL_BODY_CAPACITY: usize = 64 * 1024;
+/// Messages waiting for the writer; a server that leaves this many unread is treated as stuck.
+const MAX_QUEUED_MESSAGES: usize = 1024;
 
 #[derive(Debug)]
 struct RpcError {
@@ -48,7 +51,7 @@ impl RpcError {
 type Pending = HashMap<i64, oneshot::Sender<Result<Value, RpcError>>>;
 
 pub struct Connection {
-    outgoing: mpsc::UnboundedSender<Value>,
+    outgoing: mpsc::Sender<Value>,
     next_id: AtomicI64,
     pending: Mutex<Pending>,
     closed: AtomicBool,
@@ -104,8 +107,14 @@ async fn read_frame<R: AsyncBufRead + Unpin>(
     if length > MAX_MESSAGE_BYTES {
         return Err(invalid_data("message too large"));
     }
-    let mut body = vec![0; length];
-    reader.read_exact(&mut body).await?;
+    let mut body = Vec::with_capacity(length.min(INITIAL_BODY_CAPACITY));
+    reader.take(length as u64).read_to_end(&mut body).await?;
+    if body.len() < length {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::UnexpectedEof,
+            "message body ended early",
+        ));
+    }
     Ok(Some(serde_json::from_slice(&body)))
 }
 
@@ -134,7 +143,7 @@ impl Drop for CloseOnDrop {
 
 impl Connection {
     pub fn start(reader: BoxedReader, writer: BoxedWriter, handler: Arc<dyn ServerMessages>) -> Arc<Self> {
-        let (outgoing, queue) = mpsc::unbounded_channel();
+        let (outgoing, queue) = mpsc::channel(MAX_QUEUED_MESSAGES);
         let connection = Arc::new(Self {
             outgoing,
             next_id: AtomicI64::new(1),
@@ -213,13 +222,19 @@ impl Connection {
     }
 
     /// Queues `message` for the writer task, so no caller ever waits on the server reading its input.
+    /// A full queue means the server stopped reading, so the connection closes instead of growing.
     fn send(&self, message: Value) -> Result<(), String> {
         if self.is_closed() {
             return Err("language server exited".into());
         }
-        self.outgoing
-            .send(message)
-            .map_err(|_| "language server exited".to_string())
+        match self.outgoing.try_send(message) {
+            Ok(()) => Ok(()),
+            Err(mpsc::error::TrySendError::Full(_)) => {
+                self.close();
+                Err("language server stopped reading its input".into())
+            }
+            Err(mpsc::error::TrySendError::Closed(_)) => Err("language server exited".into()),
+        }
     }
 
     fn pending_map(&self) -> MutexGuard<'_, Pending> {
@@ -290,7 +305,7 @@ impl Drop for PendingRequest<'_> {
     }
 }
 
-async fn write_loop(mut writer: BoxedWriter, mut queue: mpsc::UnboundedReceiver<Value>, guard: CloseOnDrop) {
+async fn write_loop(mut writer: BoxedWriter, mut queue: mpsc::Receiver<Value>, guard: CloseOnDrop) {
     loop {
         let message = tokio::select! {
             message = queue.recv() => message,
@@ -299,7 +314,11 @@ async fn write_loop(mut writer: BoxedWriter, mut queue: mpsc::UnboundedReceiver<
         let Some(message) = message else {
             return;
         };
-        if write_message(&mut writer, &message).await.is_err() {
+        let written = tokio::select! {
+            result = write_message(&mut writer, &message) => result.is_ok(),
+            () = guard.connection.on_close.notified() => false,
+        };
+        if !written {
             return;
         }
     }
@@ -397,6 +416,33 @@ mod tests {
         text.extend_from_slice(b"\r\nContent-Length: 2\r\n\r\n{}");
         let error = read_message(&mut BufReader::new(&text[..])).await.unwrap_err();
         assert_eq!(error.kind(), std::io::ErrorKind::InvalidData, "{error}");
+    }
+
+    #[tokio::test]
+    async fn a_body_shorter_than_its_content_length_is_an_unexpected_eof() {
+        let mut short = BufReader::new(&b"Content-Length: 33554432\r\n\r\n{}"[..]);
+        let error = read_message(&mut short).await.unwrap_err();
+        assert_eq!(error.kind(), std::io::ErrorKind::UnexpectedEof, "{error}");
+    }
+
+    #[tokio::test]
+    async fn a_server_that_stops_reading_closes_the_connection_instead_of_queueing_forever() {
+        let (client_side, _server_never_reads) = tokio::io::duplex(64);
+        let (client_read, client_write) = tokio::io::split(client_side);
+        let recorder = Arc::new(Recorder::default());
+        let connection = Connection::start(Box::new(client_read), Box::new(client_write), recorder.clone());
+
+        let refused = (0..=MAX_QUEUED_MESSAGES + 1).find_map(|_| connection.notify("n", json!("x".repeat(100))).err());
+
+        assert_eq!(refused.as_deref(), Some("language server stopped reading its input"));
+        assert!(connection.is_closed());
+        tokio::time::timeout(Duration::from_secs(2), async {
+            while recorder.closed.load(Ordering::SeqCst) == 0 {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("the writer reports the close");
     }
 
     #[tokio::test]

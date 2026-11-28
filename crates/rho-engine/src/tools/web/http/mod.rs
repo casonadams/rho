@@ -3,7 +3,8 @@ mod dns;
 #[cfg(test)]
 mod tests;
 
-use body::{ReadLimitedParams, read_limited, read_limited_until};
+pub(crate) use body::read_limited_until;
+use body::{ReadLimitedParams, read_limited};
 use dns::PublicDns;
 use reqwest::Client;
 use rho_harness_core::error::{AppError, Result};

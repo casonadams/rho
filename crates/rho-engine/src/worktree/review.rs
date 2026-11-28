@@ -9,6 +9,26 @@ const MAX_TOTAL_BYTES: u64 = 24 * 1024 * 1024;
 const MAX_FILE_BYTES: u64 = 512 * 1024;
 /// Context lines requested so the review sees whole files, not just hunks.
 const WHOLE_FILE_CONTEXT: &str = "-U100000";
+const MAX_PATCH_BYTES: usize = 8 * 1024 * 1024;
+const FILE_HEADER: &str = "\ndiff --git ";
+
+/// `patch` cut at the last file boundary within `max` bytes, and how many files were cut.
+fn cap_patch(mut patch: Vec<u8>, max: usize) -> (Vec<u8>, usize) {
+    if patch.len() <= max {
+        return (patch, 0);
+    }
+    let header = FILE_HEADER.as_bytes();
+    let searched = &patch[..(max + header.len()).min(patch.len())];
+    let cut = searched
+        .windows(header.len())
+        .enumerate()
+        .rev()
+        .find(|(at, w)| *at < max && *w == header)
+        .map_or(0, |(at, _)| at + 1);
+    let omitted = patch[cut..].windows(header.len()).filter(|w| *w == header).count() + 1;
+    patch.truncate(cut);
+    (patch, omitted)
+}
 
 /// The files of a checkout, honoring ignore files and skipping vendored, generated, and huge ones.
 pub(crate) struct CheckoutCorpus {
@@ -58,23 +78,56 @@ impl Worktree {
         self.review_head(&head).await
     }
 
-    /// Reviews the changes between the worktree's base and its commit `head`.
+    /// Changed files in the checkout larger than a reviewed file may be.
+    async fn oversized_changes(&self, head: &str) -> Result<Vec<String>, String> {
+        let changed = git::changed_paths(&self.path, &self.base, head).await?;
+        Ok(changed
+            .into_iter()
+            .filter(|(status, path)| {
+                *status != 'D' && std::fs::metadata(self.path.join(path)).is_ok_and(|m| m.len() > MAX_FILE_BYTES)
+            })
+            .map(|(_, path)| path)
+            .collect())
+    }
+
+    /// Reviews the changes between the worktree's base and its commit `head`, leaving out files over
+    /// `MAX_FILE_BYTES` and whatever passes `MAX_PATCH_BYTES` of patch, each with a note.
     pub async fn review_head(&self, head: &str) -> Result<Review, String> {
-        let args = [
+        let oversized = self.oversized_changes(head).await?;
+        let excludes: Vec<String> = oversized.iter().map(|p| format!(":(exclude,literal){p}")).collect();
+        let mut args = vec![
             "diff",
             "--no-color",
             "--no-ext-diff",
             WHOLE_FILE_CONTEXT,
             &self.base,
             head,
+            "--",
         ];
-        let patch = git::run(&self.path, &args, &[]).await?;
+        args.extend(excludes.iter().map(String::as_str));
+        let (patch, omitted) = cap_patch(git::run(&self.path, &args, &[]).await?, MAX_PATCH_BYTES);
+        let mut notes = Vec::new();
+        if !oversized.is_empty() {
+            notes.push(format!(
+                "not reviewed, over {} KiB: {}",
+                MAX_FILE_BYTES / 1024,
+                oversized.join(", ")
+            ));
+        }
+        if omitted > 0 {
+            notes.push(format!(
+                "the patch passed {} MiB, so {omitted} more changed files were not reviewed",
+                MAX_PATCH_BYTES / (1024 * 1024)
+            ));
+        }
         let corpus = CheckoutCorpus {
             root: self.path.clone(),
         };
-        tokio::task::spawn_blocking(move || review(&String::from_utf8_lossy(&patch), &corpus))
+        let mut review = tokio::task::spawn_blocking(move || review(&String::from_utf8_lossy(&patch), &corpus))
             .await
-            .map_err(|e| format!("review failed: {e}"))
+            .map_err(|e| format!("review failed: {e}"))?;
+        review.notes = notes;
+        Ok(review)
     }
 }
 
@@ -131,6 +184,42 @@ mod tests {
         );
         assert_eq!(review.counts(), (1, 2));
         assert!(review.findings[1].message.contains("src/shared.rs:2 (7 lines)"));
+    }
+
+    #[test]
+    fn patches_over_the_cap_are_cut_at_a_file_boundary() {
+        let patch = "diff --git a/a\n+1\ndiff --git a/b\n+2\ndiff --git a/c\n+3\n";
+        let cases = [
+            (patch.len(), patch.to_string(), 0),
+            (40, "diff --git a/a\n+1\ndiff --git a/b\n+2\n".to_string(), 1),
+            (20, "diff --git a/a\n+1\n".to_string(), 2),
+            (5, String::new(), 3),
+        ];
+        for (max, kept, omitted) in cases {
+            let (got, cut) = cap_patch(patch.as_bytes().to_vec(), max);
+            assert_eq!((String::from_utf8(got).unwrap(), cut), (kept, omitted), "cap {max}");
+        }
+    }
+
+    #[tokio::test]
+    async fn files_too_large_to_review_are_left_out_with_a_note() {
+        let (dir, root) = create(&[("src/lib.rs", "pub fn old() {}\n")]);
+        let store = WorktreeStore::new(dir.path().join("store"));
+        let wt = store.create(&root, "subagent big", None).await.unwrap().unwrap();
+        let big = "fn f() {\n    dbg!(1);\n}\n".repeat(MAX_FILE_BYTES as usize / 20);
+        write(&wt.path, "src/big.rs", &big);
+        write(&wt.path, "src/small.rs", "fn g() {\n    dbg!(2);\n}\n");
+
+        let review = wt.review().await.unwrap();
+
+        let paths: Vec<&str> = review.findings.iter().map(|f| f.path.as_str()).collect();
+        assert_eq!(paths, ["src/small.rs"]);
+        assert_eq!(review.notes, ["not reviewed, over 512 KiB: src/big.rs"]);
+        assert!(
+            review
+                .render(30)
+                .contains("Note: not reviewed, over 512 KiB: src/big.rs")
+        );
     }
 
     #[tokio::test]

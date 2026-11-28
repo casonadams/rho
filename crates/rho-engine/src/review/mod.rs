@@ -69,6 +69,8 @@ pub struct Review {
     /// Findings dropped because there were more than the review keeps.
     pub truncated: usize,
     pub files_reviewed: usize,
+    /// What the review left out, such as files too large to diff.
+    pub notes: Vec<String>,
 }
 
 fn plural(n: usize, word: &str) -> String {
@@ -94,6 +96,7 @@ pub fn review(diff: &str, corpus: &dyn Corpus) -> Review {
         findings,
         truncated,
         files_reviewed: sources.len(),
+        notes: Vec::new(),
     }
 }
 
@@ -122,7 +125,12 @@ impl Review {
     #[must_use]
     pub fn render(&self, max: usize) -> String {
         if self.findings.is_empty() {
-            return "Review: no findings\nThis review is static: project checks (tests, linters, complexity) were NOT run, so run them.".to_string();
+            let mut out = "Review: no findings\n".to_string();
+            self.write_notes(&mut out);
+            out.push_str(
+                "This review is static: project checks (tests, linters, complexity) were NOT run, so run them.",
+            );
+            return out;
         }
         let files: HashSet<&str> = self.findings.iter().map(|f| f.path.as_str()).collect();
         let mut out = format!("Review: {} in {}\n", self.headline(), plural(files.len(), "file"));
@@ -133,11 +141,18 @@ impl Review {
         if hidden > 0 {
             let _ = writeln!(out, "[{hidden} more findings not shown]");
         }
+        self.write_notes(&mut out);
         out.push_str(
             "Fix errors first. Send the findings to the subagent by continuing it, or fix them after merging. \
              This review is static: project checks (tests, linters, complexity) were NOT run, so run them.",
         );
         out
+    }
+
+    fn write_notes(&self, out: &mut String) {
+        for note in &self.notes {
+            let _ = writeln!(out, "Note: {note}");
+        }
     }
 }
 

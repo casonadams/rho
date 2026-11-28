@@ -6,9 +6,13 @@ use std::time::{Duration, Instant};
 
 const WALK_BUDGET: Duration = Duration::from_millis(150);
 const MAX_WALKED_FILES: usize = 20_000;
+const MAX_GIT_PATHS: usize = 2_000;
+const CONTENT_HASH_MAX_BYTES: u64 = 1024 * 1024;
+const GIT_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// The workspace files that could change, with fingerprints: uncommitted files in a git work tree
-/// (by content), or every non-ignored file found by a bounded walk elsewhere (by size and mtime).
+/// (by content up to 1 MiB, by size and mtime above, at most `MAX_GIT_PATHS`), or every non-ignored
+/// file found by a bounded walk elsewhere (by size and mtime).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(crate) struct Snapshot {
     files: BTreeMap<PathBuf, Fingerprint>,
@@ -18,7 +22,7 @@ pub(crate) struct Snapshot {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(crate) struct Changes {
     pub files: BTreeSet<WorkspaceChange>,
-    /// False when a walk hit its time or file limit, so the list may miss files.
+    /// False when a walk or the git path list hit its limit, so the list may miss files.
     pub complete: bool,
 }
 
@@ -28,9 +32,9 @@ async fn git(root: &Path, args: &[&str]) -> Option<Vec<u8>> {
         .current_dir(root)
         .env("GIT_OPTIONAL_LOCKS", "0")
         .stdin(std::process::Stdio::null())
-        .output()
-        .await
-        .ok()?;
+        .kill_on_drop(true)
+        .output();
+    let output = tokio::time::timeout(GIT_TIMEOUT, output).await.ok()?.ok()?;
     output.status.success().then_some(output.stdout)
 }
 
@@ -96,12 +100,24 @@ fn walk(root: &Path, extra: Vec<PathBuf>) -> Snapshot {
     Snapshot { files, complete }
 }
 
+/// Content hash for ordinary files; size and mtime for large ones so a snapshot never reads them whole.
+fn snapshot_print(path: &Path) -> Fingerprint {
+    let large = std::fs::metadata(path).is_ok_and(|m| m.len() > CONTENT_HASH_MAX_BYTES);
+    if large { stat_print(path) } else { fingerprint(path) }
+}
+
+/// The first `max` of `paths`, and whether that was all of them.
+fn capped(paths: BTreeSet<PathBuf>, max: usize) -> (BTreeSet<PathBuf>, bool) {
+    let complete = paths.len() <= max;
+    (paths.into_iter().take(max).collect(), complete)
+}
+
 async fn fingerprints(paths: BTreeSet<PathBuf>) -> Result<BTreeMap<PathBuf, Fingerprint>, String> {
     tokio::task::spawn_blocking(move || {
         paths
             .into_iter()
             .map(|path| {
-                let print = fingerprint(&path);
+                let print = snapshot_print(&path);
                 (path, print)
             })
             .collect()
@@ -129,10 +145,10 @@ impl Snapshot {
                 .map(Some)
                 .map_err(join_failure);
         };
-        let paths: BTreeSet<PathBuf> = status.into_iter().chain(extra).collect();
+        let (paths, complete) = capped(status.into_iter().chain(extra).collect(), MAX_GIT_PATHS);
         Ok(Some(Self {
             files: fingerprints(paths).await?,
-            complete: true,
+            complete,
         }))
     }
 
@@ -223,5 +239,38 @@ mod tests {
         assert!(changes.complete);
         assert_eq!(labels(&changes.files), ["a.rs", "b.rs (deleted)", "c.rs"]);
         assert!(Snapshot::take(&root.join("missing"), None).await.unwrap().is_none());
+    }
+
+    #[test]
+    fn large_files_are_fingerprinted_by_size_and_mtime_not_content() {
+        let dir = rho_test_support::TestDir::new();
+        let small = dir.join("small.rs");
+        let large = dir.join("large.bin");
+        std::fs::write(&small, "fn a() {}").unwrap();
+        std::fs::write(&large, vec![1u8; CONTENT_HASH_MAX_BYTES as usize + 1]).unwrap();
+
+        assert_eq!(snapshot_print(&small), fingerprint(&small));
+        assert_eq!(snapshot_print(&large), stat_print(&large));
+        assert_ne!(snapshot_print(&large), fingerprint(&large));
+    }
+
+    #[test]
+    fn path_lists_over_the_cap_are_truncated_and_marked_incomplete() {
+        let paths = |n: usize| (0..n).map(|i| PathBuf::from(format!("f{i}"))).collect::<BTreeSet<_>>();
+        for (count, max, kept, complete) in [(2, 3, 2, true), (3, 3, 3, true), (4, 3, 3, false)] {
+            let (got, whole) = capped(paths(count), max);
+            assert_eq!((got.len(), whole), (kept, complete), "{count} paths, cap {max}");
+        }
+    }
+
+    #[tokio::test]
+    async fn a_git_snapshot_over_the_path_cap_is_incomplete() {
+        let (_dir, root) = repo();
+        for i in 0..=MAX_GIT_PATHS {
+            std::fs::write(root.join(format!("new{i}.txt")), "").unwrap();
+        }
+        let snapshot = Snapshot::take(&root, None).await.unwrap().unwrap();
+        assert!(!snapshot.complete);
+        assert_eq!(snapshot.files.len(), MAX_GIT_PATHS);
     }
 }

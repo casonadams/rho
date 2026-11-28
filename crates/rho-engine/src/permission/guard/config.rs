@@ -4,9 +4,11 @@
 //! Mirrors `guard@casonadams-plugins` so the same `.guard.yml` files work seamlessly
 //! in both `omp` and `rho`.
 
+use crate::locking::lock;
 use regex::Regex;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
+use std::sync::{LazyLock, Mutex};
 
 pub const DEFAULT_PRODUCTION_MARKERS: &[&str] = &["prod", "prd", "production", "live", "kube-system"];
 pub const DEFAULT_PREVIEW_MARKERS: &[&str] = &["pr-", "preview", "review-app"];
@@ -286,22 +288,52 @@ pub fn resolve_preview_markers(config: &GuardConfig) -> Vec<String> {
     )
 }
 
-fn matches_wildcard(value: &str, pattern: &str) -> bool {
-    let escaped = regex::escape(pattern).replace("\\*", ".*");
-    Regex::new(&format!("(?i)^{escaped}$")).is_ok_and(|re| re.is_match(value))
+fn fixed(pattern: &str) -> Regex {
+    Regex::new(pattern).expect("built-in guard regex is valid")
 }
 
-fn capture_flag_values(command: &str, pattern: &str) -> Vec<String> {
-    let Ok(re) = Regex::new(pattern) else {
-        return Vec::new();
-    };
+static NAMESPACE_FLAG: LazyLock<Regex> = LazyLock::new(|| fixed(r#"(?i)(?:-n\s+|--namespace(?:=|\s+))([^\s'"]+)"#));
+static CONTEXT_FLAG: LazyLock<Regex> = LazyLock::new(|| fixed(r#"(?i)--context(?:=|\s+)([^\s'"]+)"#));
+static PROJECT_FLAG: LazyLock<Regex> = LazyLock::new(|| fixed(r#"(?i)--project(?:=|\s+)([^\s'"]+)"#));
+static URL_HOST: LazyLock<Regex> = LazyLock::new(|| fixed(r"(?i)https?://([^\s/'\x22]+)"));
+static PRODUCTION_HOST: LazyLock<Regex> = LazyLock::new(|| fixed(r"(?i)\b(prod|prd|production)\b"));
+
+const MAX_CACHED_PATTERNS: usize = 512;
+
+/// Compiled user patterns by source (`None` when invalid). The guard config is reloaded for every
+/// check, so patterns are cached by text rather than on the config.
+static USER_PATTERNS: LazyLock<Mutex<HashMap<String, Option<Regex>>>> = LazyLock::new(Mutex::default);
+
+fn user_regex(source: String) -> Option<Regex> {
+    cached_regex(&USER_PATTERNS, source)
+}
+
+fn cached_regex(cache: &Mutex<HashMap<String, Option<Regex>>>, source: String) -> Option<Regex> {
+    let mut cache = lock(cache);
+    if let Some(compiled) = cache.get(&source) {
+        return compiled.clone();
+    }
+    if cache.len() >= MAX_CACHED_PATTERNS {
+        cache.clear();
+    }
+    let compiled = Regex::new(&source).ok();
+    cache.insert(source, compiled.clone());
+    compiled
+}
+
+fn matches_wildcard(value: &str, pattern: &str) -> bool {
+    let escaped = regex::escape(pattern).replace("\\*", ".*");
+    user_regex(format!("(?i)^{escaped}$")).is_some_and(|re| re.is_match(value))
+}
+
+fn capture_flag_values(command: &str, re: &Regex) -> Vec<String> {
     re.captures_iter(command)
         .filter_map(|cap| cap.get(1).map(|m| m.as_str().to_ascii_lowercase()))
         .collect()
 }
 
 fn extract_hosts(command: &str) -> Vec<String> {
-    capture_flag_values(command, r"(?i)https?://([^\s/'\x22]+)")
+    capture_flag_values(command, &URL_HOST)
 }
 
 fn any_flag_matches(values: &[String], markers: &[String], patterns: &[String], substring: bool) -> bool {
@@ -322,24 +354,23 @@ pub fn is_command_targeting_production(command: &str, config: &GuardConfig) -> b
         return false;
     }
     let markers = resolve_production_markers(config);
-    let ns_vals = capture_flag_values(trimmed, r#"(?i)(?:-n\s+|--namespace(?:=|\s+))([^\s'"]+)"#);
+    let ns_vals = capture_flag_values(trimmed, &NAMESPACE_FLAG);
     if any_flag_matches(&ns_vals, &markers, &config.production.namespaces, false) {
         return true;
     }
-    let ctx_vals = capture_flag_values(trimmed, r#"(?i)--context(?:=|\s+)([^\s'"]+)"#);
+    let ctx_vals = capture_flag_values(trimmed, &CONTEXT_FLAG);
     if any_flag_matches(&ctx_vals, &markers, &config.production.clusters, true) {
         return true;
     }
-    let proj_vals = capture_flag_values(trimmed, r#"(?i)--project(?:=|\s+)([^\s'"]+)"#);
+    let proj_vals = capture_flag_values(trimmed, &PROJECT_FLAG);
     if any_flag_matches(&proj_vals, &markers, &config.production.projects, true) {
         return true;
     }
-    let host_re = Regex::new(r"(?i)\b(prod|prd|production)\b").expect("valid host regex");
-    extract_hosts(trimmed).iter().any(|h| host_re.is_match(h))
+    extract_hosts(trimmed).iter().any(|h| PRODUCTION_HOST.is_match(h))
 }
 
 fn matches_preview_ns(command: &str, config: &GuardConfig) -> bool {
-    let ns_vals = capture_flag_values(command, r#"(?i)(?:-n\s+|--namespace(?:=|\s+))([^\s'"]+)"#);
+    let ns_vals = capture_flag_values(command, &NAMESPACE_FLAG);
     ns_vals.iter().any(|val| {
         val.starts_with("pr-")
             || val.starts_with("preview-")
@@ -362,7 +393,7 @@ fn matches_preview_domain(command: &str, config: &GuardConfig) -> bool {
 }
 
 fn matches_preview_context(command: &str, config: &GuardConfig) -> bool {
-    let ctx_vals = capture_flag_values(command, r#"(?i)--context(?:=|\s+)([^\s'"]+)"#);
+    let ctx_vals = capture_flag_values(command, &CONTEXT_FLAG);
     ctx_vals.iter().any(|val| {
         val.contains("preview")
             || val.starts_with("pr-")
@@ -393,7 +424,7 @@ pub fn is_allowlisted_command(command: &str, config: &GuardConfig) -> bool {
     }
     config.allowlist.iter().any(|pattern| {
         let p = pattern.trim();
-        !p.is_empty() && Regex::new(&format!("(?i){p}")).is_ok_and(|re| re.is_match(trimmed))
+        !p.is_empty() && user_regex(format!("(?i){p}")).is_some_and(|re| re.is_match(trimmed))
     })
 }
 
@@ -474,6 +505,32 @@ thresholds:
         let per_model = resolve_thresholds(&cfg, Some("gemini/gemini-decision-1"));
         assert_eq!(per_model.p1_prod_impact, 0.12);
         assert_eq!(per_model.p2_malicious, 0.20);
+    }
+
+    #[test]
+    fn user_patterns_compile_once_and_invalid_ones_never_match() {
+        let cache = Mutex::default();
+        let first = cached_regex(&cache, "^a+$".into()).unwrap();
+        assert!(cached_regex(&cache, "(unclosed".into()).is_none());
+        assert_eq!(lock(&cache).len(), 2, "valid and invalid patterns are both remembered");
+        assert_eq!(cached_regex(&cache, "^a+$".into()).unwrap().as_str(), first.as_str());
+        assert_eq!(lock(&cache).len(), 2);
+
+        let cfg = GuardConfig {
+            allowlist: vec!["(unclosed".into(), "^ripwire".into()],
+            ..GuardConfig::default()
+        };
+        assert!(!is_allowlisted_command("(unclosed", &cfg));
+        assert!(is_allowlisted_command("ripwire .", &cfg));
+    }
+
+    #[test]
+    fn the_pattern_cache_stays_bounded() {
+        let cache = Mutex::default();
+        for i in 0..=MAX_CACHED_PATTERNS {
+            cached_regex(&cache, format!("^bounded-{i}$"));
+        }
+        assert!(lock(&cache).len() <= MAX_CACHED_PATTERNS);
     }
 
     #[test]

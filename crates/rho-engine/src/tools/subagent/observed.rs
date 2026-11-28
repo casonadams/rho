@@ -14,6 +14,7 @@ use rho_harness_core::error::AppError;
 use rho_harness_core::model::ToolCall;
 use rho_harness_core::text::clip_chars;
 use serde_json::Value;
+use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, MutexGuard};
@@ -52,14 +53,35 @@ pub(crate) struct Evidence {
 pub(crate) struct Recorder {
     evidence: Mutex<Evidence>,
     /// Watched effects waiting for their call's outcome, by tool name and arguments, oldest first.
-    pending: Mutex<BTreeMap<String, VecDeque<WatchedEffects>>>,
+    pending: Mutex<BTreeMap<CallKey, VecDeque<WatchedEffects>>>,
     root: PathBuf,
     /// Snapshots run only in real sessions, which have a project directory.
     snapshots: bool,
 }
 
-fn call_key(name: &str, args: &Value) -> String {
-    format!("{name} {args}")
+/// A call's tool name and a digest of its arguments; `execute` sees no call id, so this pairs it
+/// with `finished` without holding a copy of the arguments.
+type CallKey = (String, [u8; 32]);
+
+struct DigestWriter(Sha256);
+
+impl std::io::Write for DigestWriter {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.0.update(buf);
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+fn call_key(name: &str, args: &Value) -> CallKey {
+    let mut digest = DigestWriter(Sha256::new());
+    if serde_json::to_writer(&mut digest, args).is_err() {
+        digest.0.update(args.to_string());
+    }
+    (name.to_string(), digest.0.finalize().into())
 }
 
 impl Recorder {
@@ -88,10 +110,16 @@ impl Recorder {
     }
 
     fn release(&self, name: &str, args: &Value) -> WatchedEffects {
-        lock(&self.pending)
-            .get_mut(&call_key(name, args))
-            .and_then(VecDeque::pop_front)
-            .unwrap_or_default()
+        let key = call_key(name, args);
+        let mut pending = lock(&self.pending);
+        let Some(queue) = pending.get_mut(&key) else {
+            return WatchedEffects::default();
+        };
+        let effects = queue.pop_front().unwrap_or_default();
+        if queue.is_empty() {
+            pending.remove(&key);
+        }
+        effects
     }
 
     fn record(&self, name: &str, args: &Value, output: &str, is_error: bool) {
@@ -496,6 +524,22 @@ mod tests {
             evidence.watched_changes,
             BTreeMap::from([("renamed.rs".to_string(), "lsp: rename".to_string())])
         );
+    }
+
+    #[tokio::test]
+    async fn finished_calls_leave_no_pending_entries_behind() {
+        let recorder = Recorder::new(PathBuf::from("/repo"), false);
+        let lsp = RecordedTool::wrap(Arc::new(Echo("lsp")), &recorder);
+        let args = serde_json::json!({ "action": "hover", "pad": "x".repeat(10_000) });
+
+        lsp.execute(args.clone()).await.unwrap();
+        lsp.execute(args.clone()).await.unwrap();
+        assert_eq!(lock(&recorder.pending).values().map(VecDeque::len).sum::<usize>(), 2);
+        recorder.finished(&call("lsp", &args), &args, "done", false);
+        recorder.finished(&call("lsp", &args), &args, "done", false);
+
+        assert!(lock(&recorder.pending).is_empty());
+        assert_eq!(recorder.take().tool_log.len(), 2);
     }
 
     #[tokio::test]

@@ -7,7 +7,11 @@ pub mod stream;
 
 use chrono::{DateTime, Datelike, NaiveDate, Utc};
 pub use client::GeminiClient;
-use std::path::Path;
+use std::collections::HashMap;
+use std::io::BufRead as _;
+use std::path::{Path, PathBuf};
+use std::sync::{LazyLock, Mutex};
+use std::time::SystemTime;
 
 use crate::engine::SessionUsageTotals;
 
@@ -106,19 +110,57 @@ fn parse_gemini_line_cost(line: &str, model: &str, windows: &BillingWindows) -> 
     Some((day, cost))
 }
 
-fn accumulate_file_costs(path: &Path, model: &str, windows: &BillingWindows, day_cost: &mut f64, month_cost: &mut f64) {
-    let Ok(content) = std::fs::read_to_string(path) else {
-        return;
+/// What a file's cached costs were computed from; any difference means it must be read again.
+#[derive(Debug, Clone, PartialEq)]
+struct CostStamp {
+    len: u64,
+    modified: Option<SystemTime>,
+    model: String,
+    start_of_day: DateTime<Utc>,
+}
+
+/// Per-file `(day, month)` costs of past session files, so unchanged files are not re-read.
+#[derive(Debug, Default)]
+pub struct SessionCostCache {
+    files: HashMap<PathBuf, (CostStamp, (f64, f64))>,
+}
+
+static SESSION_COSTS: LazyLock<Mutex<SessionCostCache>> = LazyLock::new(Mutex::default);
+
+fn file_costs(path: &Path, model: &str, windows: &BillingWindows) -> (f64, f64) {
+    let Ok(file) = std::fs::File::open(path) else {
+        return (0.0, 0.0);
     };
-    for line in content.lines() {
-        if let Some((day, month)) = parse_gemini_line_cost(line, model, windows) {
-            *day_cost += day;
-            *month_cost += month;
+    std::io::BufReader::new(file)
+        .lines()
+        .map_while(Result::ok)
+        .filter_map(|line| parse_gemini_line_cost(&line, model, windows))
+        .fold((0.0, 0.0), |(day, month), (d, m)| (day + d, month + m))
+}
+
+impl SessionCostCache {
+    fn costs(&mut self, entry: &std::fs::DirEntry, model: &str, windows: &BillingWindows) -> (f64, f64) {
+        let path = entry.path();
+        let meta = entry.metadata().ok();
+        let stamp = CostStamp {
+            len: meta.as_ref().map_or(0, std::fs::Metadata::len),
+            modified: meta.and_then(|m| m.modified().ok()),
+            model: model.to_string(),
+            start_of_day: windows.start_of_day,
+        };
+        if let Some((cached, costs)) = self.files.get(&path)
+            && *cached == stamp
+        {
+            return *costs;
         }
+        let costs = file_costs(&path, model, windows);
+        self.files.insert(path, (stamp, costs));
+        costs
     }
 }
 
 pub fn aggregate_gemini_usage(
+    cache: &mut SessionCostCache,
     sessions_dir: &Path,
     current_session_id: Option<&str>,
     current_totals: &SessionUsageTotals,
@@ -129,14 +171,19 @@ pub fn aggregate_gemini_usage(
     let mut day_cost = 0.0;
     let mut month_cost = 0.0;
 
+    let mut seen = std::collections::HashSet::new();
     if let Ok(entries) = std::fs::read_dir(sessions_dir) {
         let skip_file_name = current_session_id.map(|id| format!("{id}.jsonl"));
         for entry in entries.flatten() {
             if should_process_session_file(&entry, skip_file_name.as_deref(), windows.start_of_month) {
-                accumulate_file_costs(&entry.path(), model, &windows, &mut day_cost, &mut month_cost);
+                let (day, month) = cache.costs(&entry, model, &windows);
+                day_cost += day;
+                month_cost += month;
+                seen.insert(entry.path());
             }
         }
     }
+    cache.files.retain(|path, _| seen.contains(path));
 
     let current_cost = calculate_gemini_cost(
         model,
@@ -156,7 +203,23 @@ pub async fn fetch_quota(
     current_totals: &SessionUsageTotals,
     model: &str,
 ) -> Option<String> {
-    let cost = aggregate_gemini_usage(sessions_dir, current_session_id, current_totals, model, Utc::now());
+    let sessions_dir = sessions_dir.to_path_buf();
+    let current_session_id = current_session_id.map(str::to_string);
+    let current_totals = *current_totals;
+    let model = model.to_string();
+    let cost = tokio::task::spawn_blocking(move || {
+        let mut cache = SESSION_COSTS.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        aggregate_gemini_usage(
+            &mut cache,
+            &sessions_dir,
+            current_session_id.as_deref(),
+            &current_totals,
+            &model,
+            Utc::now(),
+        )
+    })
+    .await
+    .ok()?;
     Some(cost.format_status())
 }
 
@@ -204,6 +267,7 @@ mod tests {
     fn aggregate_gemini_usage_empty_returns_zeroes() {
         let dir = crate::test_support::temp_dir("gemini-empty");
         let cost = aggregate_gemini_usage(
+            &mut SessionCostCache::default(),
             &dir,
             None,
             &SessionUsageTotals::default(),
@@ -289,7 +353,14 @@ mod tests {
         // Flash pricing:
         // Today: past (100k in = 0.010, 10k out = 0.004 -> 0.014) + curr (50k in = 0.005, 5k out = 0.002 -> 0.007) = 0.021
         // Month: today (0.021) + earlier month (200k in = 0.020, 20k out = 0.008 -> 0.028) = 0.049
-        let cost = aggregate_gemini_usage(&dir, Some("curr-session"), &current_totals, "gemini-2.5-flash", now);
+        let cost = aggregate_gemini_usage(
+            &mut SessionCostCache::default(),
+            &dir,
+            Some("curr-session"),
+            &current_totals,
+            "gemini-2.5-flash",
+            now,
+        );
 
         assert!(
             (cost.day_cost - 0.021).abs() < 1e-5,
@@ -302,5 +373,48 @@ mod tests {
             cost.month_cost
         );
         assert_eq!(cost.format_status(), "$0.021 • $0.049");
+    }
+
+    fn run_summary(input_tokens: u64) -> String {
+        let record = serde_json::json!({
+            "record_type": "audit_event",
+            "event": {
+                "timestamp": "2026-09-18T08:00:00Z",
+                "kind": "run_summary",
+                "payload": { "usage": { "input_tokens": input_tokens } }
+            }
+        });
+        format!("{record}\n")
+    }
+
+    #[test]
+    fn unchanged_session_files_are_served_from_the_cache_and_changed_ones_are_reread() {
+        let dir = rho_test_support::TestDir::new();
+        let path = dir.join("past.jsonl");
+        let now = Utc.with_ymd_and_hms(2026, 9, 18, 12, 0, 0).unwrap();
+        let stamp = std::time::SystemTime::from(now);
+        let write = |body: &str| {
+            std::fs::write(&path, body).unwrap();
+            std::fs::File::options()
+                .write(true)
+                .open(&path)
+                .unwrap()
+                .set_modified(stamp)
+                .unwrap();
+        };
+        let mut cache = SessionCostCache::default();
+        let month = |cache: &mut SessionCostCache| {
+            let totals = SessionUsageTotals::default();
+            aggregate_gemini_usage(cache, &dir, None, &totals, "gemini-2.5-flash", now).month_cost
+        };
+
+        write(&run_summary(1_000_000));
+        assert!((month(&mut cache) - 0.1).abs() < 1e-9);
+
+        write(&run_summary(2_000_000));
+        assert!((month(&mut cache) - 0.1).abs() < 1e-9, "same size and mtime: cached");
+
+        write(&run_summary(30_000_000));
+        assert!((month(&mut cache) - 3.0).abs() < 1e-9, "new size: re-read");
     }
 }

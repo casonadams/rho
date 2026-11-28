@@ -164,7 +164,7 @@ pub fn evidence(
     }
     if !workspace_complete {
         lines.push(
-            "Workspace check incomplete: not a git work tree and too many files to compare, so changes made outside write/edit may be missing."
+            "Workspace check incomplete: too many files to compare, so changes made outside write/edit may be missing."
                 .to_string(),
         );
     }

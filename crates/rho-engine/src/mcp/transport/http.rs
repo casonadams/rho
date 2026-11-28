@@ -11,9 +11,13 @@ use serde_json::Value;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicI64, Ordering};
+use std::time::Duration;
 use tokio::sync::RwLock;
 
 pub const MCP_PROTOCOL_VERSION_HEADER: &str = "2025-11-25";
+const MAX_MESSAGE_BYTES: usize = 32 * 1024 * 1024;
+const MAX_ERROR_BODY_BYTES: usize = 64 * 1024;
+const MESSAGE_TIMEOUT: Duration = Duration::from_secs(30);
 
 pub struct HttpTransport {
     url: String,
@@ -30,27 +34,69 @@ enum Reply {
     Unauthorized(String),
 }
 
-fn complete_sse_message(line: &str, data_lines: &mut Vec<String>) -> Option<Value> {
-    if !line.is_empty() {
-        if let Some(stripped) = line.strip_prefix("data:") {
-            data_lines.push(stripped.trim().to_string());
-        }
-        return None;
-    }
-    if data_lines.is_empty() {
-        return None;
-    }
-    let combined = data_lines.join("\n");
-    data_lines.clear();
-    serde_json::from_str(&combined).ok()
+/// JSON-RPC messages from an SSE body, failing once a line or an event's data passes `max_event` bytes.
+struct SseMessages {
+    decoder: SseLineDecoder,
+    data_lines: Vec<String>,
+    data_bytes: usize,
+    max_event: usize,
 }
 
-fn scan_sse_chunk(decoder: &mut SseLineDecoder, data_lines: &mut Vec<String>, chunk: &[u8]) -> Vec<Value> {
-    decoder
-        .decode_raw_lines(chunk)
-        .iter()
-        .filter_map(|line| complete_sse_message(line, data_lines))
-        .collect()
+impl SseMessages {
+    fn new(max_event: usize) -> Self {
+        Self {
+            decoder: SseLineDecoder::with_max_line(max_event),
+            data_lines: Vec::new(),
+            data_bytes: 0,
+            max_event,
+        }
+    }
+
+    fn too_large(&self) -> AppError {
+        AppError::Mcp(format!("SSE event over {} bytes", self.max_event))
+    }
+
+    fn complete_message(&mut self, line: &str) -> Result<Option<Value>> {
+        if !line.is_empty() {
+            if let Some(stripped) = line.strip_prefix("data:") {
+                self.data_bytes += stripped.len();
+                if self.data_bytes > self.max_event {
+                    return Err(self.too_large());
+                }
+                self.data_lines.push(stripped.trim().to_string());
+            }
+            return Ok(None);
+        }
+        if self.data_lines.is_empty() {
+            return Ok(None);
+        }
+        let combined = self.data_lines.join("\n");
+        self.data_lines.clear();
+        self.data_bytes = 0;
+        Ok(serde_json::from_str(&combined).ok())
+    }
+
+    fn scan(&mut self, chunk: &[u8]) -> Result<Vec<Value>> {
+        let lines = self.decoder.decode_raw_lines(chunk);
+        if self.decoder.take_overflow().is_some() {
+            return Err(self.too_large());
+        }
+        let mut messages = Vec::new();
+        for line in lines {
+            messages.extend(self.complete_message(&line)?);
+        }
+        Ok(messages)
+    }
+}
+
+/// The whole body, or an error once it passes `max_bytes`.
+async fn read_body(res: reqwest::Response, max_bytes: usize) -> Result<Vec<u8>> {
+    crate::tools::web::http::read_limited_until(res, max_bytes, |_| false)
+        .await
+        .map_err(|err| match err {
+            AppError::Tool(message) => AppError::Mcp(message),
+            other => other,
+        })
 }
 
 fn unauthorized_challenge(res: &reqwest::Response) -> Option<String> {
@@ -166,12 +212,11 @@ impl HttpTransport {
 
     async fn parse_sse_response(&self, res: reqwest::Response, method: &str, target_id: i64) -> Result<Value> {
         let mut stream = res.bytes_stream();
-        let mut decoder = SseLineDecoder::new();
-        let mut data_lines = Vec::new();
+        let mut messages = SseMessages::new(MAX_MESSAGE_BYTES);
 
         while let Some(chunk_res) = stream.next().await {
             let chunk = chunk_res.map_err(|e| AppError::Mcp(format!("SSE stream error: {e}")))?;
-            for message in scan_sse_chunk(&mut decoder, &mut data_lines, &chunk) {
+            for message in messages.scan(&chunk)? {
                 if let Some(value) = self.handle_sse_message(message, method, target_id).await? {
                     return Ok(value);
                 }
@@ -215,21 +260,28 @@ impl HttpTransport {
         }
     }
 
-    async fn post(&self, body: &impl serde::Serialize, bearer: Option<&str>) -> Result<reqwest::Response> {
-        let res = CLIENT
+    /// Posts `body`; with `timeout`, the whole exchange including the response body must finish within it.
+    async fn post(
+        &self,
+        body: &impl serde::Serialize,
+        bearer: Option<&str>,
+        timeout: Option<Duration>,
+    ) -> Result<reqwest::Response> {
+        let mut request = CLIENT
             .post(&self.url)
             .headers(self.build_request_headers(bearer).await?)
-            .json(body)
-            .send()
-            .await
-            .map_err(|e| {
-                let message = format!("HTTP request to '{}' failed: {e}", self.url);
-                if e.is_connect() {
-                    AppError::McpNotDelivered(message)
-                } else {
-                    AppError::McpConnectionLost(message)
-                }
-            })?;
+            .json(body);
+        if let Some(timeout) = timeout {
+            request = request.timeout(timeout);
+        }
+        let res = request.send().await.map_err(|e| {
+            let message = format!("HTTP request to '{}' failed: {e}", self.url);
+            if e.is_connect() {
+                AppError::McpNotDelivered(message)
+            } else {
+                AppError::McpConnectionLost(message)
+            }
+        })?;
 
         let had_session = self.session_id.read().await.is_some();
         self.record_session_id(res.headers()).await;
@@ -245,13 +297,17 @@ impl HttpTransport {
 
     async fn http_error(&self, res: reqwest::Response) -> AppError {
         let status = res.status();
-        let body = res.text().await.unwrap_or_default();
+        let body = match read_body(res, MAX_ERROR_BODY_BYTES).await {
+            Ok(bytes) => String::from_utf8_lossy(&bytes).into_owned(),
+            Err(_) => format!("(body over {MAX_ERROR_BODY_BYTES} bytes or unreadable)"),
+        };
         AppError::Mcp(format!("HTTP error {status} from '{}': {body}", self.url))
     }
 
+    /// Posts a notification or a reply, giving up after `MESSAGE_TIMEOUT`.
     async fn post_message(&self, body: &impl serde::Serialize) -> Result<()> {
         let bearer = self.bearer().await?;
-        let res = self.post(body, bearer.as_deref()).await?;
+        let res = self.post(body, bearer.as_deref(), Some(MESSAGE_TIMEOUT)).await?;
         if let Some(www_auth) = unauthorized_challenge(&res) {
             return Err(self.unauthorized(&www_auth));
         }
@@ -262,7 +318,7 @@ impl HttpTransport {
     }
 
     async fn send(&self, method: &str, id: i64, payload: &JsonRpcRequest, bearer: Option<&str>) -> Result<Reply> {
-        let res = self.post(payload, bearer).await?;
+        let res = self.post(payload, bearer, None).await?;
         if let Some(www_auth) = unauthorized_challenge(&res) {
             return Ok(Reply::Unauthorized(www_auth));
         }
@@ -278,9 +334,8 @@ impl HttpTransport {
         if is_sse {
             return self.parse_sse_response(res, method, id).await.map(Reply::Value);
         }
-        let message: Value = res
-            .json()
-            .await
+        let body = read_body(res, MAX_MESSAGE_BYTES).await?;
+        let message: Value = serde_json::from_slice(&body)
             .map_err(|e| AppError::Mcp(format!("Failed to parse JSON-RPC response: {e}")))?;
         match route_message(message) {
             Some(Routed::Response(_, outcome)) => outcome.map(Reply::Value).map_err(|e| server_error(method, &e)),
@@ -613,13 +668,58 @@ mod tests {
     fn sse_chunk_split_inside_multibyte_character_decodes_intact() {
         let event = "data: {\"jsonrpc\":\"2.0\",\"id\":7,\"result\":\"héllo\"}\n\n".as_bytes();
         let split = event.iter().position(|b| *b == 0xC3).unwrap() + 1;
-        let mut decoder = SseLineDecoder::new();
-        let mut data_lines = Vec::new();
-        assert!(scan_sse_chunk(&mut decoder, &mut data_lines, &event[..split]).is_empty());
-        let messages = scan_sse_chunk(&mut decoder, &mut data_lines, &event[split..]);
+        let mut messages = SseMessages::new(MAX_MESSAGE_BYTES);
+        assert!(messages.scan(&event[..split]).unwrap().is_empty());
         assert_eq!(
-            messages,
+            messages.scan(&event[split..]).unwrap(),
             [serde_json::json!({ "jsonrpc": "2.0", "id": 7, "result": "héllo" })]
         );
+    }
+
+    #[test]
+    fn sse_events_and_lines_over_the_cap_are_errors() {
+        let cases: [&[&[u8]]; 3] = [
+            &[b"data: 123456\ndata: 7890123\n"],
+            &[b"data: 1234567890", b"123"],
+            &[b"data: 1\n", b"data: 1234567890\n\n"],
+        ];
+        for chunks in cases {
+            let mut messages = SseMessages::new(12);
+            let failed = chunks.iter().any(|chunk| messages.scan(chunk).is_err());
+            assert!(failed, "{chunks:?}");
+        }
+        let mut messages = SseMessages::new(12);
+        assert_eq!(messages.scan(b"data: 12\n\n").unwrap(), [serde_json::json!(12)]);
+    }
+
+    #[tokio::test]
+    async fn json_bodies_over_the_cap_are_rejected() {
+        let (listener, url) = loopback().await;
+        let body = "x".repeat(64);
+        let response = format!("HTTP/1.1 200 OK\r\nConnection: close\r\n\r\n{body}");
+        tokio::spawn(async move { answer_once(&listener, &response).await });
+        let res = CLIENT.post(&url).body("{}").send().await.unwrap();
+
+        let err = read_body(res, 16).await.unwrap_err();
+
+        assert!(matches!(err, AppError::Mcp(_)), "{err}");
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_notification_the_server_never_answers_times_out() {
+        let (listener, url) = loopback().await;
+        let server = tokio::spawn(async move {
+            let (socket, _) = listener.accept().await.unwrap();
+            std::future::pending::<()>().await;
+            drop(socket);
+        });
+
+        let err = transport(url, BTreeMap::new())
+            .notify("notifications/initialized", None)
+            .await
+            .unwrap_err();
+
+        assert!(matches!(err, AppError::McpConnectionLost(_)), "{err}");
+        server.abort();
     }
 }

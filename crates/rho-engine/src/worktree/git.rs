@@ -1,5 +1,7 @@
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
+const GIT_TIMEOUT: Duration = Duration::from_secs(120);
 const IDENTITY: [(&str, &str); 4] = [
     ("GIT_AUTHOR_NAME", "rho"),
     ("GIT_AUTHOR_EMAIL", "rho@localhost"),
@@ -7,7 +9,8 @@ const IDENTITY: [(&str, &str); 4] = [
     ("GIT_COMMITTER_EMAIL", "rho@localhost"),
 ];
 
-/// Runs git in `cwd` with `env`; stdout on success, the trimmed stderr on failure.
+/// Runs git in `cwd` with `env`; stdout on success, the trimmed stderr on failure. A run that
+/// outlasts `GIT_TIMEOUT` is killed and fails.
 pub(crate) async fn run(cwd: &Path, args: &[&str], env: &[(&str, &str)]) -> Result<Vec<u8>, String> {
     let output = tokio::process::Command::new("git")
         .args(args)
@@ -15,8 +18,11 @@ pub(crate) async fn run(cwd: &Path, args: &[&str], env: &[(&str, &str)]) -> Resu
         .envs(env.iter().copied())
         .env("GIT_OPTIONAL_LOCKS", "0")
         .stdin(std::process::Stdio::null())
-        .output()
+        .kill_on_drop(true)
+        .output();
+    let output = tokio::time::timeout(GIT_TIMEOUT, output)
         .await
+        .map_err(|_| format!("`git {}` timed out after {}s", args.join(" "), GIT_TIMEOUT.as_secs()))?
         .map_err(|e| format!("could not run git: {e}"))?;
     if output.status.success() {
         return Ok(output.stdout);

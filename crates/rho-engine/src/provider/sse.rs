@@ -15,10 +15,22 @@ pub const STREAM_IDLE_TIMEOUT: Duration = Duration::from_secs(300);
 
 pub const DONE_SENTINEL: &str = "[DONE]";
 
-#[derive(Default)]
+pub const MAX_SSE_LINE_BYTES: usize = 64 * 1024 * 1024;
+
+/// Splits SSE bytes into lines. A partial line longer than `max_line` is dropped through its end and
+/// reported once by `take_overflow`, so a stream without newlines cannot grow the buffer without bound.
 pub struct SseLineDecoder {
     buffer: Vec<u8>,
     scanned: usize,
+    max_line: usize,
+    discarding: bool,
+    overflowed: bool,
+}
+
+impl Default for SseLineDecoder {
+    fn default() -> Self {
+        Self::with_max_line(MAX_SSE_LINE_BYTES)
+    }
 }
 
 impl SseLineDecoder {
@@ -26,7 +38,36 @@ impl SseLineDecoder {
         Self::default()
     }
 
+    pub fn with_max_line(max_line: usize) -> Self {
+        Self {
+            buffer: Vec::new(),
+            scanned: 0,
+            max_line,
+            discarding: false,
+            overflowed: false,
+        }
+    }
+
+    /// An error when a line went over the limit since the last call.
+    pub fn take_overflow(&mut self) -> Option<AppError> {
+        std::mem::take(&mut self.overflowed)
+            .then(|| AppError::Network(format!("stream sent a line over {} bytes", self.max_line)))
+    }
+
+    /// `bytes` past the rest of an oversized line, or `None` while that line still has not ended.
+    fn skip_oversized<'a>(&mut self, bytes: &'a [u8]) -> Option<&'a [u8]> {
+        if !self.discarding {
+            return Some(bytes);
+        }
+        let end = memchr::memchr(b'\n', bytes)?;
+        self.discarding = false;
+        Some(&bytes[end + 1..])
+    }
+
     pub fn decode_raw_lines(&mut self, bytes: &[u8]) -> Vec<String> {
+        let Some(bytes) = self.skip_oversized(bytes) else {
+            return Vec::new();
+        };
         self.buffer.extend_from_slice(bytes);
         let mut lines = Vec::new();
         let mut cursor = 0;
@@ -42,6 +83,11 @@ impl SseLineDecoder {
 
         if cursor > 0 {
             self.buffer.drain(..cursor);
+        }
+        if self.buffer.len() > self.max_line {
+            self.buffer.clear();
+            self.discarding = true;
+            self.overflowed = true;
         }
         self.scanned = self.buffer.len();
         lines
@@ -168,6 +214,7 @@ macro_rules! sse_line_feed {
             for line in lines {
                 self.interpret_line(&line, &mut events);
             }
+            events.extend(self.decoder.take_overflow().map(Err));
             events
         }
     };
@@ -331,6 +378,20 @@ mod tests {
         assert!(decoder.decode_raw_lines(b"bbb").is_empty());
         assert!(decoder.decode_raw_lines(b"c").is_empty());
         assert_eq!(decoder.decode_raw_lines(b"\nnext\n"), vec!["data: abbbc", "next"]);
+    }
+
+    #[test]
+    fn sse_line_decoder_drops_an_oversized_line_and_reports_it_once() {
+        let mut decoder = SseLineDecoder::with_max_line(4);
+        assert_eq!(decoder.decode_raw_lines(b"ok\nabc"), vec!["ok"]);
+        assert!(decoder.take_overflow().is_none());
+
+        assert!(decoder.decode_raw_lines(b"defgh").is_empty());
+        assert!(decoder.decode_raw_lines(b"ijk").is_empty());
+        assert!(matches!(decoder.take_overflow(), Some(AppError::Network(_))));
+        assert!(decoder.take_overflow().is_none());
+
+        assert_eq!(decoder.decode_raw_lines(b"lm\nnext\n"), vec!["next"]);
     }
 
     #[test]

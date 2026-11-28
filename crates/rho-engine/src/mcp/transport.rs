@@ -21,6 +21,7 @@ pub const DEFAULT_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 pub const DEFAULT_TOOL_CALL_TIMEOUT: Duration = Duration::from_secs(600);
 pub const MAX_PROGRESS_EXTENSION: Duration = Duration::from_secs(60 * 60);
 const PROGRESS_NOTIFICATION: &str = "notifications/progress";
+const CANCEL_NOTICE_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// Receives the method name of every JSON-RPC notification the server sends.
 pub type TransportNotificationHook = Arc<dyn Fn(&str) + Send + Sync>;
@@ -137,8 +138,13 @@ impl Drop for CancelOnDrop {
         let (inner, id) = (self.inner.clone(), self.id);
         runtime.spawn(async move {
             let params = serde_json::json!({ "requestId": id, "reason": "client cancelled the request" });
-            if let Err(err) = inner.notify("notifications/cancelled", Some(params)).await {
-                tracing::debug!("best-effort MCP cancellation of abandoned request {id} not delivered: {err}");
+            let notice = inner.notify("notifications/cancelled", Some(params));
+            match tokio::time::timeout(CANCEL_NOTICE_TIMEOUT, notice).await {
+                Ok(Ok(())) => {}
+                Ok(Err(err)) => {
+                    tracing::debug!("best-effort MCP cancellation of abandoned request {id} not delivered: {err}");
+                }
+                Err(_) => tracing::debug!("best-effort MCP cancellation of abandoned request {id} timed out"),
             }
         });
     }
