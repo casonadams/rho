@@ -19,8 +19,11 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex, MutexGuard};
 
 const MAX_TOOL_OUTPUT_CHARS: usize = 20_000;
-const FILE_CHANGING_TOOLS: [&str; 2] = ["write", "edit"];
-const FILE_READING_TOOLS: [&str; 3] = ["read", "write", "edit"];
+/// Tools that change the one file named by their `path` argument.
+const FILE_CHANGING_TOOLS: [&str; 3] = ["write", "edit", "undo"];
+const FILE_READING_TOOLS: [&str; 4] = ["read", "write", "edit", "undo"];
+/// Tools that may change any file, found by snapshotting the workspace around each call.
+const WORKSPACE_WATCHED_TOOLS: [&str; 2] = ["bash", "lsp"];
 pub(crate) const ASK_PARENT_TOOL: &str = "ask_parent";
 const ASK_PARENT_DESCRIPTION: &str = "Ask the agent that delegated this task a question. Use it only when you cannot proceed without a decision or information you cannot find yourself. The reply is this call's result; if the delegating agent cannot answer now, your turn pauses with the question and the reply arrives as the next message.";
 const QUESTION_SENT: &str = "Question sent to the delegating agent; its reply arrives as the next message.";
@@ -41,16 +44,16 @@ pub(crate) struct Evidence {
     pub changed_files: BTreeSet<String>,
     pub touched_files: BTreeSet<String>,
     pub tool_log: Vec<ToolOutcome>,
-    /// Path -> the bash command that was running when the path changed.
-    pub bash_changes: BTreeMap<String, String>,
+    /// Path -> the call (`bash: cargo fmt`, `lsp: rename`) that was running when the path changed.
+    pub watched_changes: BTreeMap<String, String>,
 }
 
 /// Collects evidence for one round: the wrapped tools report what bash commands changed or read,
 /// and the turn loop reports how each call ended, after outcome hooks.
 pub(crate) struct Recorder {
     evidence: Mutex<Evidence>,
-    /// Bash effects waiting for their call's outcome, by tool name and arguments, oldest first.
-    pending: Mutex<BTreeMap<String, VecDeque<BashEffects>>>,
+    /// Watched effects waiting for their call's outcome, by tool name and arguments, oldest first.
+    pending: Mutex<BTreeMap<String, VecDeque<WatchedEffects>>>,
     root: PathBuf,
     /// Snapshots run only in real sessions, which have a project directory.
     snapshots: bool,
@@ -78,14 +81,14 @@ impl Recorder {
         std::mem::take(&mut *self.lock())
     }
 
-    fn hold(&self, name: &str, args: &Value, bash: BashEffects) {
+    fn hold(&self, name: &str, args: &Value, effects: WatchedEffects) {
         lock(&self.pending)
             .entry(call_key(name, args))
             .or_default()
-            .push_back(bash);
+            .push_back(effects);
     }
 
-    fn release(&self, name: &str, args: &Value) -> BashEffects {
+    fn release(&self, name: &str, args: &Value) -> WatchedEffects {
         lock(&self.pending)
             .get_mut(&call_key(name, args))
             .and_then(VecDeque::pop_front)
@@ -93,7 +96,7 @@ impl Recorder {
     }
 
     fn record(&self, name: &str, args: &Value, output: &str, is_error: bool) {
-        let bash = self.release(name, args);
+        let watched = self.release(name, args);
         let status = if is_error {
             OutcomeStatus::Error
         } else {
@@ -109,13 +112,11 @@ impl Recorder {
         }
         let mut evidence = self.lock();
         evidence.tool_log.push(logged);
-        let command = args["command"].as_str().map(|c| super::evidence::clip(c, 60));
-        for changed in bash.changes {
-            evidence
-                .bash_changes
-                .insert(changed, command.clone().unwrap_or_default());
+        let label = call_label(name, args);
+        for changed in watched.changes {
+            evidence.watched_changes.insert(changed, label.clone());
         }
-        evidence.touched_files.extend(bash.reads);
+        evidence.touched_files.extend(watched.reads);
         let Some(path) = path else {
             return;
         };
@@ -144,9 +145,9 @@ impl ToolObserver for Recorder {
 }
 
 impl Evidence {
-    /// The changes found by the snapshots around the subagent's bash calls.
-    pub(crate) fn bash_workspace_changes(&self, root: &std::path::Path) -> BTreeSet<WorkspaceChange> {
-        self.bash_changes
+    /// The changes found by the snapshots around the subagent's watched calls.
+    pub(crate) fn watched_workspace_changes(&self, root: &std::path::Path) -> BTreeSet<WorkspaceChange> {
+        self.watched_changes
             .iter()
             .map(|(path, command)| WorkspaceChange {
                 path: path.clone(),
@@ -157,10 +158,20 @@ impl Evidence {
     }
 }
 
+/// What a watched call did beyond its arguments: files changed while it ran, files a bash
+/// command named.
 #[derive(Default)]
-struct BashEffects {
+struct WatchedEffects {
     changes: Vec<String>,
     reads: Vec<String>,
+}
+
+/// How a watched call is named next to the files it changed: `bash: cargo fmt`, `lsp: rename`.
+fn call_label(name: &str, args: &Value) -> String {
+    match args["command"].as_str().or_else(|| args["action"].as_str()) {
+        Some(what) => format!("{name}: {}", super::evidence::clip(what, 60)),
+        None => name.to_string(),
+    }
 }
 
 /// A tool whose every call is recorded, with its output clipped to what a subagent passes on.
@@ -184,7 +195,7 @@ impl RecordedTool {
         match Snapshot::take(&self.recorder.root, previous).await {
             Ok(snapshot) => snapshot,
             Err(error) => {
-                tracing::warn!("subagent bash snapshot failed: {error}");
+                tracing::warn!("subagent workspace snapshot failed: {error}");
                 None
             }
         }
@@ -211,32 +222,33 @@ impl EngineTool for RecordedTool {
 
     async fn execute(&self, args: Value) -> Result<ToolResult, AppError> {
         let name = self.inner.name();
-        let bash_command = (name == "bash").then(|| args["command"].as_str().unwrap_or_default().to_string());
-        let before = match bash_command {
-            Some(_) => self.snapshot(None).await,
-            None => None,
+        let before = if WORKSPACE_WATCHED_TOOLS.contains(&name) {
+            self.snapshot(None).await
+        } else {
+            None
         };
         let mut result = match self.inner.execute(args.clone()).await {
             Ok(result) => result,
             Err(e) => ToolResult::error(format!("Error: {e}")),
         };
-        let mut bash = BashEffects::default();
+        let mut effects = WatchedEffects::default();
         if let Some(before) = &before
             && let Some(after) = self.snapshot(Some(before)).await
         {
-            bash.changes = after
+            effects.changes = after
                 .changes_since(before, &self.recorder.root)
                 .files
                 .into_iter()
                 .map(|change| change.path)
                 .collect();
         }
-        if let Some(command) = &bash_command {
-            bash.reads = bash_file_arguments(&self.recorder.root, command).await;
+        if name == "bash" {
+            let command = args["command"].as_str().unwrap_or_default();
+            effects.reads = bash_file_arguments(&self.recorder.root, command).await;
         }
         result.content = truncate_output(result.content);
         result.display = None;
-        self.recorder.hold(name, &args, bash);
+        self.recorder.hold(name, &args, effects);
         Ok(result)
     }
 
@@ -442,6 +454,50 @@ mod tests {
         assert!(
             logged.contains("[REDACTED]"),
             "evidence keeps the output after hooks: {logged}"
+        );
+    }
+
+    /// A tool that changes the file named by its `file` argument under the given root.
+    struct Writes(&'static str, PathBuf);
+
+    #[async_trait::async_trait]
+    impl EngineTool for Writes {
+        fn name(&self) -> &str {
+            self.0
+        }
+        fn description(&self) -> &str {
+            "writes"
+        }
+        fn parameters(&self) -> Value {
+            serde_json::json!({})
+        }
+        async fn execute(&self, args: Value) -> Result<ToolResult, AppError> {
+            std::fs::write(self.1.join(args["file"].as_str().unwrap()), "changed").unwrap();
+            Ok(ToolResult::success("done"))
+        }
+    }
+
+    #[tokio::test]
+    async fn undo_and_lsp_changes_count_as_the_subagents_changes() {
+        let root = crate::test_support::TestDir::new();
+        std::fs::write(root.join("renamed.rs"), "before").unwrap();
+        let recorder = Recorder::new(root.to_path_buf(), true);
+        let undo = RecordedTool::wrap(Arc::new(Echo("undo")), &recorder);
+        let lsp = RecordedTool::wrap(Arc::new(Writes("lsp", root.to_path_buf())), &recorder);
+
+        run(&recorder, &undo, serde_json::json!({ "path": "src/a.rs" })).await;
+        run(
+            &recorder,
+            &lsp,
+            serde_json::json!({ "action": "rename", "file": "renamed.rs" }),
+        )
+        .await;
+
+        let evidence = recorder.take();
+        assert_eq!(evidence.changed_files, BTreeSet::from(["src/a.rs".to_string()]));
+        assert_eq!(
+            evidence.watched_changes,
+            BTreeMap::from([("renamed.rs".to_string(), "lsp: rename".to_string())])
         );
     }
 

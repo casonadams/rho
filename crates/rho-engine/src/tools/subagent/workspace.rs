@@ -15,7 +15,7 @@ pub struct WorkspaceChange {
     pub path: String,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub deleted: bool,
-    /// The agent's bash command that was running when the change appeared.
+    /// The agent's call that was running when the change appeared, e.g. `bash: cargo fmt`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub by: Option<String>,
 }
@@ -27,7 +27,7 @@ impl WorkspaceChange {
         if self.deleted {
             notes.push("deleted".into());
         }
-        notes.extend(self.by.as_ref().map(|by| format!("bash: {by}")));
+        notes.extend(self.by.clone());
         if notes.is_empty() {
             self.path.clone()
         } else {
@@ -164,14 +164,17 @@ mod tests {
     }
 
     #[test]
-    fn labels_note_deletions_and_the_bash_command() {
+    fn labels_note_deletions_and_the_call_that_ran() {
         let change = |deleted, by: Option<&str>| WorkspaceChange {
             path: "a.rs".into(),
             deleted,
             by: by.map(str::to_string),
         };
         assert_eq!(change(false, None).label(), "a.rs");
-        assert_eq!(change(true, Some("rm a.rs")).label(), "a.rs (deleted; bash: rm a.rs)");
+        assert_eq!(
+            change(true, Some("bash: rm a.rs")).label(),
+            "a.rs (deleted; bash: rm a.rs)"
+        );
     }
 
     #[test]

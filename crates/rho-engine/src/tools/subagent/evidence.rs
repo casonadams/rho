@@ -147,13 +147,13 @@ pub fn evidence(
         let files: Vec<&str> = changed.iter().map(String::as_str).collect();
         lines.push(format!("Files changed: {}", files.join(", ")));
     }
-    let (by_bash, others): (Vec<&WorkspaceChange>, Vec<&WorkspaceChange>) = workspace
+    let (by_calls, others): (Vec<&WorkspaceChange>, Vec<&WorkspaceChange>) = workspace
         .iter()
         .filter(|c| !changed.contains(&c.path))
         .partition(|c| c.by.is_some());
     let labels = |changes: &[&WorkspaceChange]| changes.iter().map(|c| c.label()).collect::<Vec<_>>().join(", ");
-    if !by_bash.is_empty() {
-        lines.push(format!("Changed while its bash commands ran: {}", labels(&by_bash)));
+    if !by_calls.is_empty() {
+        lines.push(format!("Changed while its commands ran: {}", labels(&by_calls)));
     }
     if !others.is_empty() {
         lines.push(format!(
@@ -253,13 +253,13 @@ mod tests {
         };
         let workspace = BTreeSet::from([
             change("a.rs", false, None),
-            change("fmt.rs", false, Some("cargo fmt")),
+            change("fmt.rs", false, Some("bash: cargo fmt")),
             change("notes.md", false, None),
             change("old.rs", true, None),
         ]);
         assert_eq!(
             evidence(&changed, &workspace, true, &[]),
-            "Files changed: a.rs\nChanged while its bash commands ran: fmt.rs (bash: cargo fmt)\n\
+            "Files changed: a.rs\nChanged while its commands ran: fmt.rs (bash: cargo fmt)\n\
              Also changed in the workspace during this run, not by its tools (editors, other agents, or processes): notes.md, old.rs (deleted)"
         );
         assert_eq!(evidence(&BTreeSet::new(), &BTreeSet::new(), true, &[]), "");

@@ -617,7 +617,7 @@ async fn bash_changes_are_attributed_and_later_changes_reach_a_continued_subagen
     let first = ask(&tool, json!({ "role": "general", "prompt": "generate" })).await;
 
     assert!(
-        first.contains("Changed while its bash commands ran: gen.rs (bash: make gen)\n"),
+        first.contains("Changed while its commands ran: gen.rs (bash: make gen)\n"),
         "{first}"
     );
     assert!(

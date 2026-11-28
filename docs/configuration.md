@@ -304,21 +304,21 @@ check, and a footer with turn, tool-call, and token counts:
 
 ```text
 Files changed: src/a.rs
-Changed while its bash commands ran: src/fmt.rs (bash: cargo fmt), old.rs (deleted; bash: rm old.rs)
+Changed while its commands ran: src/fmt.rs (bash: cargo fmt), old.rs (deleted; bash: rm old.rs), src/api.rs (lsp: rename)
 Also changed in the workspace during this run, not by its tools (editors, other agents, or processes): notes.md
 Tool outcomes: 12 ok, 1 error (edit src/b.rs: oldText not found), 1 denied (bash rm -rf build)
 ```
 
-`Files changed` comes from the subagent's successful `write` and `edit` calls,
-with paths relative to the project. rho also snapshots the workspace before and
-after each round and around each `bash` call, comparing file contents: changes
-that appear while one of the subagent's `bash` commands runs are credited to
-that command, and anything else that changed during the round is listed as
+`Files changed` comes from the subagent's successful `write`, `edit` and `undo`
+calls, with paths relative to the project. rho also snapshots the workspace
+before and after each round and around each `bash` and `lsp` call, comparing
+file contents: changes that appear while one of those calls runs are credited
+to it, and anything else that changed during the round is listed as
 not made by its tools. In a git work tree the snapshot covers uncommitted files
 (committing a file without changing it is not a change). Elsewhere rho walks
 the project, respecting ignore files, for up to 150 ms and 20,000 files; when
 that limit is hit the result says `Workspace check incomplete`. Snapshots cost
-one `git status` per `bash` call. Inside a worktree (below) the subagent is
+one `git status` per `bash` or `lsp` call. Inside a worktree (below) the subagent is
 the only writer, so every change is its own; the "not by its tools" line only
 appears outside git, where subagents run in the project directory. `Tool
 outcomes` counts every call and

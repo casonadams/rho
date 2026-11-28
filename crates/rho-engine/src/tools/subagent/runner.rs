@@ -464,7 +464,7 @@ impl SubagentRunner {
                     .files
                     .into_iter()
                     .map(|mut change| {
-                        change.by = evidence.bash_changes.get(&change.path).cloned();
+                        change.by = evidence.watched_changes.get(&change.path).cloned();
                         change
                     })
                     .collect();
@@ -472,9 +472,9 @@ impl SubagentRunner {
             }
             (Err(error), _) | (_, Err(error)) => {
                 tracing::warn!("subagent workspace snapshot failed: {error}");
-                (evidence.bash_workspace_changes(&root), false)
+                (evidence.watched_workspace_changes(&root), false)
             }
-            _ => (evidence.bash_workspace_changes(&root), true),
+            _ => (evidence.watched_workspace_changes(&root), true),
         };
         Round {
             end: drive.end,
