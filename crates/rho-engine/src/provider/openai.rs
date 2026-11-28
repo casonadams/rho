@@ -17,7 +17,7 @@ use crate::provider::adapter::{
     FinishReason, ModelAdapter, ModelCompletionRequest, ModelEventStream, ModelStreamEvent, ModelToolDefinition,
 };
 use crate::provider::error::{HttpFailure, classify_stream_error};
-use crate::provider::sse::{SseLineDecoder, SseStreamParser, open_sse_stream};
+use crate::provider::sse::{DONE_SENTINEL, SseLineDecoder, SseStreamParser, open_sse_stream};
 
 #[derive(Clone)]
 pub struct OpenAiClient {
@@ -224,6 +224,8 @@ pub fn build_request_body(req: &ModelCompletionRequest, model: &str, stream: boo
 pub struct OpenAiSseParser {
     decoder: SseLineDecoder,
     pending_tool_calls: HashMap<usize, PartialToolCall>,
+    finish_seen: bool,
+    done: bool,
 }
 
 #[derive(Default)]
@@ -382,7 +384,10 @@ impl OpenAiSseParser {
         }
         if let Some(finish) = choice.finish_reason {
             self.flush_pending_tools(events);
-            events.push(finish_event(&finish));
+            let event = finish_event(&finish);
+            self.finish_seen |= event.is_ok();
+            self.done |= event.is_err();
+            events.push(event);
         }
     }
 
@@ -411,14 +416,19 @@ impl OpenAiSseParser {
 
 impl SseStreamParser for OpenAiSseParser {
     fn feed(&mut self, bytes: &[u8]) -> Vec<Result<ModelStreamEvent, AppError>> {
-        let lines = self.decoder.decode_lines(bytes);
+        let lines = self.decoder.decode_payloads(bytes);
         let mut events = Vec::new();
 
         for line in lines {
+            if line == DONE_SENTINEL {
+                self.done = true;
+                break;
+            }
             let Ok(chunk) = serde_json::from_str::<ChatChunk>(&line) else {
                 continue;
             };
             if let Some(error) = chunk.error {
+                self.done = true;
                 events.push(Err(error.into_app_error()));
                 continue;
             }
@@ -432,6 +442,19 @@ impl SseStreamParser for OpenAiSseParser {
             }
         }
         events
+    }
+
+    fn is_done(&self) -> bool {
+        self.done
+    }
+
+    fn finish(&mut self) -> Vec<Result<ModelStreamEvent, AppError>> {
+        if self.done || self.finish_seen {
+            return Vec::new();
+        }
+        vec![Err(AppError::Network(
+            "OpenAI-compatible stream closed before a finish_reason".to_string(),
+        ))]
     }
 }
 
@@ -660,6 +683,40 @@ mod tests {
         assert!(
             matches!(&events[6], Ok(ModelStreamEvent::Usage(u)) if u.total_tokens == 15 && u.input_tokens == 8 && u.cached_input_tokens == Some(2))
         );
+    }
+
+    async fn collect_body(payloads: &[&str]) -> Vec<Result<ModelStreamEvent, AppError>> {
+        crate::provider::sse::collect_sse_payloads(payloads, OpenAiSseParser::new()).await
+    }
+
+    #[tokio::test]
+    async fn stream_closed_before_finish_reason_is_a_network_error() {
+        let events = collect_body(&[r#"{"choices":[{"delta":{"content":"cut off"}}]}"#]).await;
+        assert!(matches!(&events[0], Ok(ModelStreamEvent::Text(t)) if t == "cut off"));
+        assert!(matches!(events.last(), Some(Err(AppError::Network(_)))), "{events:?}");
+    }
+
+    #[tokio::test]
+    async fn stream_closed_after_finish_reason_without_done_is_complete() {
+        let events = collect_body(&[r#"{"choices":[{"delta":{"content":"hi"},"finish_reason":"stop"}]}"#]).await;
+        assert!(events.iter().all(Result::is_ok), "{events:?}");
+        assert!(matches!(
+            events.last(),
+            Some(Ok(ModelStreamEvent::Finish(FinishReason::Stop)))
+        ));
+    }
+
+    #[tokio::test]
+    async fn usage_after_finish_reason_is_delivered_and_done_ends_the_stream() {
+        let events = collect_body(&[
+            r#"{"choices":[{"delta":{},"finish_reason":"stop"}]}"#,
+            r#"{"choices":[],"usage":{"prompt_tokens":3,"completion_tokens":2,"total_tokens":5}}"#,
+            "[DONE]",
+            r#"{"choices":[{"delta":{"content":"after done"}}]}"#,
+        ])
+        .await;
+        assert_eq!(events.len(), 2, "{events:?}");
+        assert!(matches!(&events[1], Ok(ModelStreamEvent::Usage(u)) if u.total_tokens == 5));
     }
 
     #[test]

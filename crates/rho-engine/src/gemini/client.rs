@@ -1,7 +1,7 @@
 //! Native Google Generative Language API (`v1beta`) `ModelAdapter` client.
 
 use super::request::build_request_body;
-use super::stream::GeminiSseParser;
+use super::stream::sse_parser;
 use crate::http::{header_value, post_json_checked};
 use crate::provider::adapter::{ModelAdapter, ModelCompletionRequest, ModelEventStream};
 use crate::provider::error::{HttpFailure, HttpResult, error_message_or_excerpt};
@@ -102,7 +102,7 @@ impl ModelAdapter for GeminiClient {
     }
 
     async fn stream(&self, req: ModelCompletionRequest) -> Result<ModelEventStream, AppError> {
-        open_sse_stream(self.open_stream(&req).await, friendly_error, GeminiSseParser::new())
+        open_sse_stream(self.open_stream(&req).await, friendly_error, sse_parser())
     }
 
     fn cache_settings(&self) -> Option<&str> {

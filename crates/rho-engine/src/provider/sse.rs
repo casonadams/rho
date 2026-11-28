@@ -13,6 +13,8 @@ pub type SseEvents = Vec<Result<ModelStreamEvent, AppError>>;
 
 pub const STREAM_IDLE_TIMEOUT: Duration = Duration::from_secs(300);
 
+pub const DONE_SENTINEL: &str = "[DONE]";
+
 #[derive(Default)]
 pub struct SseLineDecoder {
     buffer: Vec<u8>,
@@ -47,11 +49,19 @@ impl SseLineDecoder {
 
     /// Feed byte chunks and extract ready `data:` payloads.
     pub fn decode_lines(&mut self, bytes: &[u8]) -> Vec<String> {
+        self.decode_payloads(bytes)
+            .into_iter()
+            .filter(|payload| payload != DONE_SENTINEL)
+            .collect()
+    }
+
+    /// Like `decode_lines`, but keeps the `[DONE]` sentinel for parsers whose wire format ends with it.
+    pub fn decode_payloads(&mut self, bytes: &[u8]) -> Vec<String> {
         self.decode_raw_lines(bytes)
             .iter()
             .filter_map(|line| line.strip_prefix("data:"))
             .map(str::trim)
-            .filter(|payload| !payload.is_empty() && *payload != "[DONE]")
+            .filter(|payload| !payload.is_empty())
             .map(str::to_string)
             .collect()
     }
@@ -61,9 +71,17 @@ impl SseLineDecoder {
 pub trait SseStreamParser: Send + 'static {
     fn feed(&mut self, bytes: &[u8]) -> SseEvents;
 
-    /// Events to emit when the body ends; override to reject a stream that closed before its terminal event.
+    /// Whether the wire format's terminal event (or an in-band error) arrived, so reading can stop.
+    fn is_done(&self) -> bool;
+
+    /// Events to emit when the body ends: a network error when it closed before its terminal event.
     fn finish(&mut self) -> SseEvents {
-        Vec::new()
+        if self.is_done() {
+            return Vec::new();
+        }
+        vec![Err(AppError::Network(
+            "provider stream closed before its terminal event".to_string(),
+        ))]
     }
 }
 
@@ -102,10 +120,8 @@ where
         match chunk {
             Ok(data) => {
                 let events = parser.feed(data.as_ref());
-                if !events.is_empty() {
-                    let finished = events
-                        .iter()
-                        .any(|e| matches!(e, Ok(ModelStreamEvent::Usage(_)) | Err(_)));
+                let finished = parser.is_done();
+                if !events.is_empty() || finished {
                     return Some((events, (bytes, parser, finished)));
                 }
             }
@@ -157,6 +173,16 @@ macro_rules! sse_line_feed {
     };
 }
 pub(crate) use sse_line_feed;
+
+/// Streams each payload as its own `data:` chunk through `parser` and collects every event.
+#[cfg(test)]
+pub(crate) async fn collect_sse_payloads<P: SseStreamParser>(payloads: &[&str], parser: P) -> SseEvents {
+    let chunks: Vec<reqwest::Result<Vec<u8>>> = payloads
+        .iter()
+        .map(|payload| Ok(format!("data: {payload}\n\n").into_bytes()))
+        .collect();
+    unfold_sse_stream(stream::iter(chunks), parser).collect().await
+}
 
 /// Aggregate a vector of streaming events into a single unary `ModelCompletionResponse`.
 pub fn aggregate_stream_events(events: SseEvents) -> Result<ModelCompletionResponse, AppError> {
@@ -241,39 +267,48 @@ mod tests {
         assert_eq!(response.tool_calls[0].function.name, "bash");
     }
 
-    #[tokio::test]
-    async fn test_unfold_sse_stream_pipeline() {
-        struct TestParser;
-        impl SseStreamParser for TestParser {
-            fn feed(&mut self, bytes: &[u8]) -> Vec<Result<ModelStreamEvent, AppError>> {
-                if bytes == b"chunk" {
-                    vec![Ok(ModelStreamEvent::Text("chunk".to_string()))]
-                } else if bytes == b"term" {
-                    vec![Ok(ModelStreamEvent::Usage(StructuralUsage {
-                        total_tokens: 1,
-                        ..Default::default()
-                    }))]
-                } else {
-                    vec![]
+    #[derive(Default)]
+    struct TerminalParser {
+        done: bool,
+    }
+
+    impl SseStreamParser for TerminalParser {
+        fn feed(&mut self, bytes: &[u8]) -> SseEvents {
+            let event = match bytes {
+                b"usage" => ModelStreamEvent::Usage(StructuralUsage::default()),
+                b"end" => {
+                    self.done = true;
+                    return Vec::new();
                 }
-            }
+                other => ModelStreamEvent::Text(String::from_utf8_lossy(other).into_owned()),
+            };
+            vec![Ok(event)]
         }
 
-        let byte_stream = futures::stream::iter(vec![
-            Ok::<_, reqwest::Error>(Vec::from(&b"chunk"[..])),
-            Ok::<_, reqwest::Error>(Vec::from(&b"term"[..])),
-        ]);
-        let state = (Box::pin(byte_stream), TestParser, false);
-        let batch = next_stream_batch(state).await;
-        assert!(batch.is_some());
-        let (events, state) = batch.unwrap();
-        assert_eq!(events.len(), 1);
-        let batch2 = next_stream_batch(state).await;
-        assert!(batch2.is_some());
-        let (events2, state2) = batch2.unwrap();
-        assert_eq!(events2.len(), 1);
-        let batch3 = next_stream_batch(state2).await;
-        assert!(batch3.is_none());
+        fn is_done(&self) -> bool {
+            self.done
+        }
+    }
+
+    async fn run_terminal_parser(chunks: &[&str]) -> SseEvents {
+        let body: Vec<reqwest::Result<Vec<u8>>> = chunks.iter().map(|c| Ok(c.as_bytes().to_vec())).collect();
+        unfold_sse_stream(stream::iter(body), TerminalParser::default())
+            .collect()
+            .await
+    }
+
+    #[tokio::test]
+    async fn unfold_reads_past_usage_and_stops_once_the_parser_is_done() {
+        let events = run_terminal_parser(&["usage", "text", "end", "ignored"]).await;
+        assert_eq!(events.len(), 2, "{events:?}");
+        assert!(matches!(&events[1], Ok(ModelStreamEvent::Text(t)) if t == "text"));
+    }
+
+    #[tokio::test]
+    async fn body_closing_before_the_parser_is_done_ends_with_a_network_error() {
+        let events = run_terminal_parser(&["text"]).await;
+        assert_eq!(events.len(), 2, "{events:?}");
+        assert!(matches!(&events[1], Err(AppError::Network(_))));
     }
 
     #[test]
@@ -313,6 +348,10 @@ mod tests {
         impl SseStreamParser for NoEvents {
             fn feed(&mut self, _bytes: &[u8]) -> Vec<Result<ModelStreamEvent, AppError>> {
                 Vec::new()
+            }
+
+            fn is_done(&self) -> bool {
+                false
             }
         }
 

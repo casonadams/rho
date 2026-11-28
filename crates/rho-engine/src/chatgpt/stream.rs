@@ -417,6 +417,10 @@ impl crate::provider::sse::SseStreamParser for SseParser {
         SseParser::feed(self, bytes)
     }
 
+    fn is_done(&self) -> bool {
+        self.terminated
+    }
+
     fn finish(&mut self) -> SseEvents {
         if self.terminated {
             return Vec::new();

@@ -1,182 +1,24 @@
 //! Native Google Generative Language API SSE stream parser.
 //!
-//! Decodes `streamGenerateContent?alt=sse` chunks into canonical `ModelStreamEvent`s:
-//! - Streams thinking deltas live and flushes `ModelStreamEvent::ReasoningBlock` with
-//!   `thoughtSignature` so multi-turn Gemini 4 sessions preserve reasoning continuity.
-//! - Attaches `thoughtSignature` to `ToolCall`s (falling back to any trailing thought signature).
-//! - Maps `finishReason` accurately and surfaces `MALFORMED_FUNCTION_CALL` as a retryable error.
+//! Streams thinking deltas live and flushes `ModelStreamEvent::ReasoningBlock` with
+//! `thoughtSignature` so multi-turn Gemini sessions preserve reasoning continuity.
 
-use crate::engine::metrics::types::Usage;
-use crate::provider::adapter::ModelStreamEvent;
-use crate::provider::google_wire::{
-    StreamCandidate, StreamChunk, StreamError, StreamFunctionCall, StreamPart, ToolCallIds, map_finish_reason,
-    usage_from_metadata,
-};
-use crate::provider::sse::{SseEvents, SseLineDecoder, SseStreamParser, sse_line_feed};
-use rho_harness_core::error::AppError;
-use rho_harness_core::model::{Reasoning, ToolCall, ToolFunction};
+use crate::provider::google_wire::{GoogleSseParser, ThoughtReplay};
 
-#[derive(Default)]
-pub struct GeminiSseParser {
-    decoder: SseLineDecoder,
-    reasoning_text: String,
-    reasoning_signature: Option<String>,
-    trailing_signature: Option<String>,
-    latest_usage: Option<Usage>,
-    tool_ids: ToolCallIds,
-}
-
-fn stream_error(error: &StreamError) -> AppError {
-    let message = error.message_text("Unknown Gemini stream error");
-    match error.code {
-        Some(429) => AppError::RateLimited {
-            message,
-            retry_after: None,
-        },
-        Some(408 | 500 | 502 | 503 | 504 | 529) => AppError::ProviderUnavailable {
-            message,
-            retry_after: None,
-        },
-        Some(code) => AppError::Provider(format!("Gemini stream error ({code}): {message}")),
-        None => AppError::Provider(format!("Gemini stream error: {message}")),
-    }
-}
-
-impl GeminiSseParser {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    sse_line_feed!();
-
-    fn flush_reasoning(&mut self, events: &mut SseEvents) {
-        let text = std::mem::take(&mut self.reasoning_text);
-        let sig = self.reasoning_signature.take();
-        if sig.is_some() {
-            self.trailing_signature = sig.clone();
-        }
-        if !text.is_empty() || sig.is_some() {
-            events.push(Ok(ModelStreamEvent::ReasoningBlock(Reasoning::new_with_signature(
-                text, sig,
-            ))));
-        }
-    }
-
-    fn handle_part_thought(&mut self, text: String, signature: Option<String>, events: &mut SseEvents) {
-        if signature.is_some() {
-            self.reasoning_signature = signature;
-        }
-        if !text.is_empty() {
-            self.reasoning_text.push_str(&text);
-            events.push(Ok(ModelStreamEvent::Reasoning(text)));
-        }
-    }
-
-    fn handle_part_function_call(
-        &mut self,
-        call: StreamFunctionCall,
-        signature: Option<String>,
-        events: &mut SseEvents,
-    ) {
-        self.flush_reasoning(events);
-        let sig = signature.or_else(|| self.trailing_signature.take());
-        let id = self.tool_ids.resolve(call.id.as_deref());
-        let mut tool_call = ToolCall::new(id, ToolFunction::new(call.name, call.args));
-        tool_call.signature = sig;
-        events.push(Ok(ModelStreamEvent::ToolCall(tool_call)));
-    }
-
-    fn interpret_part(&mut self, part: StreamPart, events: &mut SseEvents) {
-        let StreamPart {
-            text,
-            thought,
-            thought_signature,
-            function_call,
-        } = part;
-        if let Some(call) = function_call {
-            self.handle_part_function_call(call, thought_signature, events);
-            return;
-        }
-        if thought == Some(true) {
-            self.handle_part_thought(text.unwrap_or_default(), thought_signature, events);
-            return;
-        }
-        if let Some(sig) = thought_signature {
-            self.trailing_signature = Some(sig);
-        }
-        if let Some(text) = text
-            && !text.is_empty()
-        {
-            self.flush_reasoning(events);
-            self.trailing_signature = None;
-            events.push(Ok(ModelStreamEvent::Text(text)));
-        }
-    }
-
-    fn handle_finish(&mut self, reason: &str, events: &mut SseEvents) {
-        self.flush_reasoning(events);
-        self.trailing_signature = None;
-        if let Some(usage) = self.latest_usage.take() {
-            events.push(Ok(ModelStreamEvent::Usage(usage.into())));
-        }
-        if reason == "MALFORMED_FUNCTION_CALL" {
-            events.push(Err(AppError::ProviderUnavailable {
-                message: "Gemini returned MALFORMED_FUNCTION_CALL".to_string(),
-                retry_after: None,
-            }));
-            return;
-        }
-        events.push(Ok(ModelStreamEvent::Finish(map_finish_reason(reason))));
-    }
-
-    fn handle_candidate(&mut self, candidate: &mut StreamCandidate, events: &mut SseEvents) {
-        if let Some(content) = candidate.content.take() {
-            for part in content.parts {
-                self.interpret_part(part, events);
-            }
-        }
-        if let Some(reason) = candidate.finish_reason.as_deref() {
-            self.handle_finish(reason, events);
-        }
-    }
-
-    fn interpret_line(&mut self, json_line: &str, events: &mut SseEvents) {
-        let Ok(chunk) = serde_json::from_str::<StreamChunk>(json_line) else {
-            return;
-        };
-        if let Some(error) = &chunk.error {
-            events.push(Err(stream_error(error)));
-            return;
-        }
-        let mut body = chunk.response.unwrap_or(chunk.direct);
-        if let Some(metadata) = body.usage_metadata.as_ref() {
-            self.latest_usage = Some(usage_from_metadata(metadata));
-        }
-        if body.candidates.is_empty() {
-            if let Some(usage) = self.latest_usage.take() {
-                events.push(Ok(ModelStreamEvent::Usage(usage.into())));
-            }
-            return;
-        }
-        for candidate in &mut body.candidates {
-            self.handle_candidate(candidate, events);
-        }
-    }
-}
-
-impl SseStreamParser for GeminiSseParser {
-    fn feed(&mut self, bytes: &[u8]) -> SseEvents {
-        GeminiSseParser::feed(self, bytes)
-    }
+pub fn sse_parser() -> GoogleSseParser {
+    GoogleSseParser::new(ThoughtReplay::ReasoningBlocks)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::provider::adapter::FinishReason;
+    use crate::provider::adapter::{FinishReason, ModelStreamEvent};
+    use crate::provider::sse::SseEvents;
+    use rho_harness_core::error::AppError;
+    use rho_harness_core::model::Reasoning;
 
     fn feed_sse(lines: &[&str]) -> SseEvents {
-        let mut parser = GeminiSseParser::new();
+        let mut parser = sse_parser();
         let mut payload = String::new();
         for line in lines {
             payload.push_str("data: ");
@@ -240,6 +82,65 @@ mod tests {
             events.last(),
             Some(Err(AppError::ProviderUnavailable { message, .. })) if message.contains("MALFORMED_FUNCTION_CALL")
         ));
+    }
+
+    async fn collect_body(payloads: &[&str]) -> SseEvents {
+        crate::provider::sse::collect_sse_payloads(payloads, sse_parser()).await
+    }
+
+    #[tokio::test]
+    async fn stream_closed_before_finish_reason_is_a_network_error() {
+        let events = collect_body(&[r#"{"candidates":[{"content":{"parts":[{"text":"cut off"}]}}]}"#]).await;
+        assert!(matches!(&events[0], Ok(ModelStreamEvent::Text(t)) if t == "cut off"));
+        assert!(matches!(events.last(), Some(Err(AppError::Network(_)))), "{events:?}");
+    }
+
+    #[tokio::test]
+    async fn stream_closed_after_finish_reason_is_complete() {
+        let events =
+            collect_body(&[r#"{"candidates":[{"content":{"parts":[{"text":"hi"}]},"finishReason":"STOP"}]}"#]).await;
+        assert!(events.iter().all(Result::is_ok), "{events:?}");
+        assert!(matches!(
+            events.last(),
+            Some(Ok(ModelStreamEvent::Finish(FinishReason::Stop)))
+        ));
+    }
+
+    #[tokio::test]
+    async fn usage_in_a_chunk_after_the_finish_reason_is_delivered() {
+        let events = collect_body(&[
+            r#"{"candidates":[{"content":{"parts":[{"text":"hi"}]},"finishReason":"STOP"}]}"#,
+            r#"{"usageMetadata":{"promptTokenCount":4,"candidatesTokenCount":2,"totalTokenCount":6}}"#,
+        ])
+        .await;
+        assert!(events.iter().all(Result::is_ok), "{events:?}");
+        assert!(matches!(events.last(), Some(Ok(ModelStreamEvent::Usage(u))) if u.total_tokens == 6));
+    }
+
+    #[test]
+    fn in_band_errors_classify_quota_overflow_and_rate_limits() {
+        let cases = [
+            (
+                r#"{"error":{"code":429,"message":"Individual quota reached."}}"#,
+                "provider",
+            ),
+            (r#"{"error":{"code":429,"message":"slow down"}}"#, "rate_limited"),
+            (
+                r#"{"error":{"code":400,"message":"The input token count exceeds the maximum"}}"#,
+                "context_overflow",
+            ),
+            (r#"{"error":{"code":503,"message":"overloaded"}}"#, "unavailable"),
+        ];
+        for (line, expected) in cases {
+            let kind = match feed_sse(&[line]).as_slice() {
+                [Err(AppError::Provider(_))] => "provider",
+                [Err(AppError::RateLimited { .. })] => "rate_limited",
+                [Err(AppError::ContextOverflow(_))] => "context_overflow",
+                [Err(AppError::ProviderUnavailable { .. })] => "unavailable",
+                other => panic!("{line}: {other:?}"),
+            };
+            assert_eq!(kind, expected, "{line}");
+        }
     }
 
     #[test]
