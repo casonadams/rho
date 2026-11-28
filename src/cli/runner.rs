@@ -22,15 +22,15 @@ fn handle_turn_result(res: rho_harness_core::error::Result<crate::engine::runner
     }
 }
 
-fn spawn_rpc_writer(
-    mut event_rx: tokio::sync::mpsc::UnboundedReceiver<rho_harness_core::rpc::protocol::RpcEvent>,
-) -> tokio::task::JoinHandle<()> {
+fn spawn_rpc_writer(events: crate::cli::rpc::RpcEventQueue) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
         let mut writer = rho_harness_core::rpc::transport::JsonLinesWriter::new(tokio::io::stdout());
-        while let Some(event) = event_rx.recv().await {
-            if let Err(err) = writer.write_message(&event).await {
-                eprintln!("Error: failed to write RPC event: {err}");
-                break;
+        while let Some(batch) = events.next_batch().await {
+            for event in batch {
+                if let Err(err) = writer.write_message(&event).await {
+                    eprintln!("Error: failed to write RPC event: {err}");
+                    return;
+                }
             }
         }
     })
@@ -69,10 +69,10 @@ impl CliRunner {
     }
 
     pub async fn run_json_turn(self, prompt: &str) -> CliResult {
-        let (event_tx, event_rx) = tokio::sync::mpsc::unbounded_channel();
+        let events = crate::cli::rpc::RpcEventQueue::default();
         let presenter: Arc<dyn rho_harness_core::presentation::Presenter> =
-            Arc::new(crate::cli::rpc::RpcPresenter::new(event_tx));
-        let writer_task = spawn_rpc_writer(event_rx);
+            Arc::new(crate::cli::rpc::RpcPresenter::new(events.clone()));
+        let writer_task = spawn_rpc_writer(events.clone());
 
         let engine = self.build_engine().await?;
         crate::cli::mcp::eprint_mcp_diagnostics(&engine);
@@ -80,6 +80,7 @@ impl CliRunner {
             .run_turn(crate::engine::runner::TurnRequest::new(prompt), presenter.clone())
             .await;
         drop(presenter);
+        events.close();
         let _ = writer_task.await;
         handle_turn_result(res)
     }

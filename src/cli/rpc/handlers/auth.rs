@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use super::super::presenter::RpcEventQueue;
 use super::super::types::RpcDaemonContext;
 use super::config::handle_node_info_cmd;
 use super::session::{handle_create_session_cmd, write_command_result};
@@ -16,7 +17,7 @@ pub(crate) async fn handle_oauth_login_result(
     provider: rho_harness_core::provider::ProviderId,
     result: Result<StoredCredential>,
     auth_store: &Arc<RwLock<AuthStore>>,
-    event_tx: &tokio::sync::mpsc::UnboundedSender<RpcEvent>,
+    events: &RpcEventQueue,
 ) -> bool {
     let saved = match result {
         Ok(cred) => {
@@ -33,7 +34,7 @@ pub(crate) async fn handle_oauth_login_result(
         Ok(login) => (login.to_string(), true, None),
         Err(e) => (provider.as_str().to_string(), false, Some(e.to_string())),
     };
-    let _ = event_tx.send(RpcEvent::AuthComplete {
+    events.push(RpcEvent::AuthComplete {
         provider: login,
         success,
         error,
@@ -66,16 +67,16 @@ pub(crate) async fn handle_auth_login_cmd<W: tokio::io::AsyncWrite + Unpin>(
             .await?;
         return Ok(());
     };
-    let callbacks = ctx.auth_bridge.callbacks(&provider_str, ctx.event_tx.clone());
+    let callbacks = ctx.auth_bridge.callbacks(&provider_str, Arc::new(ctx.events.clone()));
     let auth_store = Arc::clone(&ctx.auth_store);
     let config = Arc::clone(&ctx.config);
     let catalog = ctx.engine.read().await.model_catalog().clone();
-    let event_tx = ctx.event_tx.clone();
+    let events = ctx.events.clone();
     let live_models = ctx.live_models;
 
     tokio::spawn(async move {
         let result = rho_engine::auth::perform_oauth_login(provider_id, &callbacks).await;
-        if handle_oauth_login_result(provider_id, result, &auth_store, &event_tx).await && live_models {
+        if handle_oauth_login_result(provider_id, result, &auth_store, &events).await && live_models {
             refresh_provider_models(&catalog, provider_id.as_str(), &config, &auth_store).await;
         }
     });
@@ -167,7 +168,6 @@ mod tests {
     use super::*;
     use rho_harness_core::error::AppError;
     use tempfile::tempdir;
-    use tokio::sync::mpsc;
 
     #[tokio::test]
     async fn test_handle_oauth_login_result_outcomes() {
@@ -200,29 +200,34 @@ mod tests {
                 std::fs::create_dir(&path).unwrap();
             }
             let auth_store = Arc::new(RwLock::new(store));
-            let (event_tx, mut event_rx) = mpsc::unbounded_channel();
+            let events = RpcEventQueue::default();
 
             let saved = handle_oauth_login_result(
                 rho_harness_core::provider::ProviderId::ChatGpt,
                 result(),
                 &auth_store,
-                &event_tx,
+                &events,
             )
             .await;
             assert_eq!(saved, expected_error.is_none(), "{name}");
 
-            let RpcEvent::AuthComplete {
-                provider,
-                success,
-                error,
-            } = event_rx.recv().await.unwrap()
+            let batch = events.next_batch().await;
+            let Some(
+                [
+                    RpcEvent::AuthComplete {
+                        provider,
+                        success,
+                        error,
+                    },
+                ],
+            ) = batch.as_deref()
             else {
-                panic!("{name}: expected AuthComplete");
+                panic!("{name}: expected AuthComplete, got {batch:?}");
             };
             assert_eq!(provider, "chatgpt", "{name}");
-            assert_eq!(success, expected_error.is_none(), "{name}");
+            assert_eq!(*success, expected_error.is_none(), "{name}");
             match expected_error {
-                Some(needle) => assert!(error.unwrap().contains(needle), "{name}"),
+                Some(needle) => assert!(error.as_deref().unwrap().contains(needle), "{name}"),
                 None => assert!(error.is_none(), "{name}"),
             }
         }

@@ -1,13 +1,13 @@
 use std::sync::Arc;
 use tokio::io::duplex;
-use tokio::sync::{RwLock, mpsc};
+use tokio::sync::RwLock;
 
 use super::handlers::auth::handle_set_api_key_cmd;
 use super::handlers::config::{handle_config_update_cmd, handle_node_info_cmd, handle_state_command};
 use super::handlers::session::{extract_chat_messages, handle_create_session_cmd, handle_get_tree_cmd};
 use super::handlers::turn::{handle_tool_response_cmd, parse_tool_decision};
 use super::handlers::{handle_node_session_auth_cmd, handle_resume_or_fork_cmd};
-use super::presenter::RpcPresenter;
+use super::presenter::{RpcEventQueue, RpcPresenter};
 use super::types::RpcDaemonContext;
 use crate::auth::AuthStore;
 use crate::config::Config;
@@ -58,8 +58,8 @@ fn unknown_tool_decisions_never_approve() {
 
 #[tokio::test]
 async fn test_rpc_presenter_tool_approval_roundtrip() {
-    let (event_tx, mut event_rx) = mpsc::unbounded_channel();
-    let presenter = RpcPresenter::new(event_tx);
+    let events = RpcEventQueue::default();
+    let presenter = RpcPresenter::new(events.clone());
     let pending = presenter.pending_approvals();
 
     let prompt = InteractionPrompt {
@@ -79,20 +79,19 @@ async fn test_rpc_presenter_tool_approval_roundtrip() {
     let pres_clone = presenter.clone();
     let handle = tokio::spawn(async move { pres_clone.request_interaction(prompt).await });
 
-    // 1. First event: ToolApprovalRequest
-    let ev1 = event_rx.recv().await.expect("expected tool approval event");
-    let approval_id = match ev1 {
+    let mut emitted = Vec::new();
+    while emitted.len() < 2 {
+        emitted.extend(events.next_batch().await.expect("the queue stays open"));
+    }
+    let approval_id = match &emitted[0] {
         RpcEvent::ToolApprovalRequest { approval_id, tool, .. } => {
             assert_eq!(tool, "bash");
-            approval_id
+            approval_id.clone()
         }
         other => panic!("expected ToolApprovalRequest, got {other:?}"),
     };
-
-    // 2. Second event: StatusChanged { status: "waiting_approval" }
-    let ev2 = event_rx.recv().await.expect("expected status change");
     assert_eq!(
-        ev2,
+        emitted[1],
         RpcEvent::StatusChanged {
             status: "waiting_approval".to_string()
         }
@@ -117,7 +116,6 @@ async fn test_rpc_presenter_tool_approval_roundtrip() {
     let steering = Arc::new(SharedSteeringQueue::new(rho_engine::engine::runner::QueueMode::All));
     let mut active_turn = None;
 
-    let (test_event_tx, _test_event_rx) = mpsc::unbounded_channel();
     let pres_arc: Arc<dyn Presenter> = Arc::new(presenter);
     let mut ctx = RpcDaemonContext {
         writer: &mut writer,
@@ -128,7 +126,7 @@ async fn test_rpc_presenter_tool_approval_roundtrip() {
         pending_approvals: pending,
         steering,
         active_turn: &mut active_turn,
-        event_tx: test_event_tx,
+        events,
         auth_bridge: rho_harness_core::rpc::RpcAuthBridge::new(),
         live_models: false,
     };
@@ -146,8 +144,8 @@ async fn setup_test_rpc_context<'a, W: tokio::io::AsyncWrite + Unpin>(
     temp_dir: &std::path::Path,
     active_turn: &'a mut Option<tokio::task::JoinHandle<crate::error::Result<rho_engine::engine::runner::TurnOutput>>>,
 ) -> RpcDaemonContext<'a, W> {
-    let (event_tx, _event_rx) = mpsc::unbounded_channel();
-    let presenter = RpcPresenter::new(event_tx);
+    let events = RpcEventQueue::default();
+    let presenter = RpcPresenter::new(events.clone());
     let pending = presenter.pending_approvals();
     let config = Config {
         sessions_dir: temp_dir.join("sessions"),
@@ -160,7 +158,6 @@ async fn setup_test_rpc_context<'a, W: tokio::io::AsyncWrite + Unpin>(
     let engine = crate::platform::agent_engine(config.clone(), auth_store.clone(), Default::default(), None)
         .await
         .unwrap();
-    let (test_event_tx, _test_event_rx) = mpsc::unbounded_channel();
     RpcDaemonContext {
         writer,
         engine: Arc::new(RwLock::new(engine)),
@@ -170,7 +167,7 @@ async fn setup_test_rpc_context<'a, W: tokio::io::AsyncWrite + Unpin>(
         pending_approvals: pending,
         steering: Arc::new(SharedSteeringQueue::new(rho_engine::engine::runner::QueueMode::All)),
         active_turn,
-        event_tx: test_event_tx,
+        events,
         auth_bridge: rho_harness_core::rpc::RpcAuthBridge::new(),
         live_models: false,
     }
@@ -957,29 +954,90 @@ async fn set_api_key_fetches_that_providers_model_list() {
     assert!(request.contains("authorization: bearer acme-key\r\n"), "{request}");
 }
 
-#[test]
-fn queued_events_are_written_with_adjacent_chunks_joined() {
-    let text = |s: &str| RpcEvent::TextChunk { content: s.to_string() };
-    let reasoning = |s: &str| RpcEvent::ReasoningChunk { content: s.to_string() };
-    let busy = RpcEvent::StatusChanged {
+fn text(s: &str) -> RpcEvent {
+    RpcEvent::TextChunk { content: s.to_string() }
+}
+
+fn reasoning(s: &str) -> RpcEvent {
+    RpcEvent::ReasoningChunk { content: s.to_string() }
+}
+
+fn busy() -> RpcEvent {
+    RpcEvent::StatusChanged {
         status: "busy".to_string(),
-    };
-    let (event_tx, mut event_rx) = mpsc::unbounded_channel();
+    }
+}
+
+#[tokio::test]
+async fn a_token_stream_to_a_stalled_client_stays_one_queued_event() {
+    let events = RpcEventQueue::default();
+    let presenter = RpcPresenter::new(events.clone());
+
+    for _ in 0..10_000 {
+        presenter.print_token("tok ");
+    }
+
+    assert_eq!(events.next_batch().await, Some(vec![text(&"tok ".repeat(10_000))]));
+}
+
+#[tokio::test]
+async fn queued_events_keep_their_order_with_adjacent_chunks_joined() {
+    let events = RpcEventQueue::default();
     for event in [
+        text("a"),
         text("b"),
         reasoning("c"),
         reasoning("d"),
-        busy.clone(),
+        busy(),
         text("e"),
         text("f"),
     ] {
-        event_tx.send(event).unwrap();
+        events.push(event);
     }
 
-    let events = super::loop_runner::drain_coalesced(text("a"), &mut event_rx);
+    let batch = events.next_batch().await;
 
-    assert_eq!(events, [text("ab"), reasoning("cd"), busy, text("ef")]);
-    assert!(event_rx.try_recv().is_err());
+    assert_eq!(batch, Some(vec![text("ab"), reasoning("cd"), busy(), text("ef")]));
+    events.close();
+    assert_eq!(events.next_batch().await, None, "the batch took every queued event");
+}
+
+#[tokio::test]
+async fn text_past_the_cap_drops_the_oldest_behind_one_marker() {
+    let cap = 1024;
+    let events = RpcEventQueue::with_text_byte_cap(cap);
+    events.push(busy());
+    let stream: String = (0..10_000).map(|i| format!("{}\u{20ac}", i % 10)).collect();
+    for token in stream.split_inclusive('\u{20ac}') {
+        events.push(text(token));
+    }
+
+    let batch = events.next_batch().await.unwrap();
+
+    let [status, marker, RpcEvent::TextChunk { content }] = batch.as_slice() else {
+        panic!("expected status, marker and text, got {batch:?}");
+    };
+    assert_eq!(*status, busy());
+    assert_eq!(
+        *marker,
+        RpcEvent::OutputTruncated {
+            dropped_bytes: stream.len() - content.len()
+        }
+    );
+    assert!(content.len() <= cap, "{} buffered bytes", content.len());
+    assert!(stream.ends_with(content.as_str()), "the newest text is kept");
+}
+
+#[tokio::test]
+async fn a_closed_queue_refuses_events_after_yielding_the_queued_ones() {
+    let events = RpcEventQueue::default();
+    assert!(events.push(busy()));
+
+    events.close();
+
+    assert!(!events.push(text("late")));
+    assert_eq!(events.next_batch().await, Some(vec![busy()]));
+    assert_eq!(events.next_batch().await, None);
 }
 
 #[tokio::test(start_paused = true)]

@@ -134,6 +134,10 @@ pub enum RpcEvent {
     ReasoningChunk {
         content: String,
     },
+    /// The client read too slowly, so this many bytes of the oldest unsent text were dropped here.
+    OutputTruncated {
+        dropped_bytes: usize,
+    },
     ToolCallStart {
         call_id: String,
         tool: String,
@@ -252,6 +256,15 @@ mod tests {
         };
         let json = serde_json::to_string(&event).unwrap();
         assert_eq!(json, r#"{"type":"text_chunk","content":"Hello world"}"#);
+    }
+
+    #[test]
+    fn output_truncated_serializes_with_its_dropped_byte_count() {
+        let json = r#"{"type":"output_truncated","dropped_bytes":4096}"#;
+        let event = RpcEvent::OutputTruncated { dropped_bytes: 4096 };
+
+        assert_eq!(serde_json::to_string(&event).unwrap(), json);
+        assert_eq!(serde_json::from_str::<RpcEvent>(json).unwrap(), event);
     }
 
     #[test]

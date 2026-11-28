@@ -5,7 +5,13 @@ use crate::rpc::protocol::RpcEvent;
 use async_trait::async_trait;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::oneshot;
+
+/// Where the bridge sends its events to the client.
+pub trait RpcEventSink: Send + Sync {
+    /// Queues `event` for the client; `false` once no client can receive it.
+    fn send(&self, event: RpcEvent) -> bool;
+}
 
 #[derive(Debug, Clone, Default)]
 pub struct AuthInputResponse {
@@ -30,14 +36,10 @@ impl RpcAuthBridge {
         pending.is_some_and(|tx| tx.send(response).is_ok())
     }
 
-    pub fn callbacks(
-        &self,
-        provider: impl Into<String>,
-        event_tx: mpsc::UnboundedSender<RpcEvent>,
-    ) -> RpcOAuthCallbacks {
+    pub fn callbacks(&self, provider: impl Into<String>, events: Arc<dyn RpcEventSink>) -> RpcOAuthCallbacks {
         RpcOAuthCallbacks {
             provider: provider.into(),
-            event_tx,
+            events,
             pending_inputs: Arc::clone(&self.pending_inputs),
         }
     }
@@ -45,15 +47,20 @@ impl RpcAuthBridge {
 
 pub struct RpcOAuthCallbacks {
     provider: String,
-    event_tx: mpsc::UnboundedSender<RpcEvent>,
+    events: Arc<dyn RpcEventSink>,
     pending_inputs: Arc<PendingInputs>,
 }
 
 impl RpcOAuthCallbacks {
     fn send(&self, event: RpcEvent) -> Result<()> {
-        self.event_tx
-            .send(event)
-            .map_err(|_| AppError::Auth(format!("{} login: the client is no longer listening", self.provider)))
+        if self.events.send(event) {
+            Ok(())
+        } else {
+            Err(AppError::Auth(format!(
+                "{} login: the client is no longer listening",
+                self.provider
+            )))
+        }
     }
 
     /// Registers a reply slot before the request is sent, so a fast reply cannot be missed.
@@ -144,12 +151,19 @@ impl OAuthLoginCallbacks for RpcOAuthCallbacks {
 mod tests {
     use super::*;
     use std::time::Duration;
+    use tokio::sync::mpsc;
+
+    impl RpcEventSink for mpsc::UnboundedSender<RpcEvent> {
+        fn send(&self, event: RpcEvent) -> bool {
+            mpsc::UnboundedSender::send(self, event).is_ok()
+        }
+    }
 
     #[tokio::test]
     async fn test_rpc_auth_bridge_prompt_roundtrip() {
         let bridge = RpcAuthBridge::new();
         let (event_tx, mut event_rx) = mpsc::unbounded_channel();
-        let callbacks = bridge.callbacks("test-prov", event_tx);
+        let callbacks = bridge.callbacks("test-prov", Arc::new(event_tx));
 
         let bridge_clone = bridge.clone();
         let prompt_task = tokio::spawn(async move { callbacks.on_prompt("Enter token", true).await });
@@ -186,7 +200,7 @@ mod tests {
     async fn test_rpc_auth_bridge_select_roundtrip() {
         let bridge = RpcAuthBridge::new();
         let (event_tx, mut event_rx) = mpsc::unbounded_channel();
-        let callbacks = bridge.callbacks("test-prov", event_tx);
+        let callbacks = bridge.callbacks("test-prov", Arc::new(event_tx));
 
         let bridge_clone = bridge.clone();
         let select_task = tokio::spawn(async move {
@@ -225,7 +239,7 @@ mod tests {
         let bridge = RpcAuthBridge::new();
         let (event_tx, event_rx) = mpsc::unbounded_channel();
         drop(event_rx);
-        let callbacks = bridge.callbacks("test-prov", event_tx);
+        let callbacks = bridge.callbacks("test-prov", Arc::new(event_tx));
 
         let result = tokio::time::timeout(Duration::from_secs(1), callbacks.on_prompt("Enter token", true))
             .await
@@ -240,7 +254,7 @@ mod tests {
         let bridge = RpcAuthBridge::new();
         let (event_tx, event_rx) = mpsc::unbounded_channel();
         drop(event_rx);
-        let callbacks = bridge.callbacks("test-prov", event_tx);
+        let callbacks = bridge.callbacks("test-prov", Arc::new(event_tx));
 
         let result = tokio::time::timeout(
             Duration::from_secs(1),

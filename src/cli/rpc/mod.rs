@@ -7,14 +7,14 @@ mod types;
 
 use std::sync::Arc;
 use tokio::io::BufReader;
-use tokio::sync::{RwLock, mpsc};
+use tokio::sync::RwLock;
 
 use crate::auth::AuthStore;
 use crate::config::Config;
 use crate::error::Result;
 use crate::steering::SharedSteeringQueue;
 use loop_runner::run_rpc_loop;
-pub(crate) use presenter::RpcPresenter;
+pub(crate) use presenter::{RpcEventQueue, RpcPresenter};
 use rho_harness_core::rpc::protocol::RpcEvent;
 use rho_harness_core::rpc::transport::{JsonLinesReader, JsonLinesWriter};
 use types::RpcDaemonContext;
@@ -32,8 +32,8 @@ where
 {
     let mut reader = JsonLinesReader::new(BufReader::new(reader_stream));
     let mut writer = JsonLinesWriter::new(writer_stream);
-    let (event_tx, mut event_rx) = mpsc::unbounded_channel::<RpcEvent>();
-    let rpc_presenter = RpcPresenter::new(event_tx.clone());
+    let events = RpcEventQueue::default();
+    let rpc_presenter = RpcPresenter::new(events.clone());
     let pending_approvals = rpc_presenter.pending_approvals();
     let presenter: Arc<dyn rho_harness_core::presentation::Presenter> = Arc::new(rpc_presenter);
 
@@ -65,19 +65,19 @@ where
         pending_approvals,
         steering,
         active_turn: &mut active_turn,
-        event_tx: event_tx.clone(),
+        events: events.clone(),
         auth_bridge: rho_harness_core::rpc::RpcAuthBridge::new(),
         live_models: true,
     };
 
     let engine_for_quota = Arc::clone(&ctx.engine);
-    let quota_tx = event_tx.clone();
+    let quota_events = events.clone();
     let mut quota_rx = ctx.engine.read().await.quota_subscribe();
     let quota_task = tokio::spawn(async move {
         while quota_rx.changed().await.is_ok() {
             let eng = engine_for_quota.read().await;
             let totals = eng.session_usage_totals();
-            let _ = quota_tx.send(RpcEvent::UsageUpdate {
+            quota_events.push(RpcEvent::UsageUpdate {
                 input_tokens: Some(totals.total_input),
                 output_tokens: Some(totals.total_output),
                 cache_read_tokens: Some(totals.total_cache_read),
@@ -91,8 +91,9 @@ where
         }
     });
 
-    let res = run_rpc_loop(&mut reader, &mut event_rx, &mut ctx).await;
+    let res = run_rpc_loop(&mut reader, &events, &mut ctx).await;
     quota_task.abort();
+    events.close();
     res
 }
 
