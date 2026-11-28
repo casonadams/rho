@@ -10,6 +10,7 @@ pub mod edit;
 pub mod engine_tool;
 pub mod fd;
 pub mod file_change;
+pub(crate) mod file_tool;
 pub mod jobs;
 pub mod listing;
 pub mod lsp;

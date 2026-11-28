@@ -403,6 +403,19 @@ async fn test_read_skill_full_content_on_first_read() {
 }
 
 #[tokio::test]
+async fn a_panicking_image_decoder_reports_an_image_error() {
+    let result = process_image("photo.png", || panic!("decoder blew up")).await;
+
+    assert!(result.is_error);
+    assert!(
+        result.content.starts_with("Failed to process image photo.png: "),
+        "{}",
+        result.content
+    );
+    assert!(result.content.contains("decoder blew up"), "{}", result.content);
+}
+
+#[tokio::test]
 async fn symbol_cannot_be_combined_with_offset_or_limit() {
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(dir.path().join("a.rs"), "fn a() {}\n").unwrap();

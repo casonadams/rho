@@ -67,24 +67,29 @@ pub(crate) struct FormatPageParams<'a> {
     pub final_url: &'a str,
 }
 
-fn assemble_output(source_url: &str, final_url: &str, text: &str) -> String {
-    let mut out = String::new();
-    if final_url != source_url {
-        out.push_str(&format!("[Final URL after redirects: {final_url}]\n\n"));
+fn redirect_header(source_url: &str, final_url: &str) -> String {
+    if final_url == source_url {
+        String::new()
+    } else {
+        format!("[Final URL after redirects: {final_url}]\n\n")
     }
-    out.push_str(text);
-    out
 }
 
 pub(crate) fn format_page(params: FormatPageParams<'_>) -> ToolResult {
-    let full_output = assemble_output(params.source_url, params.final_url, params.text);
-    if full_output.trim().is_empty() {
-        return ToolResult::success("[Empty content returned from URL]");
+    let header = redirect_header(params.source_url, params.final_url);
+    if params.text.trim().is_empty() {
+        return ToolResult::success(format!("{header}[Empty content returned from URL]"));
     }
 
-    let prepared = prepare_lines(&full_output, LINE_MAX_BYTES);
+    let prepared = prepare_lines(params.text, LINE_MAX_BYTES);
     let total = prepared.len();
-    let start = (params.offset.saturating_sub(1)).min(total);
+    let start = params.offset.saturating_sub(1);
+    if start >= total {
+        return ToolResult::error(format!(
+            "Offset {} is beyond end of content ({total} lines total)",
+            params.offset
+        ));
+    }
     let page = page_lines(PageLinesParams {
         lines: &prepared,
         start,
@@ -94,11 +99,11 @@ pub(crate) fn format_page(params: FormatPageParams<'_>) -> ToolResult {
     let next_offset = start + page.consumed + 1;
     let content = if start + page.consumed < total {
         format!(
-            "{}\n\n[Truncated: {total} lines total. Use offset={next_offset} to continue.]",
+            "{header}{}\n\n[Truncated: {total} lines total. Use offset={next_offset} to continue.]",
             page.content
         )
     } else {
-        page.content
+        format!("{header}{}", page.content)
     };
 
     ToolResult::success(content)

@@ -45,13 +45,17 @@ async fn resolve_and_read_bytes(
     }
 }
 
+async fn process_image(clean_path: &str, decode: impl FnOnce() -> ToolResult + Send + 'static) -> ToolResult {
+    tokio::task::spawn_blocking(decode)
+        .await
+        .unwrap_or_else(|e| ToolResult::error(format!("Failed to process image {clean_path}: {e}")))
+}
+
 async fn handle_non_text_content(raw_bytes: &[u8], clean_path: &str) -> Option<ToolResult> {
     if let Some(sniffed) = images::detect_supported_image_mime(raw_bytes) {
         let bytes = raw_bytes.to_vec();
         let mime = sniffed.mime();
-        return tokio::task::spawn_blocking(move || images::tool_result(&bytes, mime))
-            .await
-            .ok();
+        return Some(process_image(clean_path, move || images::tool_result(&bytes, mime)).await);
     }
     if is_binary(raw_bytes) {
         return Some(ToolResult::success(format!(

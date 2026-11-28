@@ -56,7 +56,7 @@ async fn undo_steps_back_through_edits_and_writes() {
     let first = t.undo("a.txt").await;
     assert_eq!(
         first.content,
-        "Restored a.txt to its contents before the last change (1 earlier change(s) can still be undone)\n@@ 1-2\n1\tone\n2\t2"
+        "Restored a.txt to its contents before the last change (1 earlier change(s) can still be undone)\n@@ 1-2\n  1\tone\n  2\t2"
     );
     assert_eq!(t.read("a.txt").as_deref(), Some("one\n2\n"));
 

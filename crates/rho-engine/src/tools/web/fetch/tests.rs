@@ -54,6 +54,35 @@ fn test_format_page_reports_final_redirect_url() {
 }
 
 #[test]
+fn an_offset_past_the_end_is_an_error_naming_the_total() {
+    let res = format_page(FormatPageParams {
+        text: "line 1\nline 2\nline 3",
+        offset: 4,
+        limit: 10,
+        source_url: "https://example.com",
+        final_url: "https://example.com",
+    });
+    assert!(res.is_error);
+    assert_eq!(res.content, "Offset 4 is beyond end of content (3 lines total)");
+}
+
+#[test]
+fn offsets_after_a_redirect_count_only_content_lines() {
+    let res = format_page(FormatPageParams {
+        text: "line 1\nline 2\nline 3",
+        offset: 2,
+        limit: 1,
+        source_url: "https://example.com/start",
+        final_url: "https://example.com/final",
+    });
+    assert!(!res.is_error);
+    assert_eq!(
+        res.content,
+        "[Final URL after redirects: https://example.com/final]\n\nline 2\n\n[Truncated: 3 lines total. Use offset=3 to continue.]"
+    );
+}
+
+#[test]
 fn test_decode_utf16le_bom() {
     let bytes = [0xff, 0xfe, 0x68, 0x00, 0x69, 0x00];
     let text = decode_body(&bytes, "text/plain");

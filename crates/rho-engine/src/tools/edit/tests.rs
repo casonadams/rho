@@ -39,7 +39,6 @@ struct SuccessCase {
     old_text: &'static str,
     new_text: &'static str,
     expected: &'static str,
-    line: Option<usize>,
 }
 
 const SUCCESS_CASES: &[SuccessCase] = &[
@@ -48,14 +47,12 @@ const SUCCESS_CASES: &[SuccessCase] = &[
         old_text: "println!(\"world\");",
         new_text: "println!(\"rust\");",
         expected: "fn hello() {\n    println!(\"rust\");\n}\n",
-        line: Some(2),
     },
     SuccessCase {
         initial: "line 1\r\nline 2\r\nline 3\r\n",
         old_text: "line 2\n",
         new_text: "line 2 modified\n",
         expected: "line 1\r\nline 2 modified\r\nline 3\r\n",
-        line: None,
     },
 ];
 
@@ -64,7 +61,6 @@ const EXTERNAL_CASE: SuccessCase = SuccessCase {
     old_text: "initial external line",
     new_text: "modified external line",
     expected: "modified external line\n",
-    line: None,
 };
 
 struct FailureCase {
@@ -105,9 +101,6 @@ async fn assert_edit_applies(workspace: &Path, file: &Path, case: &SuccessCase) 
     let res = edit_file(workspace, file, case.old_text, case.new_text).await;
 
     assert!(!res.is_error, "{}", res.content);
-    if let Some(line) = case.line {
-        assert_eq!(res.metadata, Some(serde_json::json!({ "line_numbers": [line] })));
-    }
     assert_eq!(read_disk(file).await, case.expected);
 }
 
@@ -159,7 +152,6 @@ async fn region_and_replace_all_edits_apply_in_order() {
 
     assert!(!res.is_error, "{}", res.content);
     assert_eq!(read_disk(&file).await, "use b;\nfn keep() { b(); }\n");
-    assert_eq!(res.metadata, Some(serde_json::json!({ "line_numbers": [2, 1] })));
 }
 
 #[tokio::test]
@@ -183,7 +175,7 @@ async fn result_shows_each_changed_region_with_line_numbers() {
     assert_eq!(
         res.content,
         format!(
-            "Successfully applied 2 replacement(s) to {path}\n@@ 2-5\n2\tline 2\n3\tthree\n4\tthree b\n5\tline 4\n@@ 15-16\n15\tline 14\n16\tline 16"
+            "Successfully applied 2 replacement(s) to {path}\n@@ 2-5\n  2\tline 2\n  3\tthree\n  4\tthree b\n  5\tline 4\n@@ 15-16\n 15\tline 14\n 16\tline 16"
         )
     );
 }

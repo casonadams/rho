@@ -1,6 +1,6 @@
-use crate::lsp::LspManager;
 use crate::tools::atomic::atomic_write;
 use crate::tools::engine_tool::{EngineTool, TurnToolContext, TypedTool};
+use crate::tools::file_tool::FileTool;
 use crate::tools::types::{ToolResult, resolve_tool_path};
 pub use rho_harness_core::args::WriteArgs;
 use rho_harness_core::error::AppError;
@@ -11,13 +11,8 @@ use std::sync::Arc;
 #[cfg(test)]
 mod tests;
 
-pub(crate) struct WriteTool {
-    pub base_dir: crate::tools::WorkspaceDir,
-    pub lsp: Option<Arc<LspManager>>,
-    pub history: Option<crate::tools::undo::EditHistory>,
-    /// The agent's mailbox, where diagnostics that arrive late are delivered.
-    inbox: Option<crate::mailbox::Mailbox>,
-}
+pub(crate) enum WriteOp {}
+pub(crate) type WriteTool = FileTool<WriteOp>;
 
 async fn check_not_directory(path: &Path, clean_path: &str) -> std::result::Result<(), ToolResult> {
     if tokio::fs::metadata(path).await.map(|m| m.is_dir()).unwrap_or(false) {
@@ -59,30 +54,6 @@ async fn perform_atomic_write(path: &Path, clean_path: &str, content: &str) -> R
 }
 
 impl WriteTool {
-    pub fn new(base_dir: impl AsRef<Path>) -> Self {
-        Self {
-            base_dir: crate::tools::WorkspaceDir::new(base_dir.as_ref()),
-            lsp: None,
-            history: None,
-            inbox: None,
-        }
-    }
-
-    pub(crate) fn with_workspace_dir(mut self, base_dir: crate::tools::WorkspaceDir) -> Self {
-        self.base_dir = base_dir;
-        self
-    }
-
-    pub(crate) fn with_lsp(mut self, lsp: Option<Arc<LspManager>>) -> Self {
-        self.lsp = lsp;
-        self
-    }
-
-    pub fn with_history(mut self, history: Option<crate::tools::undo::EditHistory>) -> Self {
-        self.history = history;
-        self
-    }
-
     pub async fn execute(&self, args: WriteArgs) -> Result<ToolResult, AppError> {
         let clean_path = clean_path_arg(&args.path);
         let base_dir = self.base_dir.get();
@@ -129,12 +100,6 @@ impl TypedTool for WriteTool {
     }
 
     fn bind_to_turn(&self, ctx: &TurnToolContext) -> Option<Arc<dyn EngineTool>> {
-        self.lsp.as_ref()?;
-        Some(Arc::new(Self {
-            base_dir: self.base_dir.clone(),
-            lsp: self.lsp.clone(),
-            history: self.history.clone(),
-            inbox: Some(ctx.inbox.clone()?),
-        }))
+        self.bound_to_turn(ctx)
     }
 }

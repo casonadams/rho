@@ -21,8 +21,6 @@ pub struct ToolResult {
     /// What the model sees.
     pub content: String,
     pub is_error: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub metadata: Option<serde_json::Value>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub image: Option<Box<ToolImage>>,
     /// What the user sees when it differs from `content`, such as the same output with terminal colors.
@@ -38,7 +36,6 @@ impl ToolResult {
         Self {
             content: content.into(),
             is_error,
-            metadata: None,
             image: None,
             display: None,
             ends_turn: false,
@@ -61,13 +58,6 @@ impl ToolResult {
     pub fn error(content: impl Into<String>) -> Self {
         Self::new(content, true)
     }
-
-    pub(crate) fn with_metadata(self, metadata: serde_json::Value) -> Self {
-        Self {
-            metadata: Some(metadata),
-            ..self
-        }
-    }
 }
 
 #[cfg(test)]
@@ -78,13 +68,9 @@ mod tests {
     fn constructors_set_only_their_own_fields() {
         let ok = ToolResult::success("fine");
         assert_eq!((ok.content.as_str(), ok.is_error), ("fine", false));
-        assert!(ok.metadata.is_none() && ok.image.is_none() && ok.display.is_none() && !ok.ends_turn);
+        assert!(ok.image.is_none() && ok.display.is_none() && !ok.ends_turn);
 
         let err = ToolResult::error("bad");
         assert_eq!((err.content.as_str(), err.is_error), ("bad", true));
-
-        let with_meta = ToolResult::success("x").with_metadata(serde_json::json!({ "k": 1 }));
-        assert_eq!(with_meta.metadata, Some(serde_json::json!({ "k": 1 })));
-        assert!(!with_meta.is_error);
     }
 }

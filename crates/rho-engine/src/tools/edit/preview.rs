@@ -1,3 +1,4 @@
+use crate::tools::read::format::number_lines;
 use crate::tools::truncate::truncate_line;
 use similar::{DiffOp, TextDiff};
 use std::fmt::Write;
@@ -50,9 +51,11 @@ impl Preview {
             return;
         };
         let _ = writeln!(self.out, "@@ {}-{}", start + 1, start + take);
-        for (index, line) in new_lines[start..start + take].iter().enumerate() {
-            let _ = writeln!(self.out, "{}\t{}", start + index + 1, truncate_line(line).text);
-        }
+        let shown: String = new_lines[start..start + take]
+            .iter()
+            .map(|line| format!("{}\n", truncate_line(line).text))
+            .collect();
+        self.out.push_str(&number_lines(&shown, start + 1));
         if take < len {
             let _ = writeln!(
                 self.out,
@@ -103,10 +106,10 @@ mod tests {
         let preview = changed_regions("", &numbered(PREVIEW_MAX_LINES + 15, "new "));
         let lines: Vec<&str> = preview.lines().collect();
         assert_eq!(lines[0], format!("@@ 1-{PREVIEW_MAX_LINES}"));
-        assert_eq!(lines[1], "1\tnew 1");
+        assert_eq!(lines[1], "  1\tnew 1");
         assert_eq!(
             lines[PREVIEW_MAX_LINES],
-            format!("{PREVIEW_MAX_LINES}\tnew {PREVIEW_MAX_LINES}")
+            format!(" {PREVIEW_MAX_LINES}\tnew {PREVIEW_MAX_LINES}")
         );
         assert_eq!(
             lines[PREVIEW_MAX_LINES + 1],
@@ -124,6 +127,11 @@ mod tests {
     #[test]
     fn a_deletion_with_surrounding_lines_still_lists_them() {
         let preview = changed_regions("a\nb\nc\n", "a\nc\n");
-        assert_eq!(preview, "@@ 1-2\n1\ta\n2\tc");
+        assert_eq!(preview, "@@ 1-2\n  1\ta\n  2\tc");
+    }
+
+    #[test]
+    fn blank_lines_in_a_region_keep_their_numbers() {
+        assert_eq!(changed_regions("a\nb\n", "a\n\nb\n"), "@@ 1-3\n  1\ta\n  2\t\n  3\tb");
     }
 }
