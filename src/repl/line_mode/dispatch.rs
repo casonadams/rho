@@ -5,6 +5,7 @@ use crate::repl::branch_summary::{SUMMARY_PROMPT, abandoned_messages, has_assist
 use crate::repl::commands::CommandResult;
 use crate::repl::commands::types::WorkflowLaunch;
 use crate::repl::model_switch::{print_session_model, switch_session_model};
+use crate::repl::session_ops::{self, RecapOutcome};
 
 pub enum DispatchOutcome {
     Continue,
@@ -87,13 +88,8 @@ pub(crate) async fn fork_session(
     target: Option<crate::repl::commands::ForkTarget>,
     id: Option<&str>,
 ) -> Result<()> {
-    let forked_id = engine
-        .session_manager
-        .fork_session(&session.config.sessions_dir, id)
-        .await?
-        .session_id;
-    let msg = crate::repl::live::mux::fork_status_message(&forked_id, target, &engine.base_dir);
-    session.renderer.print_status(&msg);
+    let message = session_ops::fork(&session.config.sessions_dir, engine, target, id).await?;
+    session.renderer.print_status(&message);
     Ok(())
 }
 
@@ -147,38 +143,12 @@ pub(crate) fn show_session_summaries(session: &ReplSession) -> Result<()> {
     Ok(())
 }
 
-pub(crate) async fn resume_session(
-    session_id: &str,
-    session: &mut ReplSession,
-    engine: &mut AgentEngine,
-) -> Result<()> {
-    if let Ok(Some(saved)) =
-        rho_harness_core::session::SessionManager::cwd_for_session_async(&session.config.sessions_dir, session_id).await
-        && saved.is_dir()
-    {
-        let _ = std::env::set_current_dir(&saved);
-    }
-    let next = session.new_engine(Some(session_id)).await?;
-    engine.switch_to(next);
-    session.config = engine.config.clone();
-    session.resume_id = Some(session_id.to_string());
-    session.renderer.print_status(&format!("Resumed session: {session_id}"));
-    Ok(())
-}
-
-pub(crate) async fn name_session(name: &str, session: &ReplSession, engine: &AgentEngine) -> Result<()> {
-    engine.session_manager.set_session_name(name).await?;
-    session.renderer.print_status(&format!("Session name: {name}"));
-    Ok(())
-}
-
-pub(crate) async fn rewind_session(turn: usize, session: &ReplSession, engine: &AgentEngine) {
-    match engine.rewind_to_turn(turn).await {
-        Ok(count) => session
-            .renderer
-            .print_status(&format!("Rewound to turn {turn} ({count} messages in context)")),
-        Err(e) => session.renderer.print_status(&format!("Rewind failed: {e}")),
-    }
+async fn resume_and_report(session_id: &str, session: &mut ReplSession, engine: &mut AgentEngine) {
+    let message = match session_ops::resume(session, engine, session_id).await {
+        Ok(resumed) => session_ops::resumed_message(&resumed),
+        Err(err) => session_ops::resume_failed_message(session_id, &err),
+    };
+    session.renderer.print_status(&message);
 }
 
 pub(crate) async fn handle_session_manage_result(
@@ -187,17 +157,17 @@ pub(crate) async fn handle_session_manage_result(
     engine: &mut AgentEngine,
 ) -> Result<bool> {
     match cmd_res {
-        CommandResult::ResumeSession { session_id } => {
-            resume_session(session_id, session, engine).await?;
-        }
+        CommandResult::ResumeSession { session_id } => resume_and_report(session_id, session, engine).await,
         CommandResult::OpenSessionSelector => {
             show_session_summaries(session)?;
         }
         CommandResult::NameSession { name } => {
-            name_session(name, session, engine).await?;
+            let message = session_ops::name_session(engine, name).await?;
+            session.renderer.print_status(&message);
         }
         CommandResult::Rewind { turn } => {
-            rewind_session(*turn, session, engine).await;
+            let message = session_ops::rewind(engine, *turn).await;
+            session.renderer.print_status(&message);
         }
         _ => return Ok(false),
     }
@@ -234,10 +204,10 @@ pub(crate) async fn handle_auth_actions(
         CommandResult::OpenLoginSelector => login(None, session, engine).await?,
         CommandResult::Logout { provider } => logout(provider.as_deref(), session, engine).await?,
         CommandResult::Reload => *engine = session.reload_engine(engine).await?,
-        CommandResult::EnterWorktree { branch } => match engine.enter_session_worktree(branch.as_deref()).await {
-            Ok(created) => session.renderer.print_notice(&format!("  {}\n", created.summary())),
-            Err(err) => session.renderer.print_notice(&format!("  Worktree failed: {err}\n")),
-        },
+        CommandResult::EnterWorktree { branch } => {
+            let message = session_ops::enter_worktree(engine, branch.as_deref()).await;
+            session.renderer.print_status(&message);
+        }
         _ => return Ok(false),
     }
     Ok(true)
@@ -266,27 +236,10 @@ pub(crate) async fn handle_config_auth_result(
     Ok(true)
 }
 
-pub(crate) fn print_compaction_stats(session: &ReplSession, stats: &rho_engine::engine::CompactionStats) {
-    let before = crate::ui::interactive::footer::format_tokens(stats.tokens_before as u64);
-    let after = crate::ui::interactive::footer::format_tokens(stats.tokens_after as u64);
-    let saved = crate::ui::interactive::footer::format_tokens(stats.saved_tokens as u64);
-    session.renderer.print_notice(&format!(
-        "  [Compacted context: {before} -> {after} tokens (saved {saved})]\n"
-    ));
-}
-
 pub(crate) async fn compact_context(session: &ReplSession, engine: &AgentEngine, instructions: Option<&str>) {
-    session
-        .renderer
-        .print_notice("  [Compacting conversation context...]\n");
-    match engine.compact_session(instructions).await {
-        Ok(stats) => print_compaction_stats(session, &stats),
-        Err(err) => {
-            session
-                .renderer
-                .print_notice(&format!("  [Compaction failed: {err}]\n"));
-        }
-    }
+    session.renderer.print_status(session_ops::COMPACTING);
+    let message = session_ops::compact(engine, instructions).await;
+    session.renderer.print_status(&message);
 }
 
 fn handle_expanded_prompt(session: &ReplSession, text: String) -> DispatchOutcome {
@@ -351,14 +304,12 @@ async fn handle_line_btw(session: &ReplSession, engine: &AgentEngine, question: 
 }
 
 async fn run_line_mode_recap(session: &ReplSession, engine: &AgentEngine) {
-    let cancel = crate::engine::runner::CancellationSignal::default();
-    match engine.generate_recap(cancel).await {
-        Ok(Some(text)) => {
+    match session_ops::recap(engine).await {
+        RecapOutcome::Text(text) => {
             let rendered = crate::ui::interactive::format_recap_notice(&text, 80, &session.renderer.theme);
             session.renderer.print_notice(&rendered);
         }
-        Ok(None) => session.renderer.print_status("Nothing to recap yet."),
-        Err(err) => session.renderer.print_status(&format!("Recap failed: {err}")),
+        RecapOutcome::Status(message) => session.renderer.print_status(&message),
     }
 }
 

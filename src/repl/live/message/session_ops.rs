@@ -3,6 +3,8 @@ use super::types::{BranchSwitchContext, LiveCommandContext, SessionCommandIo};
 use crate::error::Result;
 use crate::repl::branch_summary::{SUMMARY_PROMPT, abandoned_messages, has_assistant_turn, should_summarize_branch};
 use crate::repl::commands::{CommandResult, ForkTarget};
+use crate::repl::live::navigation::{show_resumed_transcript, update_footer};
+use crate::repl::session_ops;
 use crate::ui::interactive::TerminalBackend;
 
 pub(crate) async fn handle_fork_session(
@@ -10,14 +12,14 @@ pub(crate) async fn handle_fork_session(
     target: Option<ForkTarget>,
     turn_or_node_id: &Option<String>,
 ) -> Result<()> {
-    let forked_id = ctx
-        .engine
-        .session_manager
-        .fork_session(&ctx.session.config.sessions_dir, turn_or_node_id.as_deref())
-        .await?
-        .session_id;
-    let msg = crate::repl::live::mux::fork_status_message(&forked_id, target, &ctx.engine.base_dir);
-    ctx.session.renderer.print_status(&msg);
+    let message = session_ops::fork(
+        &ctx.session.config.sessions_dir,
+        ctx.engine,
+        target,
+        turn_or_node_id.as_deref(),
+    )
+    .await?;
+    ctx.session.renderer.print_status(&message);
     Ok(())
 }
 
@@ -38,34 +40,21 @@ pub(crate) async fn handle_resume_session<B: TerminalBackend>(
     session_id: &str,
     io: &mut SessionCommandIo<'_, B>,
 ) -> Result<()> {
-    let mut missing_workspace: Option<std::path::PathBuf> = None;
-    if let Ok(Some(saved)) =
-        rho_harness_core::session::SessionManager::cwd_for_session_async(&ctx.session.config.sessions_dir, session_id)
-            .await
-    {
-        if saved.is_dir() {
-            let _ = std::env::set_current_dir(&saved);
-        } else {
-            missing_workspace = Some(saved);
+    let resumed = match session_ops::resume(ctx.session, ctx.engine, session_id).await {
+        Ok(resumed) => resumed,
+        Err(err) => {
+            ctx.session
+                .renderer
+                .print_status(&session_ops::resume_failed_message(session_id, &err));
+            return Ok(());
         }
-    }
-    let next = ctx.session.new_engine(Some(session_id)).await?;
-    ctx.engine.switch_to(next);
+    };
     ctx.session.sync_engine_model(ctx.engine).await;
-    if let Ok(tree) = ctx.engine.session_manager.load_tree().await {
-        let _ = crate::repl::live::navigation::hydrate_session_transcript(io.controller, &tree);
-        if !tree.is_empty() && ctx.session.config.recap.on_resume {
-            ctx.session.pending_resume_recap = true;
-        }
-    }
-    crate::repl::live::navigation::update_footer(io.controller.state_mut(), ctx.session, ctx.engine);
-    let suffix = missing_workspace
-        .as_ref()
-        .map(|p| format!(" (previous workspace {} no longer exists)", p.display()))
-        .unwrap_or_default();
+    show_resumed_transcript(io.controller, ctx.session, &resumed.tree);
+    update_footer(io.controller.state_mut(), ctx.session, ctx.engine);
     ctx.session
         .renderer
-        .print_status(&format!("Resumed session {session_id}{suffix}"));
+        .print_status(&session_ops::resumed_message(&resumed));
     Ok(())
 }
 
@@ -177,14 +166,12 @@ pub(crate) async fn handle_session_diagnostics<B: TerminalBackend>(
             io.controller.redraw()?;
         }
         CommandResult::NameSession { name } => {
-            ctx.engine.session_manager.set_session_name(name).await?;
-            ctx.session.renderer.print_status(&format!("Session name: \"{name}\""));
+            let message = session_ops::name_session(ctx.engine, name).await?;
+            ctx.session.renderer.print_status(&message);
         }
         CommandResult::Rewind { turn } => {
-            let retained_count = ctx.engine.rewind_to_turn(*turn).await?;
-            ctx.session.renderer.print_notice(&format!(
-                "  [Rewound context to Turn {turn} ({retained_count} messages retained)]\n"
-            ));
+            let message = session_ops::rewind(ctx.engine, *turn).await;
+            ctx.session.renderer.print_status(&message);
         }
         _ => return Ok(false),
     }

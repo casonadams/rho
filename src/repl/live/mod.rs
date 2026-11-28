@@ -6,7 +6,6 @@ pub mod idle;
 pub(crate) mod mcp_login;
 pub mod message;
 pub mod modal;
-pub mod mux;
 pub mod navigation;
 pub(crate) mod recap;
 mod setup;

@@ -128,7 +128,7 @@ async fn compact_context_executes_and_prints_token_savings() {
 
     compact_context(&session, &engine, Some("preserve key decisions")).await;
     let output = collected_output(&mut events);
-    assert!(output.contains("[Compacting conversation context...]") && output.contains("[Compacted context:"));
+    assert!(output.contains("Compacting conversation context...") && output.contains("Compacted context:"));
 }
 
 #[tokio::test]

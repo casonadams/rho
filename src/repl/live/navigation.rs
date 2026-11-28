@@ -306,6 +306,29 @@ fn push_assistant_content(
     }
 }
 
+pub(crate) fn show_transcript<B: TerminalBackend>(
+    controller: &mut TerminalController<B>,
+    session: &ReplSession,
+    tree: &rho_harness_core::session::tree::SessionTree,
+) {
+    if let Err(err) = hydrate_session_transcript(controller, tree) {
+        session
+            .renderer
+            .print_status(&format!("Failed to show session transcript: {err}"));
+    }
+}
+
+pub(crate) fn show_resumed_transcript<B: TerminalBackend>(
+    controller: &mut TerminalController<B>,
+    session: &mut ReplSession,
+    tree: &rho_harness_core::session::tree::SessionTree,
+) {
+    show_transcript(controller, session, tree);
+    if !tree.is_empty() && session.config.recap.on_resume {
+        session.pending_resume_recap = true;
+    }
+}
+
 pub fn hydrate_session_transcript<B: TerminalBackend>(
     controller: &mut TerminalController<B>,
     tree: &rho_harness_core::session::tree::SessionTree,

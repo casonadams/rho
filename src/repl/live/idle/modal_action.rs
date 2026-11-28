@@ -1,12 +1,13 @@
 use super::super::batch::LiveBatch;
 use super::super::modal::ModalKeyResult;
 use super::super::modal::actions::{apply_shared_modal_action, open_shared_help_modal, save_or_print_thinking};
-use super::super::navigation::{hydrate_session_transcript, update_footer};
+use super::super::navigation::{show_resumed_transcript, show_transcript, update_footer};
 use crate::engine::AgentEngine;
 use crate::error::Result;
 use crate::repl::ReplSession;
 use crate::repl::input_reader::TerminalInputReader;
 use crate::repl::model_switch::{save_default_model, switch_session_model};
+use crate::repl::session_ops;
 use crate::ui::interactive::{TerminalBackend, TerminalController};
 
 pub(crate) struct ModalActionContext<'a, B: TerminalBackend> {
@@ -47,8 +48,12 @@ async fn handle_model_selected(
 async fn handle_node_selected(ctx: &mut ModalActionContext<'_, impl TerminalBackend>, node_id: String) -> Result<bool> {
     match ctx.engine.switch_branch(Some(node_id.clone())).await {
         Ok(_) => {
-            if let Ok(tree) = ctx.engine.session_manager.load_tree().await {
-                let _ = hydrate_session_transcript(ctx.controller, &tree);
+            match ctx.engine.session_manager.load_tree().await {
+                Ok(tree) => show_transcript(ctx.controller, ctx.session, &tree),
+                Err(err) => ctx
+                    .session
+                    .renderer
+                    .print_status(&format!("Failed to load session transcript: {err}")),
             }
             ctx.session
                 .renderer
@@ -96,26 +101,21 @@ async fn handle_session_selected(
     ctx: &mut ModalActionContext<'_, impl TerminalBackend>,
     session_id: String,
 ) -> Result<bool> {
-    match ctx.session.new_engine(Some(&session_id)).await {
-        Ok(engine) => ctx.engine.switch_to(engine),
+    let resumed = match session_ops::resume(ctx.session, ctx.engine, &session_id).await {
+        Ok(resumed) => resumed,
         Err(err) => {
             ctx.session
                 .renderer
-                .print_status(&format!("Failed to resume session {session_id}: {err}"));
+                .print_status(&session_ops::resume_failed_message(&session_id, &err));
             ctx.controller.redraw()?;
             return Ok(true);
         }
-    }
+    };
     ctx.session.sync_engine_model(ctx.engine).await;
-    if let Ok(tree) = ctx.engine.session_manager.load_tree().await {
-        let _ = hydrate_session_transcript(ctx.controller, &tree);
-        if !tree.is_empty() && ctx.session.config.recap.on_resume {
-            ctx.session.pending_resume_recap = true;
-        }
-    }
+    show_resumed_transcript(ctx.controller, ctx.session, &resumed.tree);
     ctx.session
         .renderer
-        .print_status(&format!("Resumed session {session_id}"));
+        .print_status(&session_ops::resumed_message(&resumed));
     update_footer(ctx.controller.state_mut(), ctx.session, ctx.engine);
     ctx.controller.redraw()?;
     Ok(true)

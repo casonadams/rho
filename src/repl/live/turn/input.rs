@@ -6,6 +6,7 @@ use super::super::navigation::{
 };
 use crate::error::Result;
 use crate::repl::interactive::{CompletionSet, InteractiveHistory};
+use crate::repl::session_ops;
 use crate::ui::interactive::{InputAction, QueueKind, TerminalBackend, TerminalController, UiEffect, map_key};
 
 pub(super) enum TurnKeyResult {
@@ -57,13 +58,14 @@ async fn handle_mid_turn_fork<B: TerminalBackend>(
     let Some(engine) = ctx.engine else {
         return Ok(());
     };
-    let forked_id = engine
-        .session_manager
-        .fork_session(&ctx.session.config.sessions_dir, turn_or_node_id.as_deref())
-        .await?
-        .session_id;
-    let msg = crate::repl::live::mux::fork_status_message(&forked_id, Some(target), &engine.base_dir);
-    ctx.controller.set_system_message(msg);
+    let message = session_ops::fork(
+        &ctx.session.config.sessions_dir,
+        engine,
+        Some(target),
+        turn_or_node_id.as_deref(),
+    )
+    .await?;
+    ctx.controller.set_system_message(message);
     Ok(())
 }
 
@@ -76,24 +78,28 @@ async fn spawn_mid_turn_recap<B: TerminalBackend>(ctx: &mut TurnInputContext<'_,
         Ok(Some(prepared)) => {
             let renderer = ctx.session.renderer.clone();
             tokio::spawn(async move {
-                match prepared.execute(None).await {
-                    Ok(response) => {
-                        if let Some(text) = rho_engine::engine::format_recap_text(&response.text) {
-                            if let Some(ui) = &renderer.ui {
-                                let _ = ui.push_recap(text);
-                            }
-                        } else {
-                            renderer.print_status("Nothing to recap yet.");
-                        }
-                    }
-                    Err(err) => renderer.print_status(&format!("Recap failed: {err}")),
-                }
+                let response = prepared.execute(None).await.map(|response| response.text);
+                show_recap(&renderer, response);
             });
         }
-        Ok(None) => ctx.controller.set_system_message("Nothing to recap yet."),
-        Err(err) => ctx.controller.set_system_message(format!("Recap failed: {err}")),
+        Ok(None) => ctx.controller.set_system_message(session_ops::NOTHING_TO_RECAP),
+        Err(err) => ctx
+            .controller
+            .set_system_message(session_ops::recap_failed_message(&err)),
     }
     Ok(())
+}
+
+fn show_recap(renderer: &crate::ui::TerminalRenderer, response: crate::error::Result<String>) {
+    let text = match response {
+        Ok(text) => rho_engine::engine::format_recap_text(&text),
+        Err(err) => return renderer.print_status(&session_ops::recap_failed_message(&err)),
+    };
+    match (text, &renderer.ui) {
+        (Some(text), Some(ui)) => crate::ui::best_effort(ui.push_recap(text)),
+        (Some(_), None) => {}
+        (None, _) => renderer.print_status(session_ops::NOTHING_TO_RECAP),
+    }
 }
 
 async fn apply_mid_turn_command<B: TerminalBackend>(

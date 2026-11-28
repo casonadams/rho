@@ -3,6 +3,7 @@ use crate::error::{AppError, Result};
 use crate::repl::commands::CommandResult;
 use crate::repl::live::LiveIo;
 use crate::repl::model_switch::{print_session_model, switch_session_model};
+use crate::repl::session_ops::{self, RecapOutcome};
 use crate::ui::interactive::{TerminalBackend, TerminalController};
 
 pub(crate) fn open_selector_modal<B: TerminalBackend>(
@@ -55,20 +56,10 @@ pub(crate) async fn handle_compact<B: TerminalBackend>(
     io: &mut LiveIo<'_, B>,
     instructions: Option<&str>,
 ) {
-    ctx.session
-        .renderer
-        .print_notice("  [Compacting conversation context...]\n");
-    match ctx.engine.compact_session(instructions).await {
-        Ok(stats) => {
-            crate::repl::line_mode::dispatch::print_compaction_stats(ctx.session, &stats);
-            crate::ui::best_effort(io.controller.redraw());
-        }
-        Err(err) => {
-            ctx.session
-                .renderer
-                .print_notice(&format!("  [Compaction failed: {err}]\n"));
-        }
-    }
+    ctx.session.renderer.print_status(session_ops::COMPACTING);
+    let message = session_ops::compact(ctx.engine, instructions).await;
+    ctx.session.renderer.print_status(&message);
+    crate::ui::best_effort(io.controller.redraw());
 }
 
 pub(crate) async fn clear_engine_context(ctx: &mut LiveCommandContext<'_, '_>) -> Result<()> {
@@ -81,17 +72,11 @@ async fn handle_live_recap<B: TerminalBackend>(
     ctx: &mut LiveCommandContext<'_, '_>,
     io: &mut LiveIo<'_, B>,
 ) -> Result<()> {
-    let cancel = crate::engine::runner::CancellationSignal::default();
-    match ctx.engine.generate_recap(cancel).await {
-        Ok(Some(text)) => {
+    match session_ops::recap(ctx.engine).await {
+        RecapOutcome::Text(text) => {
             io.controller.upsert_trailing_recap(text)?;
         }
-        Ok(None) => {
-            ctx.session.renderer.print_status("Nothing to recap yet.");
-        }
-        Err(err) => {
-            ctx.session.renderer.print_status(&format!("Recap failed: {err}"));
-        }
+        RecapOutcome::Status(message) => ctx.session.renderer.print_status(&message),
     }
     Ok(())
 }
@@ -150,18 +135,10 @@ pub(crate) async fn handle_engine_command_rest<B: TerminalBackend>(
             Ok(true)
         }
         CommandResult::EnterWorktree { branch } => {
-            match ctx.engine.enter_session_worktree(branch.as_deref()).await {
-                Ok(created) => {
-                    ctx.session.renderer.print_notice(&format!("  {}\n", created.summary()));
-                    crate::repl::live::navigation::update_footer(io.controller.state_mut(), ctx.session, ctx.engine);
-                    io.controller.redraw()?;
-                }
-                Err(err) => {
-                    ctx.session
-                        .renderer
-                        .print_notice(&format!("  Worktree failed: {err}\n"));
-                }
-            }
+            let message = session_ops::enter_worktree(ctx.engine, branch.as_deref()).await;
+            ctx.session.renderer.print_status(&message);
+            crate::repl::live::navigation::update_footer(io.controller.state_mut(), ctx.session, ctx.engine);
+            io.controller.redraw()?;
             Ok(true)
         }
         _ => Ok(false),

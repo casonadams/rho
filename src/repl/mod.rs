@@ -6,12 +6,14 @@ mod branch_summary;
 pub mod commands;
 pub mod completer;
 pub mod coordinator;
+mod fork_launch;
 pub(crate) mod input_reader;
 pub mod interactive;
 mod line_mode;
 pub(crate) mod live;
 mod model_switch;
 mod prompt;
+pub(crate) mod session_ops;
 #[cfg(test)]
 mod tests;
 

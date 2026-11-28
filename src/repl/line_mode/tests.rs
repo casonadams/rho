@@ -14,7 +14,7 @@ async fn plain_input_is_passthrough() {
 use super::dispatch::{
     DispatchOutcome, clone_session, compact_context, fork_session, handle_auth_actions, handle_command_group,
     handle_command_result, handle_config_auth_result, handle_session_branching_result, handle_session_manage_result,
-    handle_terminal_result, name_session, resume_session, rewind_session, show_session_summaries, show_tree,
+    handle_terminal_result, show_session_summaries, show_tree,
 };
 use crate::repl::branch_summary::{has_assistant_turn, should_summarize_branch};
 use crate::repl::commands::CommandResult;
@@ -89,16 +89,36 @@ async fn test_session_management_helpers() {
     let (mut session, mut engine) = setup_test_session(temp.path()).await;
 
     let sid = engine.session_manager.session_id.clone();
-    assert!(name_session("custom-session", &session, &engine).await.is_ok());
+    let name = CommandResult::NameSession {
+        name: "custom-session".into(),
+    };
+    assert!(
+        handle_session_manage_result(&name, &mut session, &mut engine)
+            .await
+            .is_ok()
+    );
     assert_eq!(
         engine.session_manager.cached_session_name().as_deref(),
         Some("custom-session")
     );
 
-    rewind_session(0, &session, &engine).await;
-    rewind_session(999, &session, &engine).await;
+    for turn in [0, 999] {
+        let rewind = CommandResult::Rewind { turn };
+        assert!(
+            handle_session_manage_result(&rewind, &mut session, &mut engine)
+                .await
+                .is_ok()
+        );
+    }
 
-    assert!(resume_session(&sid, &mut session, &mut engine).await.is_ok());
+    let resume = CommandResult::ResumeSession {
+        session_id: sid.clone(),
+    };
+    assert!(
+        handle_session_manage_result(&resume, &mut session, &mut engine)
+            .await
+            .is_ok()
+    );
     assert_eq!(session.resume_id.as_deref(), Some(sid.as_str()));
 }
 
@@ -143,6 +163,62 @@ async fn test_handle_session_manage_result_arms() {
 
     let res = handle_session_manage_result(&CommandResult::Exit, &mut session, &mut engine).await;
     assert!(matches!(res, Ok(false)));
+}
+
+#[tokio::test]
+async fn name_session_reports_the_quoted_name_in_line_mode() {
+    let temp = tempfile::tempdir().unwrap();
+    let (mut session, mut engine) = setup_test_session(temp.path()).await;
+    let (renderer, mut events) = crate::repl::collecting_renderer();
+    session.renderer = renderer;
+
+    let res = handle_session_manage_result(
+        &CommandResult::NameSession { name: "custom".into() },
+        &mut session,
+        &mut engine,
+    )
+    .await;
+
+    assert!(matches!(res, Ok(true)));
+    assert!(crate::repl::collected_output(&mut events).contains("Session name: \"custom\""));
+}
+
+#[tokio::test]
+async fn rewind_reports_the_turn_and_retained_count_in_line_mode() {
+    let temp = tempfile::tempdir().unwrap();
+    let (mut session, mut engine) = setup_test_session(temp.path()).await;
+    let (renderer, mut events) = crate::repl::collecting_renderer();
+    session.renderer = renderer;
+
+    let res = handle_session_manage_result(&CommandResult::Rewind { turn: 999 }, &mut session, &mut engine).await;
+
+    assert!(matches!(res, Ok(true)));
+    assert!(crate::repl::collected_output(&mut events).contains("Rewound context to Turn 999 (0 messages retained)"));
+}
+
+#[tokio::test]
+async fn resume_reports_a_missing_workspace_in_line_mode() {
+    let temp = tempfile::tempdir().unwrap();
+    let (mut session, mut engine) = setup_test_session(temp.path()).await;
+    let sid = engine.session_manager.session_id.clone();
+    let scratch = rho_test_support::TestDir::new();
+    let workspace = scratch.join("workspace");
+    std::fs::create_dir_all(&workspace).unwrap();
+    rho_harness_core::session::SessionManager::record_session_for_cwd(&session.config.sessions_dir, &workspace, &sid)
+        .unwrap();
+    std::fs::remove_dir_all(&workspace).unwrap();
+    let (renderer, mut events) = crate::repl::collecting_renderer();
+    session.renderer = renderer;
+
+    let res = handle_session_manage_result(
+        &CommandResult::ResumeSession { session_id: sid },
+        &mut session,
+        &mut engine,
+    )
+    .await;
+
+    assert!(matches!(res, Ok(true)));
+    assert!(crate::repl::collected_output(&mut events).contains("no longer exists"));
 }
 
 #[tokio::test]
