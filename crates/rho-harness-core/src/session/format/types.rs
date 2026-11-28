@@ -3,10 +3,12 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use super::super::tree::{SessionTree, TitleSource, TreeNodeData};
+use super::super::tree::{SessionTree, TitleSource, TreeNodeData, TreeNodeKind};
 use super::super::validation::CanonicalHistory;
 
-pub const SESSION_VERSION: u32 = 2;
+pub const SESSION_VERSION: u32 = 3;
+/// The oldest version this rho reads. Version 2 promotes a checkpoint by copying it into a `tree_node`.
+pub const OLDEST_SESSION_VERSION: u32 = 2;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
@@ -49,10 +51,21 @@ pub enum SessionRecord {
         timestamp: DateTime<Utc>,
         messages: Vec<ChatMessage>,
     },
+    /// Early version 2: the whole promoted turn, which starts with the pending checkpoint.
     CheckpointPromoted {
         sequence: u64,
         session_id: String,
         timestamp: DateTime<Utc>,
+        messages: Vec<ChatMessage>,
+    },
+    /// Version 3: makes the pending checkpoint, followed by `messages`, the tree node `node_id`.
+    CheckpointNode {
+        sequence: u64,
+        session_id: String,
+        timestamp: DateTime<Utc>,
+        node_id: String,
+        parent_id: Option<String>,
+        kind: TreeNodeKind,
         messages: Vec<ChatMessage>,
     },
     AuditEvent {
@@ -126,6 +139,8 @@ pub enum SessionEventKind {
 #[derive(Debug)]
 pub struct StoreState {
     pub created_at: DateTime<Utc>,
+    /// The header version, which decides the form new records take in this file.
+    pub version: u32,
     pub next_sequence: u64,
     pub messages: Vec<ChatMessage>,
     pub checkpoint: Option<Vec<ChatMessage>>,

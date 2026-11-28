@@ -1,5 +1,7 @@
 use super::apply::{refresh_stale_messages, replay_record};
-use super::types::{HeaderRecordType, SESSION_VERSION, SessionHeader, SessionRecord, StoreState};
+use super::types::{
+    HeaderRecordType, OLDEST_SESSION_VERSION, SESSION_VERSION, SessionHeader, SessionRecord, StoreState,
+};
 use crate::error::{AppError, Result};
 use chrono::Utc;
 use serde_json::Value;
@@ -202,6 +204,7 @@ fn parse_committed_bytes(bytes: &[u8], expected_id: &str) -> Result<StoreState> 
     validate_header(&header, expected_id)?;
     let mut state = empty_store_state();
     state.created_at = header.created_at;
+    state.version = header.version;
     let mut messages_stale = false;
     for line in lines {
         if line.is_empty() {
@@ -227,9 +230,15 @@ pub(crate) fn parse_header(line: &[u8]) -> Result<SessionHeader> {
 }
 
 pub(crate) fn validate_header(header: &SessionHeader, expected_id: &str) -> Result<()> {
-    if header.version != SESSION_VERSION {
+    if header.version > SESSION_VERSION {
         return Err(session_error(format!(
-            "unsupported session version {}; expected version {SESSION_VERSION}",
+            "unsupported session version {}: written by a newer rho; this rho reads versions {OLDEST_SESSION_VERSION} to {SESSION_VERSION}",
+            header.version
+        )));
+    }
+    if header.version < OLDEST_SESSION_VERSION {
+        return Err(session_error(format!(
+            "unsupported session version {}; expected version {OLDEST_SESSION_VERSION} to {SESSION_VERSION}",
             header.version
         )));
     }

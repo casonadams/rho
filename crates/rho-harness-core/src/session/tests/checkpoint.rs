@@ -1,5 +1,96 @@
-use super::{SessionEventKind, SessionManager, complete_tool_turn, temp_dir};
+use super::super::tree::TreeNodeKind;
+use super::{
+    LEGACY_V2_ID, LEGACY_V2_SESSION, SessionEventKind, SessionManager, complete_tool_turn, legacy_v2_turns, temp_dir,
+    tool_round,
+};
 use crate::model::ChatMessage;
+
+/// Runs one turn the way the engine does: two checkpointed tool rounds, then the final answer.
+async fn promoted_turn(store: &SessionManager, n: usize) -> Vec<ChatMessage> {
+    let first = tool_round(&format!("prompt-{n}"), &[&format!("call-{n}a")]);
+    let second = tool_round("unused", &[&format!("call-{n}b")]).split_off(1);
+    let answer = ChatMessage::assistant(format!("answer-{n}"));
+    store.extend_checkpoint(first.clone()).await.unwrap();
+    store.extend_checkpoint(second.clone()).await.unwrap();
+    store.promote_checkpoint(vec![answer.clone()]).await.unwrap();
+    first.into_iter().chain(second).chain([answer]).collect()
+}
+
+#[tokio::test]
+async fn promoted_turns_reload_to_the_same_tree() {
+    let dir = temp_dir();
+    let store = SessionManager::new(&dir, None).unwrap();
+    let id = store.session_id.clone();
+    let mut turns = Vec::new();
+    for n in 1..=3 {
+        turns.push(promoted_turn(&store, n).await);
+    }
+    let live_tree = store.state.lock().await.tree.clone();
+    drop(store);
+
+    let resumed = SessionManager::new(&dir, Some(&id)).unwrap();
+    let tree = resumed.state.lock().await.tree.clone();
+    assert_eq!(tree, live_tree);
+    let path = tree.ancestor_nodes(tree.active_leaf_id.as_deref().unwrap());
+    let nodes: Vec<_> = path
+        .iter()
+        .map(|node| (node.kind.clone(), node.messages.clone()))
+        .collect();
+    let expected: Vec<_> = turns
+        .iter()
+        .map(|turn| (TreeNodeKind::AssistantTurn, turn.clone()))
+        .collect();
+    assert_eq!(nodes, expected);
+    assert_eq!(tree.len(), 3);
+    assert_eq!(resumed.load_messages().await.unwrap(), turns.concat());
+    assert!(resumed.load_checkpoint().await.unwrap().is_none());
+}
+
+#[tokio::test]
+async fn promoted_turns_write_each_message_once() {
+    let dir = temp_dir();
+    let store = SessionManager::new(&dir, None).unwrap();
+    for n in 1..=3 {
+        promoted_turn(&store, n).await;
+    }
+    let log = std::fs::read_to_string(&store.file_path).unwrap();
+    assert!(log.starts_with(r#"{"record_type":"header","version":3,"#), "{log}");
+    for n in 1..=3 {
+        for marker in [format!("\"prompt-{n}\""), format!("\"answer-{n}\"")] {
+            assert_eq!(log.matches(&marker).count(), 1, "{marker}");
+        }
+    }
+}
+
+#[tokio::test]
+async fn version_2_session_loads_and_keeps_its_format() {
+    let dir = temp_dir();
+    let path = dir.join(format!("{LEGACY_V2_ID}.jsonl"));
+    std::fs::write(&path, LEGACY_V2_SESSION).unwrap();
+
+    let resumed = SessionManager::new(&dir, Some(LEGACY_V2_ID)).unwrap();
+    let [first, second] = legacy_v2_turns();
+    assert_eq!(
+        resumed.load_messages().await.unwrap(),
+        [first.clone(), second.clone()].concat()
+    );
+    let tree = resumed.state.lock().await.tree.clone();
+    assert_eq!(tree.get_node("node-1").unwrap().messages, first);
+    assert_eq!(tree.get_node("node-2").unwrap().parent_id.as_deref(), Some("node-1"));
+    assert_eq!(tree.active_leaf_id.as_deref(), Some("node-2"));
+
+    let third = promoted_turn(&resumed, 3).await;
+    drop(resumed);
+    let log = std::fs::read_to_string(&path).unwrap();
+    assert!(log.starts_with(LEGACY_V2_SESSION));
+    let appended: Vec<serde_json::Value> = log[LEGACY_V2_SESSION.len()..]
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    assert_eq!(appended.last().unwrap()["record_type"], "tree_node");
+    let reloaded = SessionManager::new(&dir, Some(LEGACY_V2_ID)).unwrap();
+    assert_eq!(reloaded.load_messages().await.unwrap(), [first, second, third].concat());
+}
 
 async fn setup_checkpoint(store: &SessionManager, id: &str) -> Vec<ChatMessage> {
     let msgs = vec![ChatMessage::user("earlier"), ChatMessage::assistant("answer")];

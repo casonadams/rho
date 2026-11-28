@@ -158,6 +158,12 @@ async fn empty_pruning_depends_on_size_and_on_tree_or_name_records() {
         ("at_limit", 300, "", false),
         ("over_limit", 301, "", true),
         ("small_with_tree_node", 100, "{\"type\":\"tree_node\"}", true),
+        (
+            "small_with_checkpoint_node",
+            100,
+            "{\"type\":\"checkpoint_node\"}",
+            true,
+        ),
         ("small_with_name", 100, "{\"type\":\"session_named\"}", true),
         ("small_with_other_record", 100, "{\"type\":\"audit_event\"}", false),
     ];

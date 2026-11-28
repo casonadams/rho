@@ -22,6 +22,9 @@ macro_rules! extract_record_ident {
             | SessionRecord::CheckpointPromoted {
                 sequence, session_id, ..
             }
+            | SessionRecord::CheckpointNode {
+                sequence, session_id, ..
+            }
             | SessionRecord::AuditEvent {
                 sequence, session_id, ..
             }
@@ -125,6 +128,17 @@ fn apply_checkpoint_promoted(
     Ok(())
 }
 
+/// The pending checkpoint followed by `messages`: the history a `CheckpointNode` makes canonical.
+fn promoted_checkpoint(state: &StoreState, messages: Vec<ChatMessage>) -> Result<Vec<ChatMessage>> {
+    let checkpoint = state
+        .checkpoint
+        .as_ref()
+        .ok_or_else(|| session_error("checkpoint node has no pending checkpoint"))?;
+    let promoted: Vec<ChatMessage> = checkpoint.iter().cloned().chain(messages).collect();
+    state.integrity.check_canonical_batch(&promoted)?;
+    Ok(promoted)
+}
+
 /// Applies a non-canonical, non-node record and reports whether it moved the active leaf, which
 /// leaves `state.messages` stale until rebuilt from the tree.
 fn apply_tree_record(state: &mut StoreState, record: SessionRecord) -> bool {
@@ -216,6 +230,25 @@ pub(crate) fn replay_record(
             apply_checkpoint_promoted(state, messages, timestamp)?;
         }
         SessionRecord::TreeNode { node, .. } => apply_tree_node(state, node, messages_stale),
+        SessionRecord::CheckpointNode {
+            timestamp,
+            node_id,
+            parent_id,
+            kind,
+            messages,
+            ..
+        } => {
+            let node = TreeNodeData {
+                id: node_id,
+                parent_id,
+                timestamp,
+                kind,
+                messages: promoted_checkpoint(state, messages)?,
+                label: None,
+                metadata: None,
+            };
+            apply_tree_node(state, node, messages_stale);
+        }
         other => *messages_stale |= apply_tree_record(state, other),
     }
     state.next_sequence += 1;
@@ -265,6 +298,7 @@ mod tests {
         Leaf(&'static str),
         Checkpoint,
         Promote(usize),
+        PromoteNode(&'static str, &'static str),
         Reset,
     }
 
@@ -301,6 +335,15 @@ mod tests {
                 timestamp,
                 messages: turn(n),
             },
+            Step::PromoteNode(id, parent) => SessionRecord::CheckpointNode {
+                sequence,
+                session_id,
+                timestamp,
+                node_id: id.to_string(),
+                parent_id: Some(parent.to_string()),
+                kind: TreeNodeKind::AssistantTurn,
+                messages: vec![ChatMessage::assistant(format!("a-{id}"))],
+            },
             Step::Reset => SessionRecord::CanonicalReset {
                 sequence,
                 session_id,
@@ -321,6 +364,10 @@ mod tests {
             Step::Leaf("b"),
             Step::Reset,
             Step::Node("d", None, 6),
+            Step::Checkpoint,
+            Step::PromoteNode("e", "d"),
+            Step::Checkpoint,
+            Step::PromoteNode("f", "d"),
             Step::Canonical(7),
         ];
         steps
@@ -346,6 +393,14 @@ mod tests {
             assert_eq!(deferred.messages, deferred.tree.active_messages(), "prefix {len}");
             assert_eq!(deferred.checkpoint, eager.checkpoint, "prefix {len}");
         }
+    }
+
+    #[test]
+    fn checkpoint_node_requires_a_pending_checkpoint() {
+        let mut state = empty_store_state();
+        let error = apply_record(&mut state, record(&Step::PromoteNode("e", "d"), 1), SID).unwrap_err();
+        assert!(error.to_string().contains("no pending checkpoint"), "{error}");
+        assert!(state.tree.is_empty());
     }
 
     fn tree_node(sequence: u64, node: TreeNodeData) -> SessionRecord {

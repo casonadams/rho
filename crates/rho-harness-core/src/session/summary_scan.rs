@@ -1,5 +1,6 @@
 //! Reads what a session listing shows without replaying the session: records are probed for
-//! their type and tree links, and message payloads are parsed only for the first root node.
+//! their type and tree links, and message payloads are parsed only for the first root node and
+//! the checkpoints before it.
 
 use super::format::{parse_header, validate_header};
 use super::fs::session_error;
@@ -22,6 +23,8 @@ struct RecordProbe {
     source: TitleSource,
     #[serde(default)]
     active_leaf_id: Option<String>,
+    #[serde(default)]
+    parent_id: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -47,6 +50,8 @@ pub(crate) struct ScannedSession {
     has_active_leaf: bool,
     /// The first root node's first user text; `Some(None)` once a root without one was seen.
     pub(crate) root_text: Option<Option<String>>,
+    /// The pending checkpoint's first user text, kept only while `root_text` is unknown.
+    checkpoint_text: Option<String>,
 }
 
 fn first_user_text(messages: Vec<ChatMessage>) -> Option<String> {
@@ -64,11 +69,22 @@ fn malformed() -> crate::error::AppError {
 }
 
 impl ScannedSession {
-    fn add_node(&mut self, is_root: bool, messages: impl FnOnce() -> Result<Vec<ChatMessage>>) -> Result<()> {
+    fn add_node(&mut self, is_root: bool, text: impl FnOnce() -> Result<Option<String>>) -> Result<()> {
         self.node_count += 1;
         self.has_active_leaf = true;
         if is_root && self.root_text.is_none() {
-            self.root_text = Some(first_user_text(messages()?));
+            self.root_text = Some(text()?);
+        }
+        self.checkpoint_text = None;
+        Ok(())
+    }
+
+    fn add_checkpoint(&mut self, replaces: bool, messages: impl FnOnce() -> Result<Vec<ChatMessage>>) -> Result<()> {
+        if replaces {
+            self.checkpoint_text = None;
+        }
+        if self.root_text.is_none() && self.checkpoint_text.is_none() {
+            self.checkpoint_text = first_user_text(messages()?);
         }
         Ok(())
     }
@@ -80,14 +96,25 @@ impl ScannedSession {
                 .messages)
         };
         match probe.record_type.as_str() {
-            "canonical_messages" | "checkpoint_promoted" => self.add_node(!self.has_active_leaf, top_messages)?,
+            "canonical_messages" | "checkpoint_promoted" => {
+                self.add_node(!self.has_active_leaf, || Ok(first_user_text(top_messages()?)))?;
+            }
+            "run_checkpoint" => self.add_checkpoint(true, top_messages)?,
+            "run_checkpoint_extended" => self.add_checkpoint(false, top_messages)?,
+            "checkpoint_node" => {
+                let checkpoint_text = self.checkpoint_text.take();
+                self.add_node(probe.parent_id.is_none(), || match checkpoint_text {
+                    Some(text) => Ok(Some(text)),
+                    None => Ok(first_user_text(top_messages()?)),
+                })?;
+            }
             "tree_node" => {
                 let is_root = probe.node.ok_or_else(malformed)?.parent_id.is_none();
                 self.add_node(is_root, || {
-                    Ok(serde_json::from_slice::<NodeMessages>(line)
+                    let node = serde_json::from_slice::<NodeMessages>(line)
                         .map_err(|_| malformed())?
-                        .node
-                        .messages)
+                        .node;
+                    Ok(first_user_text(node.messages))
                 })?;
             }
             "active_leaf_changed" => self.has_active_leaf = probe.active_leaf_id.is_some(),
@@ -130,6 +157,7 @@ pub(crate) fn scan_session(path: &Path, expected_id: &str) -> Result<(DateTime<U
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::session::tests::{LEGACY_V2_ID, LEGACY_V2_SESSION, tool_round};
     use crate::session::{SessionManager, load_file};
 
     async fn scan(manager: &SessionManager) -> ScannedSession {
@@ -162,6 +190,50 @@ mod tests {
         assert_eq!(scanned.name, replayed.tree.session_name);
         assert_eq!(scanned.name.as_deref(), Some("User Name"));
         assert_eq!(scanned.root_text, Some(Some("q1".to_string())));
+    }
+
+    #[tokio::test]
+    async fn scan_counts_and_previews_promoted_checkpoints() {
+        let dir = crate::test_support::temp_dir();
+        let session = SessionManager::new_async(&dir, None).await.unwrap();
+        for n in 1..=2 {
+            let round = tool_round(&format!("prompt-{n}"), &[&format!("call-{n}")]);
+            let (prompt, tools) = round.split_at(1);
+            session.extend_checkpoint(prompt.to_vec()).await.unwrap();
+            session.extend_checkpoint(tools.to_vec()).await.unwrap();
+            session
+                .promote_checkpoint(vec![ChatMessage::assistant(format!("answer-{n}"))])
+                .await
+                .unwrap();
+        }
+        session.switch_branch(None).await.unwrap();
+        session
+            .save_checkpoint(tool_round("pending", &["call-p"]))
+            .await
+            .unwrap();
+        session
+            .promote_checkpoint(vec![ChatMessage::assistant("second root")])
+            .await
+            .unwrap();
+
+        let scanned = scan(&session).await;
+        let replayed = load_file(&session.file_path, &session.session_id).unwrap();
+
+        assert_eq!(scanned.node_count, 3);
+        assert_eq!(scanned.node_count, replayed.tree.len());
+        assert_eq!(scanned.root_text, Some(Some("prompt-1".to_string())));
+    }
+
+    #[test]
+    fn scan_reads_version_2_promoted_turns() {
+        let dir = crate::test_support::temp_dir();
+        let path = dir.join(format!("{LEGACY_V2_ID}.jsonl"));
+        std::fs::write(&path, LEGACY_V2_SESSION).unwrap();
+
+        let (_, scanned) = scan_session(&path, LEGACY_V2_ID).unwrap();
+
+        assert_eq!(scanned.node_count, 2);
+        assert_eq!(scanned.root_text, Some(Some("first prompt".to_string())));
     }
 
     #[test]

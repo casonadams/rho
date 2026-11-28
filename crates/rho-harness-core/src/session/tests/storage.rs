@@ -64,8 +64,8 @@ fn resume_requires_supported_versioned_header() {
         ),
         (
             "future",
-            r#"{"record_type":"header","version":3,"session_id":"future","created_at":"2025-01-01T00:00:00Z"}\n"#,
-            "unsupported session version",
+            r#"{"record_type":"header","version":4,"session_id":"future","created_at":"2025-01-01T00:00:00Z"}\n"#,
+            "unsupported session version 4: written by a newer rho",
         ),
         (
             "mismatch",

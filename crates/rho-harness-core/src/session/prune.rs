@@ -34,7 +34,9 @@ fn should_prune_empty_session(
     let Ok(content) = std::fs::read_to_string(path) else {
         return false;
     };
-    !content.contains("\"tree_node\"") && !content.contains("\"session_named\"")
+    !["\"tree_node\"", "\"checkpoint_node\"", "\"session_named\""]
+        .iter()
+        .any(|record_type| content.contains(record_type))
 }
 
 /// Removes an unheld session file, noting its id so the working-directory index can drop it.

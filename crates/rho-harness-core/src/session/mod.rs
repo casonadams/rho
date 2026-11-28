@@ -84,6 +84,7 @@ fn prepare_session_id(resume_id: Option<&str>) -> Result<String> {
 fn empty_store_state() -> StoreState {
     StoreState {
         created_at: chrono::Utc::now(),
+        version: format::SESSION_VERSION,
         next_sequence: 1,
         messages: Vec::new(),
         checkpoint: None,
