@@ -1,9 +1,9 @@
-pub mod apply;
-pub mod io;
-pub mod types;
+mod apply;
+mod io;
+mod types;
 
-pub use apply::apply_record;
-pub use io::{
-    append_durable_record, append_durable_records, append_record, create_session_file, load_file, load_file_async,
-};
+pub(crate) use apply::{refresh_stale_messages, replay_record};
+#[cfg(test)]
+pub(crate) use io::inject_write_hook;
+pub(crate) use io::{Durability, append_records, create_session_file, load_file, load_file_async};
 pub use types::{SessionEvent, SessionEventKind, SessionHeader, SessionRecord, StoreState};

@@ -1,5 +1,6 @@
 use super::SessionManager;
-use super::format::{SessionEvent, SessionEventKind, SessionRecord, append_record};
+use super::append::Planned;
+use super::format::{Durability, SessionEvent, SessionEventKind, SessionRecord};
 use crate::error::Result;
 use crate::model::ChatMessage;
 use chrono::Utc;
@@ -14,16 +15,18 @@ impl SessionManager {
             kind,
             payload,
         };
-        let mut state = self.state.lock().await;
-        let record = SessionRecord::AuditEvent {
-            sequence: state.next_sequence,
-            session_id: self.session_id.clone(),
-            event: event.clone(),
-        };
-        append_record(&self.file_path, &record).await?;
-        state.next_sequence += 1;
-        state.events.push(event);
-        Ok(())
+        self.append(Durability::Audit, move |state, session_id| {
+            let record = SessionRecord::AuditEvent {
+                sequence: state.next_sequence,
+                session_id: session_id.to_string(),
+                event,
+            };
+            Ok(Planned {
+                records: vec![record],
+                output: (),
+            })
+        })
+        .await
     }
 
     pub async fn load_events(&self) -> Result<Vec<SessionEvent>> {

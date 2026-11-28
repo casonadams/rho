@@ -1,5 +1,6 @@
 use super::SessionManager;
-use super::format::{SessionRecord, append_durable_record};
+use super::append::Planned;
+use super::format::{Durability, SessionRecord};
 use crate::a2a::Task;
 use crate::error::Result;
 use crate::model::ChatMessage;
@@ -66,19 +67,22 @@ impl SessionManager {
 
     async fn save_subagent_task(&self, task: &Task, transcript: Vec<ChatMessage>, replaces: bool) -> Result<()> {
         self.reject_secrets(&(task, &transcript))?;
-        let mut state = self.state.lock().await;
-        let record = SessionRecord::SubagentTask {
-            sequence: state.next_sequence,
-            session_id: self.session_id.clone(),
-            timestamp: Utc::now(),
-            task: task.clone(),
-            transcript: transcript.clone(),
-            replaces_transcript: replaces,
-        };
-        append_durable_record(&self.file_path, &record).await?;
-        state.next_sequence += 1;
-        state.subagents.record(task.clone(), transcript, replaces);
-        Ok(())
+        let task = task.clone();
+        self.append(Durability::Durable, move |state, session_id| {
+            let record = SessionRecord::SubagentTask {
+                sequence: state.next_sequence,
+                session_id: session_id.to_string(),
+                timestamp: Utc::now(),
+                task,
+                transcript,
+                replaces_transcript: replaces,
+            };
+            Ok(Planned {
+                records: vec![record],
+                output: (),
+            })
+        })
+        .await
     }
 
     /// The subagent conversation that contains `task_id`.

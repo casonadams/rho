@@ -1,5 +1,6 @@
 use super::SessionManager;
-use super::format::{SessionRecord, append_durable_record};
+use super::append::{Planned, tree_node};
+use super::format::{Durability, SessionRecord};
 use super::tree::{SessionTree, TitleSource, TreeNodeData, TreeNodeKind};
 use crate::error::{AppError, Result};
 use crate::model::ChatMessage;
@@ -29,39 +30,46 @@ impl SessionManager {
     }
 
     pub async fn switch_branch(&self, leaf_id: Option<String>) -> Result<Vec<ChatMessage>> {
-        let mut state = self.state.lock().await;
-        if let Some(id) = leaf_id.as_deref()
-            && state.tree.get_node(id).is_none()
-        {
-            return Err(AppError::Session(format!("No such conversation node: {id}")));
-        }
-        state.tree.set_active_leaf(leaf_id.clone());
-        let messages = state.tree.active_messages();
-        state.messages = messages.clone();
-        let record = SessionRecord::ActiveLeafChanged {
-            sequence: state.next_sequence,
-            session_id: self.session_id.clone(),
-            timestamp: Utc::now(),
-            active_leaf_id: leaf_id,
-        };
-        append_durable_record(&self.file_path, &record).await?;
-        state.next_sequence += 1;
-        Ok(messages)
+        self.append(Durability::Durable, move |state, session_id| {
+            if let Some(id) = leaf_id.as_deref()
+                && state.tree.get_node(id).is_none()
+            {
+                return Err(AppError::Session(format!("No such conversation node: {id}")));
+            }
+            let messages = match &leaf_id {
+                Some(id) => state.tree.ancestor_messages(id),
+                None => Vec::new(),
+            };
+            let record = SessionRecord::ActiveLeafChanged {
+                sequence: state.next_sequence,
+                session_id: session_id.to_string(),
+                timestamp: Utc::now(),
+                active_leaf_id: leaf_id,
+            };
+            Ok(Planned {
+                records: vec![record],
+                output: messages,
+            })
+        })
+        .await
     }
 
     pub async fn set_node_label(&self, node_id: &str, label: Option<String>) -> Result<()> {
-        let mut state = self.state.lock().await;
-        state.tree.set_node_label(node_id, label.clone());
-        let record = SessionRecord::SessionLabel {
-            sequence: state.next_sequence,
-            session_id: self.session_id.clone(),
-            timestamp: Utc::now(),
-            node_id: node_id.to_string(),
-            label,
-        };
-        append_durable_record(&self.file_path, &record).await?;
-        state.next_sequence += 1;
-        Ok(())
+        let node_id = node_id.to_string();
+        self.append(Durability::Durable, move |state, session_id| {
+            let record = SessionRecord::SessionLabel {
+                sequence: state.next_sequence,
+                session_id: session_id.to_string(),
+                timestamp: Utc::now(),
+                node_id,
+                label,
+            };
+            Ok(Planned {
+                records: vec![record],
+                output: (),
+            })
+        })
+        .await
     }
 
     pub async fn set_session_name(&self, name: &str) -> Result<()> {
@@ -74,20 +82,27 @@ impl SessionManager {
     }
 
     async fn set_session_name_with_source(&self, name: &str, source: TitleSource) -> Result<bool> {
-        let mut state = self.state.lock().await;
-        if !state.tree.set_session_name_with_source(name.to_string(), source) {
-            return Ok(false);
-        }
-        let record = SessionRecord::SessionNamed {
-            sequence: state.next_sequence,
-            session_id: self.session_id.clone(),
-            timestamp: Utc::now(),
-            name: name.to_string(),
-            source,
-        };
-        append_durable_record(&self.file_path, &record).await?;
-        state.next_sequence += 1;
-        Ok(true)
+        let name = name.to_string();
+        self.append(Durability::Durable, move |state, session_id| {
+            if !state.tree.accepts_session_name(source) {
+                return Ok(Planned {
+                    records: Vec::new(),
+                    output: false,
+                });
+            }
+            let record = SessionRecord::SessionNamed {
+                sequence: state.next_sequence,
+                session_id: session_id.to_string(),
+                timestamp: Utc::now(),
+                name,
+                source,
+            };
+            Ok(Planned {
+                records: vec![record],
+                output: true,
+            })
+        })
+        .await
     }
 
     pub fn cached_session_name(&self) -> Option<String> {
@@ -100,9 +115,15 @@ impl SessionManager {
 
     pub async fn append_branch_summary(&self, summary: &str, source_leaf_id: &str) -> Result<()> {
         self.reject_secrets(&summary)?;
-        let mut state = self.state.lock().await;
-        let node = create_branch_summary_node(state.tree.active_leaf_id.clone(), source_leaf_id, summary);
-        self.append_tree_node(&mut state, node).await
+        let (summary, source_leaf_id) = (summary.to_string(), source_leaf_id.to_string());
+        self.append(Durability::Durable, move |state, session_id| {
+            let node = create_branch_summary_node(state.tree.active_leaf_id.clone(), &source_leaf_id, &summary);
+            Ok(Planned {
+                records: vec![tree_node(state.next_sequence, session_id, node)],
+                output: (),
+            })
+        })
+        .await
     }
 
     async fn resolve_turn_node_id(

@@ -2,13 +2,14 @@
 //! branching and checkpoints, compaction bookkeeping, secret redaction, and
 //! export. This module is the single source of truth for conversation state.
 
+mod append;
 mod branch;
 mod checkpoint;
 pub mod compaction;
 mod cwd;
 mod event;
 pub mod export;
-pub mod format;
+mod format;
 mod fs;
 mod lock;
 mod memory;
@@ -22,7 +23,6 @@ pub mod tree;
 pub mod turns;
 mod validation;
 
-use format::append_durable_record;
 use secrets::SecretGuard;
 
 pub use compaction::{
@@ -32,7 +32,6 @@ pub use compaction::{
     compaction_summary_message, compose_compaction_summary, extract_file_ops, generate_fallback_summary,
     merge_split_turn_summary, render_file_lists_xml, serialize_conversation,
 };
-pub use cwd::{cwd_for_session, record_session_for_cwd};
 
 pub const DEFAULT_CONTEXT_WINDOW_MESSAGES: usize = 24;
 pub const DEFAULT_COMPACTION_MAX_BYTES: usize = 8 * 1024;
@@ -45,7 +44,7 @@ pub(crate) use fs::{
 };
 pub use prune::{prune_empty_sessions_async, prune_expired_sessions_async};
 pub use subagents::{SubagentContext, SubagentContexts};
-pub use summary::{SessionSummary, delete_session_async, list_session_summaries, list_session_summaries_async};
+pub use summary::{SessionSummary, delete_session_async, list_session_summaries_async};
 pub use tree::{SessionTree, TitleSource, TreeNodeData, TreeNodeKind};
 pub use turns::ConversationTurn;
 use validation::CanonicalHistory;
@@ -104,8 +103,10 @@ fn load_or_create_state(path: &Path, session_id: &str, resume: bool) -> Result<S
 }
 
 fn record_cwd_if_present(sessions_dir: &Path, session_id: &str) {
-    if let Ok(cwd) = std::env::current_dir() {
-        let _ = SessionManager::record_session_for_cwd(sessions_dir, &cwd, session_id);
+    if let Ok(cwd) = std::env::current_dir()
+        && let Err(error) = SessionManager::record_session_for_cwd(sessions_dir, &cwd, session_id)
+    {
+        tracing::warn!(session_id, cwd = %cwd.display(), %error, "could not index session by working directory");
     }
 }
 
@@ -179,6 +180,10 @@ impl SessionManager {
         cwd::cwd_for_session_async(sessions_dir, session_id).await
     }
 
+    pub fn list_session_summaries(sessions_dir: &Path) -> Result<Vec<SessionSummary>> {
+        summary::list_session_summaries(sessions_dir)
+    }
+
     pub async fn add_secrets_async(&self, secrets: impl IntoIterator<Item = String>) -> Result<()> {
         let secrets: Vec<String> = secrets.into_iter().collect();
         if !self.secrets.needs_persisted_scan(&secrets)? {
@@ -198,10 +203,6 @@ impl SessionManager {
         self.secrets.redact_stream(carry, chunk)
     }
 
-    pub fn list_session_summaries(sessions_dir: &Path) -> Result<Vec<SessionSummary>> {
-        summary::list_session_summaries(sessions_dir)
-    }
-
     pub fn spawn_auto_prune(&self, retention_days: u32) -> tokio::task::JoinHandle<()> {
         let active_id = self.session_id.clone();
         let sessions_dir = self.file_path.parent().unwrap_or_else(|| Path::new(".")).to_path_buf();
@@ -212,18 +213,5 @@ impl SessionManager {
 
     pub(crate) fn reject_secrets<T: Serialize>(&self, value: &T) -> Result<()> {
         self.secrets.reject_in(value)
-    }
-
-    async fn append_tree_node(&self, state: &mut StoreState, node: TreeNodeData) -> Result<()> {
-        let record = SessionRecord::TreeNode {
-            sequence: state.next_sequence,
-            session_id: self.session_id.clone(),
-            node: node.clone(),
-        };
-        append_durable_record(&self.file_path, &record).await?;
-        state.next_sequence += 1;
-        state.tree.add_node(node);
-        state.messages = state.tree.active_messages();
-        Ok(())
     }
 }

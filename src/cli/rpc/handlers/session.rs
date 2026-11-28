@@ -69,7 +69,7 @@ async fn handle_list_sessions_cmd<W: tokio::io::AsyncWrite + Unpin>(
     ctx: &mut RpcDaemonContext<'_, W>,
 ) -> Result<()> {
     let cfg = ctx.config.read().await;
-    let summaries = rho_harness_core::session::list_session_summaries(&cfg.sessions_dir)?;
+    let summaries = rho_harness_core::session::SessionManager::list_session_summaries(&cfg.sessions_dir)?;
     ctx.writer
         .write_message(&RpcResponse::success(
             req_id,

@@ -1,3 +1,4 @@
+use super::cwd::forget_session_async;
 use super::lock;
 use crate::error::Result;
 use std::path::Path;
@@ -31,6 +32,17 @@ fn should_prune_empty_session(
     !content.contains("\"tree_node\"") && !content.contains("\"session_named\"")
 }
 
+/// Removes an unheld session file and drops that session from the working-directory index.
+async fn remove_session_file(path: &Path) -> Result<bool> {
+    if !lock::remove_unless_held(path) {
+        return Ok(false);
+    }
+    if let (Some(dir), Some(id)) = (path.parent(), path.file_stem().and_then(|stem| stem.to_str())) {
+        forget_session_async(dir, id).await?;
+    }
+    Ok(true)
+}
+
 pub async fn prune_empty_sessions_async(sessions_dir: &Path, active_session_id: Option<&str>) -> Result<usize> {
     if !tokio::fs::try_exists(sessions_dir).await? {
         return Ok(0);
@@ -40,7 +52,7 @@ pub async fn prune_empty_sessions_async(sessions_dir: &Path, active_session_id: 
     while let Some(entry) = entries.next_entry().await? {
         let path = entry.path();
         let metadata = entry.metadata().await.ok();
-        if should_prune_empty_session(&path, active_session_id, metadata) && lock::remove_unless_held(&path) {
+        if should_prune_empty_session(&path, active_session_id, metadata) && remove_session_file(&path).await? {
             count += 1;
         }
     }
@@ -54,20 +66,20 @@ fn calculate_prune_cutoff(retention_days: u32) -> Option<SystemTime> {
     SystemTime::now().checked_sub(Duration::from_secs(retention_days as u64 * 86_400))
 }
 
-async fn prune_single_entry_async(ctx: &PruneContext<'_>, entry: tokio::fs::DirEntry) -> bool {
+async fn prune_single_entry_async(ctx: &PruneContext<'_>, entry: tokio::fs::DirEntry) -> Result<bool> {
     let path = entry.path();
     let metadata = entry.metadata().await.ok();
     if ctx.should_prune_async(&path, metadata).await {
-        lock::remove_unless_held(&path)
+        remove_session_file(&path).await
     } else {
-        false
+        Ok(false)
     }
 }
 
 async fn drain_prune_entries_async(ctx: &PruneContext<'_>, mut entries: tokio::fs::ReadDir) -> Result<usize> {
     let mut count = 0;
     while let Some(entry) = entries.next_entry().await? {
-        if prune_single_entry_async(ctx, entry).await {
+        if prune_single_entry_async(ctx, entry).await? {
             count += 1;
         }
     }

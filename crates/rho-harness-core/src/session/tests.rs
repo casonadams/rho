@@ -1,5 +1,7 @@
 mod checkpoint;
 mod compaction_tree;
+mod cwd_index;
+mod durability;
 mod memory;
 mod prune;
 mod storage;

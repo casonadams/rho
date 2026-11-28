@@ -49,7 +49,7 @@ impl CanonicalHistory {
     pub(crate) fn clear(&mut self) {}
 
     /// Validate a batch that will be joined to the canonical history.
-    pub(crate) fn check_canonical_batch(&mut self, messages: &[ChatMessage]) -> Result<()> {
+    pub(crate) fn check_canonical_batch(&self, messages: &[ChatMessage]) -> Result<()> {
         self.check_history(messages, true)
     }
 

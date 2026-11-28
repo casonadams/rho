@@ -181,8 +181,12 @@ impl SessionTree {
         self.set_session_name_with_source(name, TitleSource::User);
     }
 
+    pub fn accepts_session_name(&self, source: TitleSource) -> bool {
+        source != TitleSource::Auto || self.session_name_source != Some(TitleSource::User)
+    }
+
     pub fn set_session_name_with_source(&mut self, name: String, source: TitleSource) -> bool {
-        if source == TitleSource::Auto && self.session_name_source == Some(TitleSource::User) {
+        if !self.accepts_session_name(source) {
             return false;
         }
         self.session_name = Some(name);

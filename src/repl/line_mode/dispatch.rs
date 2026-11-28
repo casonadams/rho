@@ -125,7 +125,7 @@ pub(crate) async fn handle_session_branching_result(
 
 pub(crate) fn show_session_summaries(session: &ReplSession) -> Result<()> {
     let mut shown = 0;
-    for s in rho_harness_core::session::list_session_summaries(&session.config.sessions_dir)? {
+    for s in rho_harness_core::session::SessionManager::list_session_summaries(&session.config.sessions_dir)? {
         if s.turn_count == 0 && s.name.is_none() {
             continue;
         }

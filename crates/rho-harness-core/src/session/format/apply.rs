@@ -163,7 +163,8 @@ fn reset_canonical_state(state: &mut StoreState) {
     state.tree = SessionTree::new();
 }
 
-pub fn apply_record(state: &mut StoreState, record: SessionRecord, expected_id: &str) -> Result<()> {
+#[cfg(test)]
+fn apply_record(state: &mut StoreState, record: SessionRecord, expected_id: &str) -> Result<()> {
     let mut messages_stale = false;
     replay_record(state, record, expected_id, &mut messages_stale)?;
     refresh_stale_messages(state, &mut messages_stale);

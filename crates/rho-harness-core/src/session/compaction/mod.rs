@@ -18,6 +18,8 @@ pub use serialize::{MAX_TOOL_RESULT_CHARS, serialize_conversation};
 pub use types::{CompactionCut, CompactionDetails, CompactionMetadata, compaction_summary_message};
 
 use super::SessionManager;
+use super::append::{Planned, tree_node};
+use super::format::Durability;
 use super::fs::session_error;
 use super::tree::{TreeNodeData, TreeNodeKind};
 use crate::error::Result;
@@ -45,15 +47,19 @@ impl SessionManager {
     pub async fn append_compaction(&self, summary: &str, metadata: CompactionMetadata) -> Result<()> {
         self.reject_secrets(&summary)?;
         self.reject_secrets(&metadata)?;
-        let mut state = self.state.lock().await;
-        if state.checkpoint.is_some() {
-            return Err(session_error(
-                "pending run checkpoint must be continued before appending compaction",
-            ));
-        }
-        let node = create_compaction_node(state.tree.active_leaf_id.clone(), summary, &metadata)?;
-        self.append_tree_node(&mut state, node).await?;
-        state.checkpoint = None;
-        Ok(())
+        let summary = summary.to_string();
+        self.append(Durability::Durable, move |state, session_id| {
+            if state.checkpoint.is_some() {
+                return Err(session_error(
+                    "pending run checkpoint must be continued before appending compaction",
+                ));
+            }
+            let node = create_compaction_node(state.tree.active_leaf_id.clone(), &summary, &metadata)?;
+            Ok(Planned {
+                records: vec![tree_node(state.next_sequence, session_id, node)],
+                output: (),
+            })
+        })
+        .await
     }
 }

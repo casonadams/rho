@@ -25,6 +25,7 @@ toml.workspace = true
 tokio = { workspace = true, features = ["sync", "rt", "macros", "fs", "io-util"] }
 uuid = { workspace = true, features = ["v4"] }
 tiktoken-rs.workspace = true
+tracing = "0.1"
 
 [features]
 skip-fsync = []

@@ -1,3 +1,4 @@
+use super::cwd::forget_session_async;
 use super::format::{StoreState, load_file, load_file_async};
 use crate::error::Result;
 use crate::model::{ChatMessage, UserContent};
@@ -24,10 +25,21 @@ fn jsonl_stem(path: &Path) -> Option<String> {
     }
 }
 
+/// Sessions that fail to load are left out of listings, with a warning naming the file.
+fn skip_unloadable(path: &Path, loaded: Result<StoreState>) -> Option<StoreState> {
+    match loaded {
+        Ok(state) => Some(state),
+        Err(error) => {
+            tracing::warn!(path = %path.display(), %error, "skipping session that failed to load");
+            None
+        }
+    }
+}
+
 fn summarize_entry(entry: &std::fs::DirEntry) -> Option<SessionSummary> {
     let path = entry.path();
     let stem = jsonl_stem(&path)?;
-    let state = load_file(&path, &stem).ok()?;
+    let state = skip_unloadable(&path, load_file(&path, &stem))?;
     let metadata = entry.metadata().ok()?;
     let last_modified: DateTime<Utc> = metadata
         .modified()
@@ -53,7 +65,7 @@ pub fn list_session_summaries(sessions_dir: &Path) -> Result<Vec<SessionSummary>
 async fn summarize_entry_async(entry: &tokio::fs::DirEntry) -> Option<SessionSummary> {
     let path = entry.path();
     let stem = jsonl_stem(&path)?;
-    let state = load_file_async(&path, &stem).await.ok()?;
+    let state = skip_unloadable(&path, load_file_async(&path, &stem).await)?;
     let metadata = entry.metadata().await.ok()?;
     let last_modified: DateTime<Utc> = metadata
         .modified()
@@ -132,6 +144,7 @@ pub async fn delete_session_async(sessions_dir: &Path, session_id: &str) -> Resu
     let file_path = sessions_dir.join(format!("{session_id}.jsonl"));
     if tokio::fs::try_exists(&file_path).await? {
         tokio::fs::remove_file(file_path).await?;
+        forget_session_async(sessions_dir, session_id).await?;
     }
     Ok(())
 }
@@ -240,6 +253,29 @@ mod tests {
             .map(|summary| summary.session_id)
             .collect();
         assert_eq!(remaining, vec![sid_c]);
+    }
+
+    #[tokio::test]
+    async fn unloadable_session_file_is_left_out_of_both_listings() {
+        let dir = crate::test_support::temp_dir();
+        let session = SessionManager::new(&dir, None).unwrap();
+        let sid = session.session_id.clone();
+        std::fs::write(dir.join("broken.jsonl"), "not a session header\n").unwrap();
+
+        let sync_ids: Vec<String> = list_session_summaries(&dir)
+            .unwrap()
+            .into_iter()
+            .map(|s| s.session_id)
+            .collect();
+        let async_ids: Vec<String> = list_session_summaries_async(&dir)
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|s| s.session_id)
+            .collect();
+
+        assert_eq!(sync_ids, vec![sid.clone()]);
+        assert_eq!(async_ids, vec![sid]);
     }
 
     #[tokio::test]

@@ -60,53 +60,71 @@ fn drop_torn_tail(file: &mut std::fs::File) -> std::io::Result<()> {
     Ok(())
 }
 
+#[cfg(test)]
+type WriteHook = Box<dyn FnOnce() -> std::io::Result<()> + Send>;
+
+#[cfg(test)]
+static WRITE_HOOKS: std::sync::Mutex<Vec<(std::path::PathBuf, WriteHook)>> = std::sync::Mutex::new(Vec::new());
+
+/// Runs `hook` once, after the next write to `path` has reached the file and before it is fsynced.
+#[cfg(test)]
+pub(crate) fn inject_write_hook(path: &Path, hook: impl FnOnce() -> std::io::Result<()> + Send + 'static) {
+    WRITE_HOOKS.lock().unwrap().push((path.to_path_buf(), Box::new(hook)));
+}
+
+#[cfg(test)]
+fn run_write_hook(path: &Path) -> std::io::Result<()> {
+    let hook = {
+        let mut hooks = WRITE_HOOKS.lock().unwrap();
+        hooks
+            .iter()
+            .position(|(hooked, _)| hooked == path)
+            .map(|i| hooks.remove(i).1)
+    };
+    hook.map_or(Ok(()), |hook| hook())
+}
+
 fn write_line_sync(path: &Path, line: &[u8], durable: bool) -> Result<()> {
     let mut file = std::fs::OpenOptions::new().read(true).append(true).open(path)?;
     drop_torn_tail(&mut file)?;
     file.write_all(line)?;
+    #[cfg(test)]
+    run_write_hook(path)?;
     if durable && crate::fs::FSYNC_ENABLED {
         file.sync_data()?;
     }
     Ok(())
 }
 
-async fn write_record(path: &Path, record: &SessionRecord, durable: bool) -> Result<()> {
-    let line = serialize_record_line(record)?;
-    write_lines(path, line, durable).await
+/// How an appended record reaches stable storage.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Durability {
+    /// Audit events skip the fsync; the loader drops a torn trailing line, so at most
+    /// the newest unflushed events are lost on a crash.
+    Audit,
+    /// Canonical-history transitions are fsynced so a resumable session never replays
+    /// a half-committed change.
+    Durable,
 }
 
-async fn write_lines(path: &Path, line: Vec<u8>, durable: bool) -> Result<()> {
-    let path = path.to_path_buf();
-    tokio::task::spawn_blocking(move || write_line_sync(&path, &line, durable))
-        .await
-        .map_err(|e| session_error(format!("session write task failed: {e}")))?
-}
-
-/// Append an audit event without an fsync; the JSONL loader drops a torn
-/// trailing line, so at most the newest unflushed events are lost on a crash.
-pub async fn append_record(path: &Path, record: &SessionRecord) -> Result<()> {
-    write_record(path, record, false).await
-}
-
-/// Append a canonical-history state transition and fsync it so a resumable
-/// session never replays a half-committed state change.
-pub async fn append_durable_record(path: &Path, record: &SessionRecord) -> Result<()> {
-    write_record(path, record, true).await
-}
-
-pub async fn append_durable_records(path: &Path, records: &[SessionRecord]) -> Result<()> {
+/// Appends `records` as consecutive JSONL lines in one write.
+pub(crate) async fn append_records(path: &Path, records: &[SessionRecord], durability: Durability) -> Result<()> {
     let mut lines = Vec::new();
     for record in records {
         lines.extend(serialize_record_line(record)?);
     }
-    write_lines(path, lines, true).await
+    let path = path.to_path_buf();
+    let durable = durability == Durability::Durable;
+    tokio::task::spawn_blocking(move || write_line_sync(&path, &lines, durable))
+        .await
+        .map_err(|e| session_error(format!("session write task failed: {e}")))?
 }
 
-pub fn load_file(path: &Path, expected_id: &str) -> Result<StoreState> {
+pub(crate) fn load_file(path: &Path, expected_id: &str) -> Result<StoreState> {
     parse_read_result(std::fs::read(path), expected_id)
 }
 
-pub async fn load_file_async(path: &Path, expected_id: &str) -> Result<StoreState> {
+pub(crate) async fn load_file_async(path: &Path, expected_id: &str) -> Result<StoreState> {
     parse_read_result(tokio::fs::read(path).await, expected_id)
 }
 
