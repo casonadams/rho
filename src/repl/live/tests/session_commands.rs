@@ -6,7 +6,7 @@ use crate::repl::live::message::types::{LiveCommandContext, SessionCommandIo};
 #[tokio::test]
 async fn rewind_reports_the_turn_and_retained_count_in_live_mode() {
     let temp = tempfile::tempdir().unwrap();
-    let (mut controller, _batch, mut session, mut engine, mut input) = setup_modal_action_harness(temp.path()).await;
+    let (mut controller, _batch, mut session, mut engine, _input) = setup_modal_action_harness(temp.path()).await;
     let (renderer, mut events) = crate::repl::collecting_renderer();
     session.renderer = renderer;
     let mut ctx = LiveCommandContext {
@@ -15,7 +15,6 @@ async fn rewind_reports_the_turn_and_retained_count_in_live_mode() {
     };
     let mut io = SessionCommandIo {
         controller: &mut controller,
-        input: &mut input,
     };
 
     let handled = handle_session_diagnostics(&mut ctx, &mut io, &CommandResult::Rewind { turn: 999 }).await;
@@ -27,7 +26,7 @@ async fn rewind_reports_the_turn_and_retained_count_in_live_mode() {
 #[tokio::test]
 async fn name_session_reports_the_quoted_name_in_live_mode() {
     let temp = tempfile::tempdir().unwrap();
-    let (mut controller, _batch, mut session, mut engine, mut input) = setup_modal_action_harness(temp.path()).await;
+    let (mut controller, _batch, mut session, mut engine, _input) = setup_modal_action_harness(temp.path()).await;
     let (renderer, mut events) = crate::repl::collecting_renderer();
     session.renderer = renderer;
     let mut ctx = LiveCommandContext {
@@ -36,7 +35,6 @@ async fn name_session_reports_the_quoted_name_in_live_mode() {
     };
     let mut io = SessionCommandIo {
         controller: &mut controller,
-        input: &mut input,
     };
 
     let handled = handle_session_diagnostics(
@@ -55,14 +53,13 @@ async fn name_session_reports_the_quoted_name_in_live_mode() {
 #[tokio::test]
 async fn session_diagnostics_open_name_and_rewind_commands() {
     let temp = tempfile::tempdir().unwrap();
-    let (mut controller, _batch, mut session, mut engine, mut input) = setup_modal_action_harness(temp.path()).await;
+    let (mut controller, _batch, mut session, mut engine, _input) = setup_modal_action_harness(temp.path()).await;
     let mut ctx = LiveCommandContext {
         session: &mut session,
         engine: &mut engine,
     };
     let mut io = SessionCommandIo {
         controller: &mut controller,
-        input: &mut input,
     };
 
     assert!(

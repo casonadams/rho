@@ -1,4 +1,6 @@
 use super::super::batch::LiveBatch;
+use super::super::message::finish_branch_switch;
+use super::super::message::types::BranchSwitchContext;
 use super::super::modal::ModalKeyResult;
 use super::super::modal::actions::{apply_shared_modal_action, open_shared_help_modal, save_or_print_thinking};
 use super::super::navigation::{show_resumed_transcript, show_transcript, update_footer};
@@ -262,11 +264,32 @@ async fn handle_help_command_selected(
     Ok(true)
 }
 
+async fn handle_branch_summary_chosen(
+    ctx: &mut ModalActionContext<'_, impl TerminalBackend>,
+    leaf_id: &str,
+    old_leaf: &str,
+    summarize: bool,
+) -> Result<bool> {
+    let mut switch = BranchSwitchContext {
+        session: ctx.session,
+        engine: ctx.engine,
+        controller: ctx.controller,
+    };
+    finish_branch_switch(&mut switch, leaf_id, old_leaf, summarize).await?;
+    ctx.controller.redraw()?;
+    Ok(true)
+}
+
 async fn handle_session_modal_action(
     ctx: &mut ModalActionContext<'_, impl TerminalBackend>,
     res: ModalKeyResult,
 ) -> Result<bool> {
     match res {
+        ModalKeyResult::BranchSummaryChosen {
+            leaf_id,
+            old_leaf,
+            summarize,
+        } => handle_branch_summary_chosen(ctx, &leaf_id, &old_leaf, summarize).await,
         ModalKeyResult::TreeNodeSelected { node_id } => handle_node_selected(ctx, node_id).await,
         ModalKeyResult::NodeLabelUpdated { node_id, label } => handle_node_label_updated(ctx, node_id, label).await,
         ModalKeyResult::SessionSelected { session_id } => handle_session_selected(ctx, session_id).await,

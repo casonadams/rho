@@ -1,7 +1,9 @@
+use std::io::{BufRead, IsTerminal, Write};
+
 use crate::engine::AgentEngine;
 use crate::error::Result;
 use crate::repl::ReplSession;
-use crate::repl::branch_summary::{SUMMARY_PROMPT, abandoned_messages, has_assistant_turn, should_summarize_branch};
+use crate::repl::branch_summary::{SUMMARY_PROMPT, has_assistant_turn, should_summarize_branch, summarize_abandoned};
 use crate::repl::commands::CommandResult;
 use crate::repl::commands::types::WorkflowLaunch;
 use crate::repl::model_switch::{print_session_model, switch_session_model};
@@ -23,26 +25,17 @@ pub async fn show_tree(session: &ReplSession, engine: &AgentEngine) -> Result<()
     Ok(())
 }
 
-fn prompt_abandoned_summary_confirmation() -> Option<bool> {
-    let mut stdin = std::io::stdin().lock();
-    let mut stdout = std::io::stdout();
-    let input = crate::repl::prompt::read_answer(&mut stdin, &mut stdout, SUMMARY_PROMPT)?;
-    Some(should_summarize_branch(&input))
-}
-
 pub(crate) async fn maybe_summarize_abandoned(
     abandoned: &[&rho_harness_core::session::tree::TreeNodeData],
     engine: &AgentEngine,
-    has_ui: bool,
+    reader: &mut impl BufRead,
+    writer: &mut impl Write,
 ) -> Option<String> {
-    if !has_ui || !has_assistant_turn(abandoned) {
+    if !has_assistant_turn(abandoned) {
         return None;
     }
-    if !prompt_abandoned_summary_confirmation().unwrap_or(false) {
-        return None;
-    }
-    let messages = abandoned_messages(abandoned);
-    Some(engine.summarize_branch(&messages).await)
+    let answer = crate::repl::prompt::read_answer(reader, writer, SUMMARY_PROMPT)?;
+    summarize_abandoned(engine, abandoned, should_summarize_branch(&answer)).await
 }
 
 async fn apply_branch_switch(
@@ -64,7 +57,11 @@ async fn apply_branch_switch(
 pub async fn switch_active_branch(leaf_id: String, session: &mut ReplSession, engine: &mut AgentEngine) -> Result<()> {
     let (old_leaf, tree) = load_branch_context(engine).await?;
     let (abandoned, _) = tree.branch_divergence(&old_leaf, &leaf_id);
-    let summary = maybe_summarize_abandoned(&abandoned, engine, session.renderer.has_interactive_ui()).await;
+    let summary = if std::io::stdin().is_terminal() {
+        maybe_summarize_abandoned(&abandoned, engine, &mut std::io::stdin().lock(), &mut std::io::stdout()).await
+    } else {
+        None
+    };
 
     apply_branch_switch(&leaf_id, summary.as_deref(), &old_leaf, engine, &session.renderer).await?;
     *engine = engine

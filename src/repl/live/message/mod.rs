@@ -7,8 +7,9 @@ pub(crate) mod types;
 
 pub(crate) use commands::open_selector_modal;
 pub(super) use prompt::resolve_effective_prompt;
+pub(crate) use session_ops::finish_branch_switch;
 #[cfg(test)]
-pub(crate) use session_ops::handle_session_diagnostics;
+pub(crate) use session_ops::{handle_session_diagnostics, handle_switch_branch};
 pub(super) use types::LiveCommandContext;
 
 use commands::{handle_auth_command, handle_engine_command};
@@ -28,7 +29,6 @@ use crate::ui::interactive::{Activity, TerminalBackend};
 fn build_session_io<'a, 'b, B: TerminalBackend>(io: &'a mut LiveIo<'b, B>) -> SessionCommandIo<'a, B> {
     SessionCommandIo {
         controller: io.controller,
-        input: io.input,
     }
 }
 

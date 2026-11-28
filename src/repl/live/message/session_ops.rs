@@ -1,8 +1,9 @@
 use super::commands::handle_tree_commands;
 use super::types::{BranchSwitchContext, LiveCommandContext, SessionCommandIo};
 use crate::error::Result;
-use crate::repl::branch_summary::{SUMMARY_PROMPT, abandoned_messages, has_assistant_turn, should_summarize_branch};
+use crate::repl::branch_summary::{has_assistant_turn, summarize_abandoned};
 use crate::repl::commands::{CommandResult, ForkTarget};
+use crate::repl::live::modal::branch_summary::open_branch_summary_modal;
 use crate::repl::live::navigation::{show_resumed_transcript, update_footer};
 use crate::repl::session_ops;
 use crate::ui::interactive::TerminalBackend;
@@ -143,7 +144,6 @@ pub(crate) async fn switch_branch_for_command<B: TerminalBackend>(
             session: ctx.session,
             engine: ctx.engine,
             controller: io.controller,
-            input: io.input,
         },
         leaf_id.to_string(),
     )
@@ -184,40 +184,6 @@ pub(crate) async fn handle_session_command<B: TerminalBackend>(
     result: CommandResult,
 ) -> Result<bool> {
     dispatch_session_result(ctx, &mut io, &result).await
-}
-
-fn confirm_branch_summary() -> bool {
-    use std::io::Write;
-    print!("{SUMMARY_PROMPT}");
-    std::io::stdout().flush().ok();
-    let mut input = String::new();
-    std::io::stdin()
-        .read_line(&mut input)
-        .is_ok_and(|_| should_summarize_branch(&input))
-}
-
-async fn summarize_if_confirmed(ctx: &mut BranchSwitchContext<'_, '_, '_, impl TerminalBackend>) -> Option<()> {
-    let mut paused = ctx.input.pause().ok()?;
-    paused.drain();
-    ctx.controller.suspend().ok()?;
-    let confirmed = confirm_branch_summary();
-    let controller_res = ctx.controller.resume();
-    let input_res = paused.resume();
-    ctx.input.drain();
-    controller_res.ok()?;
-    input_res.ok()?;
-    confirmed.then_some(())
-}
-
-async fn maybe_summarize_abandoned(
-    ctx: &mut BranchSwitchContext<'_, '_, '_, impl TerminalBackend>,
-    abandoned: &[&rho_harness_core::session::tree::TreeNodeData],
-) -> Option<String> {
-    if !has_assistant_turn(abandoned) || !ctx.session.renderer.has_interactive_ui() {
-        return None;
-    }
-    summarize_if_confirmed(ctx).await?;
-    Some(ctx.engine.summarize_branch(&abandoned_messages(abandoned)).await)
 }
 
 async fn rebuild_and_hydrate(
@@ -264,8 +230,24 @@ pub(crate) async fn handle_switch_branch<B: TerminalBackend>(
     let old_leaf = ctx.engine.session_manager.active_leaf_id().await?.unwrap_or_default();
     let tree = ctx.engine.session_manager.load_tree().await?;
     let (abandoned, _) = tree.branch_divergence(&old_leaf, &leaf_id);
-    let summary = maybe_summarize_abandoned(&mut ctx, &abandoned).await;
-    switch_and_hydrate(&mut ctx, &leaf_id, summary, &old_leaf).await
+    if has_assistant_turn(&abandoned) {
+        open_branch_summary_modal(ctx.controller, leaf_id, old_leaf);
+        ctx.controller.redraw()?;
+        return Ok(());
+    }
+    switch_and_hydrate(&mut ctx, &leaf_id, None, &old_leaf).await
+}
+
+pub(crate) async fn finish_branch_switch<B: TerminalBackend>(
+    ctx: &mut BranchSwitchContext<'_, '_, '_, B>,
+    leaf_id: &str,
+    old_leaf: &str,
+    summarize: bool,
+) -> Result<()> {
+    let tree = ctx.engine.session_manager.load_tree().await?;
+    let (abandoned, _) = tree.branch_divergence(old_leaf, leaf_id);
+    let summary = summarize_abandoned(ctx.engine, &abandoned, summarize).await;
+    switch_and_hydrate(ctx, leaf_id, summary, old_leaf).await
 }
 
 #[cfg(test)]

@@ -286,9 +286,7 @@ async fn a_successful_model_switch_updates_the_session_and_the_engine_together()
 #[tokio::test]
 async fn test_handle_auth_and_config_results() {
     let temp = tempfile::tempdir().unwrap();
-    // Reload reads RHO_HOME's config; disabling MCP there keeps host-global MCP servers out of the rebuild.
     let _home = rho_test_support::EnvVarGuard::set("RHO_HOME", temp.path().to_str().unwrap());
-    std::fs::write(temp.path().join("config.toml"), "[mcp]\nenabled = false\n").unwrap();
     let (mut session, mut engine) = setup_test_session(temp.path()).await;
 
     let orig_provider = session.config.provider.clone();
@@ -364,25 +362,6 @@ async fn test_maybe_summarize_abandoned_and_branch_switch() {
     let temp = tempfile::tempdir().unwrap();
     let (mut session, mut engine) = setup_test_session(temp.path()).await;
 
-    assert_eq!(
-        super::dispatch::maybe_summarize_abandoned(&[], &engine, false).await,
-        None
-    );
-
-    let assistant_node = TreeNodeData {
-        id: "a1".into(),
-        parent_id: None,
-        timestamp: chrono::Utc::now(),
-        kind: TreeNodeKind::AssistantTurn,
-        messages: vec![],
-        label: None,
-        metadata: None,
-    };
-    assert_eq!(
-        super::dispatch::maybe_summarize_abandoned(&[&assistant_node], &engine, false).await,
-        None
-    );
-
     engine
         .session_manager
         .append_messages(
@@ -405,6 +384,55 @@ async fn test_maybe_summarize_abandoned_and_branch_switch() {
             .await
             .is_ok()
     );
+}
+
+#[tokio::test]
+async fn abandoned_branch_without_assistant_turn_is_not_offered_a_summary() {
+    let temp = rho_test_support::TestDir::new();
+    let (_session, engine) = setup_test_session(&temp).await;
+    let user_node = TreeNodeData::turn(TreeNodeKind::UserTurn, None, chrono::Utc::now(), vec![]);
+    let mut reader = std::io::Cursor::new(b"y\n".to_vec());
+    let mut writer = Vec::new();
+
+    let summary = super::dispatch::maybe_summarize_abandoned(&[&user_node], &engine, &mut reader, &mut writer).await;
+
+    assert_eq!(summary, None);
+    assert!(writer.is_empty(), "no prompt is printed");
+}
+
+#[tokio::test]
+async fn abandoned_branch_summary_follows_the_typed_answer() {
+    let cases: [(&[u8], bool); 5] = [
+        (b"n\n", false),
+        (b"no\n", false),
+        (b"y\n", true),
+        (b"yes\n", true),
+        (b"\n", true),
+    ];
+    let temp = rho_test_support::TestDir::new();
+    let (_session, engine) = setup_test_session(&temp).await;
+    let assistant_node = TreeNodeData::turn(
+        TreeNodeKind::AssistantTurn,
+        None,
+        chrono::Utc::now(),
+        vec![
+            rho_harness_core::model::ChatMessage::user("hello"),
+            rho_harness_core::model::ChatMessage::assistant("hi"),
+        ],
+    );
+    for (answer, expect_summary) in cases {
+        let mut reader = std::io::Cursor::new(answer.to_vec());
+        let mut writer = Vec::new();
+
+        let summary =
+            super::dispatch::maybe_summarize_abandoned(&[&assistant_node], &engine, &mut reader, &mut writer).await;
+
+        assert_eq!(summary.is_some(), expect_summary, "answer {answer:?}");
+        assert_eq!(
+            String::from_utf8(writer).unwrap(),
+            crate::repl::branch_summary::SUMMARY_PROMPT
+        );
+    }
 }
 
 #[tokio::test]

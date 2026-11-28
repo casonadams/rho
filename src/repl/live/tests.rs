@@ -1,6 +1,7 @@
 mod bash;
 mod bash_stream;
 mod batch;
+mod branch_summary;
 mod common;
 mod default_model;
 mod exit;

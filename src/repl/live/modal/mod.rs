@@ -1,5 +1,6 @@
 pub(crate) mod actions;
 pub mod agents;
+pub mod branch_summary;
 pub mod btw;
 pub mod interaction;
 pub mod selectors;
@@ -46,6 +47,11 @@ pub enum ModalKeyResult {
     },
     SessionDeleted {
         session_id: String,
+    },
+    BranchSummaryChosen {
+        leaf_id: String,
+        old_leaf: String,
+        summarize: bool,
     },
     ThinkingLevelSelected {
         level: Option<String>,
@@ -415,6 +421,9 @@ pub fn handle_modal_key<B: TerminalBackend>(
         ModalKind::Help => selectors::handle_help_key(controller, key),
         ModalKind::Settings => settings::handle_settings_key(controller, key),
         ModalKind::Session => selectors::handle_session_key(controller, key),
+        ModalKind::BranchSummary { leaf_id, old_leaf } => {
+            branch_summary::handle_branch_summary_key(controller, key, leaf_id, old_leaf)
+        }
         ModalKind::Tree => tree::handle_tree_key(controller, key),
         ModalKind::SearchEngine => selectors::handle_search_engine_key(controller, key),
         ModalKind::Tools => selectors::handle_tools_key(controller, key),

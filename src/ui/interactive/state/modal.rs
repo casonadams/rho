@@ -79,6 +79,10 @@ pub enum ModalKind {
     Help,
     Settings,
     Session,
+    BranchSummary {
+        leaf_id: String,
+        old_leaf: String,
+    },
     Tree,
     SearchEngine,
     Tools,
