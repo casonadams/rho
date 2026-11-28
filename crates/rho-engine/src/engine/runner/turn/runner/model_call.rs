@@ -123,15 +123,16 @@ async fn attempt_model_call(
 }
 
 /// Retries one model request on transient failures so a dropped connection costs a request, not the whole turn.
+/// Each attempt builds its own request with `request`.
 pub(super) async fn call_model(
     runner: &AgentRunner,
-    req: &ModelCompletionRequest,
+    request: impl Fn() -> ModelCompletionRequest,
     emitter: &TurnEmitter,
 ) -> Result<TurnStreamOutcome, AppError> {
     let mut attempt = 1;
     loop {
         let mut outcome = TurnStreamOutcome::default();
-        let error = match attempt_model_call(runner, req.clone(), emitter, &mut outcome).await {
+        let error = match attempt_model_call(runner, request(), emitter, &mut outcome).await {
             Ok(()) => return Ok(outcome),
             Err(error) if attempt < MODEL_CALL_ATTEMPTS && error.is_transient() => error,
             Err(error) => return Err(error),

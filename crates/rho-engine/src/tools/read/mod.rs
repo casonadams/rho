@@ -2,9 +2,11 @@ pub mod format;
 pub mod images;
 #[cfg(test)]
 mod tests;
+mod window;
 
 pub(crate) use format::{format_content, is_binary};
 pub use rho_harness_core::args::ReadArgs;
+use window::LineWindow;
 
 use crate::lsp::{LspManager, render};
 use crate::tools::engine_tool::TypedTool;
@@ -14,6 +16,8 @@ use rho_harness_core::workspace::{Workspace, clean_path_arg};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+const MAX_WHOLE_READ_BYTES: u64 = 16 * 1024 * 1024;
+
 pub(crate) struct ReadTool {
     pub base_dir: crate::tools::WorkspaceDir,
     pub artifact_dir: Option<PathBuf>,
@@ -21,14 +25,18 @@ pub(crate) struct ReadTool {
     pub lsp: Option<Arc<LspManager>>,
 }
 
-async fn resolve_and_read_bytes(
-    base_dir: &Path,
-    clean_path: &str,
-) -> std::result::Result<(PathBuf, Vec<u8>), ToolResult> {
+/// The path `clean_path` names and its size, when it is a regular file.
+async fn resolve_regular_file(base_dir: &Path, clean_path: &str) -> std::result::Result<(PathBuf, u64), ToolResult> {
     let workspace = Workspace::new(base_dir);
     let path = resolve_tool_path(&workspace, clean_path, "read")?;
-    match tokio::fs::read(&path).await {
-        Ok(bytes) => Ok((path, bytes)),
+    match tokio::fs::metadata(&path).await {
+        Ok(metadata) if metadata.is_file() => Ok((path, metadata.len())),
+        Ok(metadata) if metadata.is_dir() => Err(ToolResult::error(format!(
+            "Cannot read {clean_path}: it is a directory"
+        ))),
+        Ok(_) => Err(ToolResult::error(format!(
+            "Cannot read {clean_path}: not a regular file"
+        ))),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
             let hint = crate::tools::suggest::missing_path_hint(
                 workspace.root(),
@@ -51,20 +59,57 @@ async fn process_image(clean_path: &str, decode: impl FnOnce() -> ToolResult + S
         .unwrap_or_else(|e| ToolResult::error(format!("Failed to process image {clean_path}: {e}")))
 }
 
-async fn handle_non_text_content(raw_bytes: &[u8], clean_path: &str) -> Option<ToolResult> {
-    if let Some(sniffed) = images::detect_supported_image_mime(raw_bytes) {
-        let bytes = raw_bytes.to_vec();
+fn binary_marker(size: u64, clean_path: &str) -> ToolResult {
+    ToolResult::success(format!("[Binary file: {size} bytes, path: {clean_path}]"))
+}
+
+enum Sniffed {
+    Shown(ToolResult),
+    Text(Vec<u8>),
+}
+
+async fn sniff_content(raw_bytes: Vec<u8>, clean_path: &str) -> Sniffed {
+    if let Some(sniffed) = images::detect_supported_image_mime(&raw_bytes) {
         let mime = sniffed.mime();
-        return Some(process_image(clean_path, move || images::tool_result(&bytes, mime)).await);
+        return Sniffed::Shown(process_image(clean_path, move || images::tool_result(&raw_bytes, mime)).await);
     }
-    if is_binary(raw_bytes) {
-        return Some(ToolResult::success(format!(
-            "[Binary file: {} bytes, path: {}]",
-            raw_bytes.len(),
-            clean_path
+    if is_binary(&raw_bytes) {
+        return Sniffed::Shown(binary_marker(raw_bytes.len() as u64, clean_path));
+    }
+    Sniffed::Text(raw_bytes)
+}
+
+/// Reads a file too large to load whole: a binary file is described from its first bytes and a
+/// text file streams only `window`. `None` for an image, which is decoded whole.
+fn read_large(path: &Path, size: u64, window: LineWindow, clean_path: &str) -> std::io::Result<Option<ToolResult>> {
+    let mut reader = std::io::BufReader::with_capacity(64 * 1024, std::fs::File::open(path)?);
+    let head = std::io::BufRead::fill_buf(&mut reader)?;
+    if images::detect_supported_image_mime(head).is_some() {
+        return Ok(None);
+    }
+    if is_binary(head) {
+        return Ok(Some(binary_marker(size, clean_path)));
+    }
+    window::read_window(reader, size, window, clean_path).map(Some)
+}
+
+async fn read_large_off_thread(path: PathBuf, size: u64, args: &ReadArgs, clean_path: &str) -> Option<ToolResult> {
+    if args.symbol.is_some() {
+        return Some(ToolResult::error(format!(
+            "{clean_path} is too large to read by symbol; use offset and limit"
         )));
     }
-    None
+    let window = LineWindow {
+        offset: args.offset,
+        limit: args.limit,
+    };
+    let owned_path = clean_path.to_string();
+    let read = tokio::task::spawn_blocking(move || read_large(&path, size, window, &owned_path)).await;
+    match read {
+        Ok(Ok(result)) => result,
+        Ok(Err(e)) => Some(ToolResult::error(format!("Failed to read {clean_path}: {e}"))),
+        Err(e) => Some(ToolResult::error(format!("Failed to read {clean_path}: {e}"))),
+    }
 }
 
 fn default_artifact_dir(base: &Path) -> PathBuf {
@@ -129,15 +174,24 @@ impl ReadTool {
             args.limit = None;
         }
 
-        let (path, raw_bytes) = match resolve_and_read_bytes(&base_dir, clean_path).await {
-            Ok(read) => read,
+        let (path, size) = match resolve_regular_file(&base_dir, clean_path).await {
+            Ok(file) => file,
             Err(e) => return Ok(e),
         };
-
-        if let Some(res) = handle_non_text_content(&raw_bytes, clean_path).await {
-            return Ok(res);
+        if size > MAX_WHOLE_READ_BYTES
+            && let Some(result) = read_large_off_thread(path.clone(), size, &args, clean_path).await
+        {
+            return Ok(result);
         }
 
+        let raw_bytes = match tokio::fs::read(&path).await {
+            Ok(bytes) => bytes,
+            Err(e) => return Ok(ToolResult::error(format!("Failed to read {clean_path}: {e}"))),
+        };
+        let raw_bytes = match sniff_content(raw_bytes, clean_path).await {
+            Sniffed::Shown(result) => return Ok(result),
+            Sniffed::Text(bytes) => bytes,
+        };
         let Ok(content) = String::from_utf8(raw_bytes) else {
             return Ok(ToolResult::error(format!("File contains invalid UTF-8: {clean_path}")));
         };

@@ -17,6 +17,7 @@ use crate::provider::adapter::{
     FinishReason, ModelAdapter, ModelCompletionRequest, ModelEventStream, ModelStreamEvent, ModelToolDefinition,
 };
 use crate::provider::error::{HttpFailure, classify_stream_error};
+use crate::provider::json_nesting::JsonNesting;
 use crate::provider::sse::{DONE_SENTINEL, SseLineDecoder, SseStreamParser, open_sse_stream};
 
 #[derive(Clone)]
@@ -233,6 +234,7 @@ struct PartialToolCall {
     id: String,
     name: String,
     arguments: String,
+    nesting: JsonNesting,
 }
 
 #[derive(Deserialize)]
@@ -348,13 +350,16 @@ impl OpenAiSseParser {
                 fragment = args;
             }
         }
+        let maybe_complete = entry.nesting.feed(&fragment) == Some(0);
         if !entry.id.is_empty() && !entry.name.is_empty() {
             events.push(Ok(ModelStreamEvent::ToolInputDelta {
                 id: entry.id.clone(),
                 name: entry.name.clone(),
                 json: fragment,
             }));
-            let parsed_args = serde_json::from_str::<Value>(&entry.arguments).ok();
+            let parsed_args = maybe_complete
+                .then(|| serde_json::from_str::<Value>(&entry.arguments).ok())
+                .flatten();
             if let Some(args_val) = parsed_args {
                 let call = ToolCall::new(entry.id.clone(), ToolFunction::new(entry.name.clone(), args_val));
                 events.push(Ok(ModelStreamEvent::ToolCall(call)));
@@ -417,7 +422,7 @@ impl OpenAiSseParser {
 impl SseStreamParser for OpenAiSseParser {
     fn feed(&mut self, bytes: &[u8]) -> Vec<Result<ModelStreamEvent, AppError>> {
         let lines = self.decoder.decode_payloads(bytes);
-        let mut events = Vec::new();
+        let mut events: Vec<_> = self.decoder.take_overflow().map(Err).into_iter().collect();
 
         for line in lines {
             if line == DONE_SENTINEL {
@@ -683,6 +688,31 @@ mod tests {
         assert!(
             matches!(&events[6], Ok(ModelStreamEvent::Usage(u)) if u.total_tokens == 15 && u.input_tokens == 8 && u.cached_input_tokens == Some(2))
         );
+    }
+
+    #[test]
+    fn chunked_tool_arguments_emit_one_call_when_the_object_closes() {
+        let args = r#"{"path":"a.rs","content":"fn main() { let s = \"}\"; }\n"}"#;
+        let mut parser = OpenAiSseParser::new();
+        let mut calls = Vec::new();
+        for (i, piece) in args.as_bytes().chunks(3).enumerate() {
+            let fragment = std::str::from_utf8(piece).unwrap();
+            let mut tool = json!({"index": 0, "function": {"arguments": fragment}});
+            if i == 0 {
+                tool["id"] = json!("call_1");
+                tool["function"]["name"] = json!("write");
+            }
+            let line = json!({"choices": [{"delta": {"tool_calls": [tool]}}]});
+            for event in parser.feed(format!("data: {line}\n\n").as_bytes()) {
+                if let Ok(ModelStreamEvent::ToolCall(call)) = event {
+                    calls.push((i, call));
+                }
+            }
+        }
+        let last = args.len().div_ceil(3) - 1;
+        let [(at, call)] = calls.try_into().unwrap();
+        assert_eq!(at, last);
+        assert_eq!(call.function.arguments, serde_json::from_str::<Value>(args).unwrap());
     }
 
     async fn collect_body(payloads: &[&str]) -> Vec<Result<ModelStreamEvent, AppError>> {

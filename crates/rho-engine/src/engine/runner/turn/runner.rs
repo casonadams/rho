@@ -343,10 +343,9 @@ async fn execute_agent_step(
     emitter: &TurnEmitter,
 ) -> Result<StepExecutionResult, AppError> {
     emitter.ensure_live()?;
-    let req = completion_request(runner, ctx.current_messages, tools_def);
     *ctx.request_count += 1;
-
-    let outcome = call_model(runner, &req, emitter).await?;
+    let messages: &[ChatMessage] = ctx.current_messages;
+    let outcome = call_model(runner, || completion_request(runner, messages, tools_def), emitter).await?;
     *ctx.total_usage = ctx.total_usage.merge(&outcome.usage);
 
     let completion_call = CompletionCall {

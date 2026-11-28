@@ -107,6 +107,23 @@ fn extract_path_from_partial_json() {
 }
 
 #[test]
+fn a_path_scan_over_growing_arguments_finds_what_a_full_search_finds() {
+    let cases = [
+        r#"{"path": "src/main.rs", "content": "hello"}"#,
+        r#"{"content": "é \"path\" x", "file_path": "b\"c.rs"}"#,
+        r#"{"content": "data", "file_path": "a.rs", "path": "b.rs"}"#,
+        r#"{"content": "no path here"}"#,
+    ];
+    for full in cases {
+        let mut scan = TargetPathScan::default();
+        for split in (0..=full.len()).filter(|&at| full.is_char_boundary(at)) {
+            let prefix = &full[..split];
+            assert_eq!(scan.find(prefix), extract_target_path(prefix), "{prefix}");
+        }
+    }
+}
+
+#[test]
 fn extract_streaming_content_progressively() {
     let chunk1 = r#"{"path": "test.txt", "content": "first line\n"#;
     assert_eq!(extract_json_streaming_content(chunk1).as_deref(), Some("first line\n"));
@@ -277,6 +294,36 @@ fn an_edit_card_opens_at_once_and_grows_line_by_line_as_its_arguments_stream() {
         ],
         "the fragment without a line end waits for one"
     );
+}
+
+#[test]
+fn a_long_edit_is_reread_a_bounded_number_of_times_and_each_finished_edit_shows_at_once() {
+    let log = Arc::new(CallLog::default());
+    let (sink, _dir) = sink_for(Arc::new(InteractivePresenter(log.clone())));
+    let mut tracker = StreamingToolTracker::default();
+    let mut chunks = vec![r#"{"path": "a.rs", "edits": [{"oldText": "a", "newText": ""#.to_string()];
+    chunks.extend((0..2000).map(|i| format!("    let x{i} = {{ {i} }};\\n")));
+    chunks.push(r#""}, {"oldText": "b", "#.to_string());
+    chunks.push(r#""newText": "c"}"#.to_string());
+    for chunk in &chunks {
+        tracker.handle_delta("call-1", "edit", chunk, &sink);
+    }
+
+    let starts: Vec<String> = log
+        .0
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|c| c.starts_with("start"))
+        .cloned()
+        .collect();
+    assert!(starts.len() < 64, "{} rereads", starts.len());
+    let full: Value = serde_json::from_str(&format!("{}]}}", chunks.concat())).unwrap();
+    let shown = |at: usize| -> Value { serde_json::from_str(&starts[at]["start edit ".len()..]).unwrap() };
+    let mut first_edit_done = full.clone();
+    first_edit_done["edits"][1] = json!({"oldText": "b"});
+    assert_eq!(shown(starts.len() - 2), first_edit_done);
+    assert_eq!(shown(starts.len() - 1), full);
 }
 
 #[test]

@@ -3,7 +3,7 @@ pub mod history;
 pub mod sink;
 pub mod turn;
 
-pub use helpers::{clear_spinner, disarm_spinner, redact_text, redact_value};
+pub use helpers::{redact_text, redact_value};
 pub use rho_harness_core::queue::{PendingMessageQueue, QueueMode};
 pub use sink::{
     CompletedTool, DisplayKind, TerminalApprovalSink, TerminalSinkConfig, TerminalSinkState, ToolFinishDetails,

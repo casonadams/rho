@@ -2,63 +2,120 @@ use super::normalize::{has_whitespace_relaxed_match, normalize_line_endings, tru
 use rho_harness_core::args::EditReplacement;
 use std::ops::Range;
 
+/// Why an edit matched nothing; a missing anchor is described only on request, since its
+/// whitespace hint rescans the whole file.
+pub(crate) enum EditMiss<'a> {
+    NotFound {
+        field: &'static str,
+        searched: &'a str,
+        text: &'a str,
+    },
+    Rejected(String),
+}
+
+impl EditMiss<'_> {
+    pub(crate) fn describe(self) -> String {
+        match self {
+            Self::NotFound { field, searched, text } => not_found(field, searched, text),
+            Self::Rejected(message) => message,
+        }
+    }
+}
+
 /// Byte ranges an edit replaces in `content`, in ascending order.
 pub(crate) fn locate_edit(
     content: &str,
     edit: &EditReplacement,
     line_ending: &str,
 ) -> Result<Vec<Range<usize>>, String> {
+    match_edit(content, edit, line_ending).map_err(EditMiss::describe)
+}
+
+/// Like `locate_edit`, leaving a miss undescribed.
+pub(crate) fn match_edit<'a>(
+    content: &'a str,
+    edit: &'a EditReplacement,
+    line_ending: &str,
+) -> Result<Vec<Range<usize>>, EditMiss<'a>> {
+    let rejected = |message: &str| Err(EditMiss::Rejected(message.to_string()));
     match (&edit.start_text, &edit.end_text) {
         (None, None) => locate_old_text(content, edit, line_ending),
         (Some(start), Some(end)) if edit.old_text.is_empty() && edit.replace_all != Some(true) => {
             locate_region(content, start, end, line_ending).map(|range| vec![range])
         }
-        (Some(_), Some(_)) => Err("startText/endText cannot be combined with oldText or replaceAll".to_string()),
-        _ => Err("startText and endText must be given together".to_string()),
+        (Some(_), Some(_)) => rejected("startText/endText cannot be combined with oldText or replaceAll"),
+        _ => rejected("startText and endText must be given together"),
     }
 }
 
-fn locate_old_text(content: &str, edit: &EditReplacement, line_ending: &str) -> Result<Vec<Range<usize>>, String> {
+fn locate_old_text<'a>(
+    content: &'a str,
+    edit: &'a EditReplacement,
+    line_ending: &str,
+) -> Result<Vec<Range<usize>>, EditMiss<'a>> {
     let old = normalize_line_endings(&edit.old_text, line_ending);
     if old.is_empty() {
-        return Err("oldText must not be empty (or use startText/endText)".to_string());
+        return Err(EditMiss::Rejected(
+            "oldText must not be empty (or use startText/endText)".to_string(),
+        ));
     }
     let ranges: Vec<Range<usize>> = content
         .match_indices(old.as_ref())
         .map(|(at, _)| at..at + old.len())
         .collect();
     match ranges.len() {
-        0 => Err(not_found("oldText", content, &edit.old_text)),
+        0 => Err(EditMiss::NotFound {
+            field: "oldText",
+            searched: content,
+            text: &edit.old_text,
+        }),
         1 => Ok(ranges),
         _ if edit.replace_all == Some(true) => Ok(ranges),
-        count => Err(format!(
+        count => Err(EditMiss::Rejected(format!(
             "oldText found {count} times in file (must be unique):\n{}\n\nNote: Provide more surrounding context lines in oldText to disambiguate the match, or set replaceAll to change every occurrence.",
             truncate_snippet(&edit.old_text, 120)
-        )),
+        ))),
     }
 }
 
-fn locate_region(content: &str, start: &str, end: &str, line_ending: &str) -> Result<Range<usize>, String> {
+fn locate_region<'a>(
+    content: &'a str,
+    start: &'a str,
+    end: &'a str,
+    line_ending: &str,
+) -> Result<Range<usize>, EditMiss<'a>> {
     let start_norm = normalize_line_endings(start, line_ending);
     let end_norm = normalize_line_endings(end, line_ending);
     if start_norm.is_empty() || end_norm.is_empty() {
-        return Err("startText and endText must not be empty".to_string());
+        return Err(EditMiss::Rejected(
+            "startText and endText must not be empty".to_string(),
+        ));
     }
     let mut starts = content.match_indices(start_norm.as_ref()).map(|(at, _)| at);
     let begin = match (starts.next(), starts.next()) {
-        (None, _) => return Err(not_found("startText", content, start)),
+        (None, _) => {
+            return Err(EditMiss::NotFound {
+                field: "startText",
+                searched: content,
+                text: start,
+            });
+        }
         (Some(_), Some(_)) => {
-            return Err(format!(
+            return Err(EditMiss::Rejected(format!(
                 "startText found {} times in file (must be unique):\n{}",
                 2 + starts.count(),
                 truncate_snippet(start, 120)
-            ));
+            )));
         }
         (Some(at), None) => at,
     };
     let after_start = begin + start_norm.len();
     let Some(offset) = content[after_start..].find(end_norm.as_ref()) else {
-        return Err(not_found("endText (after startText)", &content[after_start..], end));
+        return Err(EditMiss::NotFound {
+            field: "endText (after startText)",
+            searched: &content[after_start..],
+            text: end,
+        });
     };
     Ok(begin..after_start + offset + end_norm.len())
 }

@@ -1,5 +1,6 @@
 use super::runner::MultiTurnStreamItem;
 use crate::engine::runner::sink::TerminalApprovalSink;
+use crate::provider::json_nesting::JsonNesting;
 use serde_json::{Value, json};
 use std::sync::Arc;
 
@@ -71,6 +72,32 @@ fn extract_target_path(arguments: &str) -> Option<String> {
         .find_map(|key| extract_json_string_field(arguments, key))
 }
 
+/// Finds what `extract_target_path` finds in arguments that only grow, searching each byte for
+/// the keys once.
+#[derive(Default)]
+struct TargetPathScan {
+    searched: usize,
+    key_at: [Option<usize>; rho_harness_core::args::TARGET_PATH_KEYS.len()],
+}
+
+impl TargetPathScan {
+    fn find(&mut self, arguments: &str) -> Option<String> {
+        let keys = rho_harness_core::args::TARGET_PATH_KEYS;
+        let from = arguments.floor_char_boundary(self.searched);
+        for (key, at) in keys.iter().zip(&mut self.key_at) {
+            if at.is_none() {
+                *at = arguments[from..].find(&format!("\"{key}\"")).map(|found| from + found);
+            }
+        }
+        let longest_key = keys.iter().map(|key| key.len() + 2).max().unwrap_or(0);
+        self.searched = arguments.len().saturating_sub(longest_key - 1);
+        keys.iter().zip(self.key_at).find_map(|(key, at)| {
+            let start = at? + key.len() + 2;
+            string_field_after_key(arguments, start)
+        })
+    }
+}
+
 fn path_arguments(path: Option<&str>) -> Value {
     match path {
         Some(path) => json!({ "path": path }),
@@ -83,6 +110,7 @@ fn path_arguments(path: Option<&str>) -> Value {
 struct WritePreview {
     call_id: String,
     path_shown: bool,
+    path_scan: TargetPathScan,
     streamed_content_len: usize,
     content: ContentDecoder,
 }
@@ -114,7 +142,7 @@ impl WritePreview {
         if self.path_shown {
             return;
         }
-        let Some(path) = extract_target_path(arguments) else {
+        let Some(path) = self.path_scan.find(arguments) else {
             return;
         };
         self.path_shown = true;
@@ -127,23 +155,38 @@ impl WritePreview {
 struct EditPreview {
     call_id: String,
     shown: Value,
+    nesting: JsonNesting,
+    read_len: usize,
 }
+
+/// The depth an edit object closes back to: inside the arguments object and its `edits` array.
+const EDIT_CLOSED_DEPTH: usize = 2;
+const MAX_UNREAD_BYTES: usize = 4096;
 
 impl EditPreview {
     fn open(call_id: &str, arguments: &str, sink: &Arc<TerminalApprovalSink>) -> Self {
         let shown = Self::read(arguments).unwrap_or_else(|| json!({}));
         sink.preview_tool(call_id, "edit", &shown);
+        let mut nesting = JsonNesting::default();
+        nesting.feed(arguments);
         Self {
             call_id: call_id.to_string(),
             shown,
+            nesting,
+            read_len: arguments.len(),
         }
     }
 
-    /// Rereads the arguments only when `chunk` may end a line or a field, not on every fragment.
+    /// Rereads the arguments when an edit closes, or when `chunk` may end a line or a field and an
+    /// eighth of the call, or 4 KiB, has streamed since the last reread.
     fn advance(&mut self, arguments: &str, chunk: &str, sink: &Arc<TerminalApprovalSink>) {
-        if !chunk.contains(['\\', '"', ']', '}']) {
+        let edit_closed = self.nesting.feed(chunk).is_some_and(|depth| depth <= EDIT_CLOSED_DEPTH);
+        let unread = arguments.len() - self.read_len;
+        let worth_rereading = unread >= MAX_UNREAD_BYTES.min(arguments.len() / 8);
+        if !edit_closed && !(worth_rereading && chunk.contains(['\\', '"', ']', '}'])) {
             return;
         }
+        self.read_len = arguments.len();
         let Some(parsed) = Self::read(arguments) else {
             return;
         };
@@ -168,15 +211,24 @@ impl EditPreview {
 }
 
 fn extract_json_string_field(json: &str, field: &str) -> Option<String> {
-    let start = locate_string_body(json, &format!("\"{field}\""))?;
+    let field_key = format!("\"{field}\"");
+    string_field_after_key(json, json.find(&field_key)? + field_key.len())
+}
+
+/// The closed string value of the key that ends at `after_key`.
+fn string_field_after_key(json: &str, after_key: usize) -> Option<String> {
+    let start = string_body_after_key(json, after_key)?;
     partial_json::read_string_body(&json.as_bytes()[start..])
         .filter(|body| body.closed)
         .map(|body| body.text)
 }
 
 fn locate_string_body(json: &str, field_key: &str) -> Option<usize> {
-    let key_pos = json.find(field_key)?;
-    let after_key = &json[key_pos + field_key.len()..];
+    string_body_after_key(json, json.find(field_key)? + field_key.len())
+}
+
+fn string_body_after_key(json: &str, after_key: usize) -> Option<usize> {
+    let after_key = &json[after_key..];
     let colon_pos = after_key.find(':')?;
     let after_colon = after_key[colon_pos + 1..].trim_start();
     let string_body = after_colon.strip_prefix('"')?;

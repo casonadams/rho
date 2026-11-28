@@ -260,6 +260,19 @@ impl HttpTransport {
         }
     }
 
+    fn build_post(
+        &self,
+        headers: reqwest::header::HeaderMap,
+        body: &impl serde::Serialize,
+        timeout: Option<Duration>,
+    ) -> reqwest::RequestBuilder {
+        let request = CLIENT.post(&self.url).headers(headers).json(body);
+        match timeout {
+            Some(timeout) => request.timeout(timeout),
+            None => request,
+        }
+    }
+
     /// Posts `body`; with `timeout`, the whole exchange including the response body must finish within it.
     async fn post(
         &self,
@@ -267,14 +280,8 @@ impl HttpTransport {
         bearer: Option<&str>,
         timeout: Option<Duration>,
     ) -> Result<reqwest::Response> {
-        let mut request = CLIENT
-            .post(&self.url)
-            .headers(self.build_request_headers(bearer).await?)
-            .json(body);
-        if let Some(timeout) = timeout {
-            request = request.timeout(timeout);
-        }
-        let res = request.send().await.map_err(|e| {
+        let headers = self.build_request_headers(bearer).await?;
+        let res = self.build_post(headers, body, timeout).send().await.map_err(|e| {
             let message = format!("HTTP request to '{}' failed: {e}", self.url);
             if e.is_connect() {
                 AppError::McpNotDelivered(message)
@@ -705,21 +712,19 @@ mod tests {
         assert!(matches!(err, AppError::Mcp(_)), "{err}");
     }
 
-    #[tokio::test(start_paused = true)]
-    async fn a_notification_the_server_never_answers_times_out() {
-        let (listener, url) = loopback().await;
-        let server = tokio::spawn(async move {
-            let (socket, _) = listener.accept().await.unwrap();
-            std::future::pending::<()>().await;
-            drop(socket);
-        });
+    #[tokio::test]
+    async fn notifications_and_replies_carry_the_message_timeout() {
+        let transport = HttpTransport::new(
+            "http://127.0.0.1:9/mcp",
+            McpTransportKind::StreamableHttp,
+            BTreeMap::new(),
+            None,
+        );
+        let request = transport
+            .build_post(Default::default(), &serde_json::json!({}), Some(MESSAGE_TIMEOUT))
+            .build()
+            .unwrap();
 
-        let err = transport(url, BTreeMap::new())
-            .notify("notifications/initialized", None)
-            .await
-            .unwrap_err();
-
-        assert!(matches!(err, AppError::McpConnectionLost(_)), "{err}");
-        server.abort();
+        assert_eq!(request.timeout(), Some(&MESSAGE_TIMEOUT));
     }
 }

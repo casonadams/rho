@@ -4,6 +4,7 @@ pub mod catalog;
 pub mod discovery;
 pub mod error;
 pub mod google_wire;
+pub(crate) mod json_nesting;
 pub mod openai;
 mod router;
 pub mod sse;

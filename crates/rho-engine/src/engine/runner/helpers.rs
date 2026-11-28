@@ -1,20 +1,6 @@
 use rho_harness_core::session::SessionManager;
 use serde_json::Value;
 
-use super::sink::TerminalSinkState;
-
-pub fn clear_spinner(state: &mut TerminalSinkState) {
-    if let Some(spinner) = state.spinner.take() {
-        spinner.finish_and_clear();
-    }
-}
-
-pub fn disarm_spinner(state: &mut TerminalSinkState) {
-    if let Some(spinner) = state.spinner.take() {
-        spinner.disarm();
-    }
-}
-
 pub fn redact_value(session: &SessionManager, value: &Value) -> Value {
     match value {
         Value::String(value) => Value::String(session.redact_credentials(value)),

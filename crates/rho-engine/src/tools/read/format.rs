@@ -34,15 +34,20 @@ fn format_oversized_line(line: &str, line_no: usize, total_lines: usize) -> Tool
         .rev()
         .find(|&i| line.is_char_boundary(i))
         .unwrap_or(0);
-    let mut output = number_lines(&line[..end], line_no);
-    let next = if line_no < total_lines {
+    oversized_line_result(&line[..end], line_no, line.len(), line_no < total_lines)
+}
+
+/// The first `shown` bytes of line `line_no`, which is `line_len` bytes long, with a note on the rest.
+pub(super) fn oversized_line_result(shown: &str, line_no: usize, line_len: usize, more: bool) -> ToolResult {
+    let mut output = number_lines(shown, line_no);
+    let next = if more {
         format!(" Use offset={} to continue.", line_no + 1)
     } else {
         String::new()
     };
     output.push_str(&format!(
         "\n[Line {line_no} is {}; showing its first {}.{next}]",
-        format_size(line.len()),
+        format_size(line_len),
         format_size(DEFAULT_MAX_BYTES),
     ));
     ToolResult::success(output)

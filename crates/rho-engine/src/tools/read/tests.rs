@@ -1,5 +1,5 @@
 use super::*;
-use crate::tools::truncate::DEFAULT_MAX_BYTES;
+use crate::tools::truncate::{DEFAULT_MAX_BYTES, format_size};
 
 async fn read_text(
     file_path: std::path::PathBuf,
@@ -413,6 +413,112 @@ async fn a_panicking_image_decoder_reports_an_image_error() {
         result.content
     );
     assert!(result.content.contains("decoder blew up"), "{}", result.content);
+}
+
+async fn read_at(dir: &Path, name: &str, offset: Option<usize>, limit: Option<usize>) -> ToolResult {
+    let args = ReadArgs {
+        path: name.into(),
+        offset,
+        limit,
+        symbol: None,
+    };
+    ReadTool::new(dir).execute(args).await.unwrap()
+}
+
+fn large_text_head() -> String {
+    format!("{}\n", numbered_lines(300))
+}
+
+/// A text file larger than whole reads are allowed: 300 lines, then a sparse run of NULs.
+fn large_text_file(dir: &Path, name: &str) -> u64 {
+    let file = std::fs::File::create(dir.join(name)).unwrap();
+    std::io::Write::write_all(&mut &file, large_text_head().as_bytes()).unwrap();
+    let size = MAX_WHOLE_READ_BYTES * 4;
+    file.set_len(size).unwrap();
+    size
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn a_fifo_is_refused_without_waiting_for_a_writer() {
+    let dir = crate::test_support::TestDir::new();
+    let fifo = std::ffi::CString::new(dir.join("pipe").to_str().unwrap()).unwrap();
+    // SAFETY: `fifo` is a valid NUL-terminated path that outlives the call.
+    assert_eq!(unsafe { libc::mkfifo(fifo.as_ptr(), 0o600) }, 0);
+
+    let result = read_at(&dir, "pipe", None, None).await;
+
+    assert!(result.is_error);
+    assert_eq!(result.content, "Cannot read pipe: not a regular file");
+}
+
+#[tokio::test]
+async fn a_directory_is_refused_as_not_a_regular_file() {
+    let dir = crate::test_support::TestDir::new();
+    std::fs::create_dir(dir.join("sub")).unwrap();
+    let result = read_at(&dir, "sub", None, None).await;
+    assert!(result.is_error);
+    assert_eq!(result.content, "Cannot read sub: it is a directory");
+}
+
+#[tokio::test]
+async fn a_large_binary_file_is_described_from_its_first_bytes() {
+    let dir = crate::test_support::TestDir::new();
+    let size = 1 << 30;
+    std::fs::File::create(dir.join("disk.img"))
+        .unwrap()
+        .set_len(size)
+        .unwrap();
+
+    let result = read_at(&dir, "disk.img", None, None).await;
+
+    assert!(!result.is_error);
+    assert_eq!(result.content, format!("[Binary file: {size} bytes, path: disk.img]"));
+}
+
+#[tokio::test]
+async fn a_large_text_file_shows_the_requested_window() {
+    let dir = crate::test_support::TestDir::new();
+    let size = format_size(large_text_file(&dir, "big.log") as usize);
+    let cases = [
+        (
+            Some(2),
+            Some(2),
+            "  2\tline 2\n  3\tline 3\n\n\n[More lines in file. Use offset=4 to continue.]".to_string(),
+        ),
+        (
+            Some(299),
+            None,
+            format!(
+                "299\tline 299\n300\tline 300\n\n\n[Showing lines 299-300 of a {size} file. Use offset=301 to continue.]"
+            ),
+        ),
+    ];
+    for (offset, limit, expected) in cases {
+        let result = read_at(&dir, "big.log", offset, limit).await;
+        assert!(!result.is_error, "{}", result.content);
+        assert_eq!(result.content, expected);
+    }
+}
+
+#[tokio::test]
+async fn a_large_text_files_oversized_line_and_end_are_reported() {
+    let dir = crate::test_support::TestDir::new();
+    let size = large_text_file(&dir, "big.log");
+
+    let tail = read_at(&dir, "big.log", Some(301), None).await;
+    let shown = format!("301\t{}\n", "\0".repeat(DEFAULT_MAX_BYTES));
+    let note = format!(
+        "[Line 301 is {}; showing its first {}.]",
+        format_size(size as usize - large_text_head().len()),
+        format_size(DEFAULT_MAX_BYTES)
+    );
+    assert!(!tail.is_error);
+    assert_eq!(tail.content, format!("{shown}\n{note}"));
+
+    let beyond = read_at(&dir, "big.log", Some(303), None).await;
+    assert!(beyond.is_error);
+    assert_eq!(beyond.content, "Offset 303 is beyond end of file (301 lines total)");
 }
 
 #[tokio::test]

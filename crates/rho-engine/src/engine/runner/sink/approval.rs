@@ -1,11 +1,11 @@
-use super::super::helpers::{clear_spinner, disarm_spinner, redact_value};
+use super::super::helpers::redact_value;
 use super::reasoning::{ReasoningStreamPlan, update_reasoning_state};
 use super::types::{
     CompletedTool, DisplayKind, PendingToolCall, TerminalSinkConfig, TerminalSinkState, ToolFinishDetails, ToolPreview,
 };
 use crate::engine::metrics::{RunTracker, ToolOutcome};
 use crate::locking::lock;
-use rho_harness_core::presentation::{Presenter, ToolLine, ToolStreamSink, summarize_tool_output};
+use rho_harness_core::presentation::{ActivityToken, Presenter, ToolLine, ToolStreamSink, summarize_tool_output};
 use rho_harness_core::session::SessionManager;
 use serde_json::Value;
 use std::collections::HashMap;
@@ -57,16 +57,28 @@ impl TerminalApprovalSink {
     }
 
     pub fn finish_spinner(&self) {
-        self.with_state(clear_spinner);
+        if let Some(spinner) = self.with_state(|state| state.spinner.take()) {
+            spinner.finish_and_clear();
+        }
+    }
+
+    fn disarm_spinner(&self) {
+        if let Some(spinner) = self.with_state(|state| state.spinner.take()) {
+            spinner.disarm();
+        }
+    }
+
+    fn install_spinner(&self, spinner: ActivityToken) {
+        if let Some(replaced) = self.with_state(|state| state.spinner.replace(spinner)) {
+            replaced.disarm();
+        }
     }
 
     pub fn resume_spinner_with_message(&self, message: &str) {
         self.flush_reasoning();
         self.presenter.flush();
-        self.with_state(|state| {
-            disarm_spinner(state);
-            state.spinner = Some(self.presenter.start_spinner(message));
-        });
+        self.disarm_spinner();
+        self.install_spinner(self.presenter.start_spinner(message));
     }
 
     pub fn resume_model_spinner(&self) {
@@ -146,11 +158,17 @@ impl TerminalApprovalSink {
         if !self.presenter.has_interactive_ui() {
             self.finish_spinner();
         } else {
-            self.with_state(|state| {
-                if state.spinner.is_none() {
-                    state.spinner = Some(self.presenter.start_spinner("thinking..."));
-                }
+            if self.with_state(|state| state.spinner.is_some()) {
+                return;
+            }
+            let spinner = self.presenter.start_spinner("thinking...");
+            let unneeded = self.with_state(|state| match state.spinner {
+                Some(_) => Some(spinner),
+                None => state.spinner.replace(spinner),
             });
+            if let Some(unneeded) = unneeded {
+                unneeded.disarm();
+            }
         }
     }
 
@@ -223,24 +241,25 @@ impl TerminalApprovalSink {
             |session| redact_value(session, arguments),
             || arguments.clone(),
         );
-        self.with_state(|state| {
+        let previewing = self.with_state(|state| {
             state.tool_output_carry.clear();
             let preview = state.tool_preview.take();
             let previewing = preview.is_some();
             let started = preview.map_or_else(Instant::now, |preview| preview.started);
-            disarm_spinner(state);
             state
                 .pending
                 .entry(name.to_string())
                 .or_default()
                 .push_back(PendingToolCall { started });
-            state.spinner = Some(self.presenter.start_tool_spinner(name, &arguments));
-            if previewing {
-                self.presenter.preview_tool_run(name, &arguments);
-            } else {
-                self.presenter.start_tool_run(name, &arguments);
-            }
+            previewing
         });
+        self.disarm_spinner();
+        self.install_spinner(self.presenter.start_tool_spinner(name, &arguments));
+        if previewing {
+            self.presenter.preview_tool_run(name, &arguments);
+        } else {
+            self.presenter.start_tool_run(name, &arguments);
+        }
     }
 
     fn finish_tool_presentation(
@@ -260,19 +279,16 @@ impl TerminalApprovalSink {
         self.presenter.finish_tool_line(line);
     }
 
-    fn record_completed_tool(
-        &self,
-        state: &mut TerminalSinkState,
-        details: ToolFinishDetails<'_>,
-        outcome: ToolOutcome,
-    ) {
-        disarm_spinner(state);
-        state.last_display = DisplayKind::Tool;
-        let duration_ms = state
-            .pending
-            .get_mut(details.name)
-            .and_then(std::collections::VecDeque::pop_front)
-            .map(|p| p.started.elapsed().as_millis() as u64);
+    fn record_completed_tool(&self, details: ToolFinishDetails<'_>, outcome: ToolOutcome) {
+        self.disarm_spinner();
+        let duration_ms = self.with_state(|state| {
+            state.last_display = DisplayKind::Tool;
+            state
+                .pending
+                .get_mut(details.name)
+                .and_then(std::collections::VecDeque::pop_front)
+                .map(|p| p.started.elapsed().as_millis() as u64)
+        });
         let arguments = redact(
             self.session_manager.as_ref(),
             |session| redact_value(session, details.arguments),
@@ -284,14 +300,15 @@ impl TerminalApprovalSink {
             || details.output.to_string(),
         );
         self.finish_tool_presentation(&details, &arguments, &output_redacted, duration_ms);
-        state.completed.push(CompletedTool {
+        let completed = CompletedTool {
             internal_call_id: uuid::Uuid::new_v4().to_string(),
             name: details.name.to_string(),
             arguments,
             output: output_redacted,
             status: outcome,
-        });
-        state.spinner = Some(self.presenter.start_spinner("thinking..."));
+        };
+        self.with_state(|state| state.completed.push(completed));
+        self.install_spinner(self.presenter.start_spinner("thinking..."));
     }
 
     pub fn tool_finished(&self, details: ToolFinishDetails<'_>) {
@@ -303,7 +320,7 @@ impl TerminalApprovalSink {
         self.run_tracker.tool_finished(outcome);
         self.flush_reasoning();
         self.presenter.flush();
-        self.with_state(|state| self.record_completed_tool(state, details, outcome));
+        self.record_completed_tool(details, outcome);
     }
 
     pub fn tool_denied(&self) {
@@ -702,6 +719,87 @@ mod tests {
             })
             .collect();
         assert_eq!(shown, "key: [REDACTED] done\n");
+    }
+
+    /// Calls back into its sink from every presenter call, noting the calls made with the sink's
+    /// state locked, which would deadlock a callback that needs it.
+    #[derive(Default)]
+    struct ReentrantPresenter {
+        sink: std::sync::OnceLock<std::sync::Weak<TerminalApprovalSink>>,
+        locked_during: Mutex<Vec<&'static str>>,
+    }
+
+    impl ReentrantPresenter {
+        fn reenter(&self, call: &'static str) {
+            let Some(sink) = self.sink.get().and_then(std::sync::Weak::upgrade) else {
+                return;
+            };
+            if sink.state.try_lock().is_err() {
+                self.locked_during.lock().unwrap().push(call);
+                return;
+            }
+            sink.flush_display();
+        }
+    }
+
+    #[async_trait]
+    impl Presenter for ReentrantPresenter {
+        fn write_output(&self, _text: &str) {}
+        fn print_welcome(&self, _display: &WelcomeDisplay) {}
+        fn print_session_status(&self, _display: &SessionStatus) {}
+        fn print_notice(&self, _text: &str) {}
+        fn print_user_block(&self, _input: &str) {}
+        fn print_token(&self, _token: &str) {}
+        fn print_thinking_token(&self, _token: &str) {}
+        fn finish_tool_line(&self, _line: ToolLine) {
+            self.reenter("finish_tool_line");
+        }
+        fn flush(&self) {}
+        fn has_interactive_ui(&self) -> bool {
+            true
+        }
+        fn start_spinner(&self, _message: &str) -> ActivityToken {
+            self.reenter("start_spinner");
+            ActivityToken::default()
+        }
+        fn start_tool_spinner(&self, _name: &str, _arguments: &Value) -> ActivityToken {
+            self.reenter("start_tool_spinner");
+            ActivityToken::default()
+        }
+        fn start_tool_run(&self, _name: &str, _arguments: &Value) {
+            self.reenter("start_tool_run");
+        }
+        fn preview_tool_run(&self, _name: &str, _arguments: &Value) {
+            self.reenter("preview_tool_run");
+        }
+        fn stream_port(&self) -> ToolStreamPort {
+            ToolStreamPort::default()
+        }
+    }
+
+    #[test]
+    fn a_presenter_can_call_back_into_the_sink_from_any_call() {
+        let temp = crate::test_support::TestDir::new();
+        let reentrant = Arc::new(ReentrantPresenter::default());
+        let presenter: Arc<dyn Presenter> = reentrant.clone();
+        let sink = new_test_sink(&temp, &presenter);
+        reentrant.sink.set(Arc::downgrade(&sink)).unwrap();
+        let args = serde_json::json!({"path": "a.txt"});
+
+        sink.emit_reasoning("pondering");
+        sink.resume_spinner_with_message("working");
+        sink.preview_tool("call-1", "write", &args);
+        sink.tool_start("write", &args);
+        sink.tool_start("read", &args);
+        sink.tool_finished(ToolFinishDetails {
+            name: "write",
+            arguments: &args,
+            output: "ok",
+            is_error: false,
+        });
+
+        assert_eq!(*reentrant.locked_during.lock().unwrap(), Vec::<&str>::new());
+        assert_eq!(sink.completed().len(), 1);
     }
 
     #[test]
