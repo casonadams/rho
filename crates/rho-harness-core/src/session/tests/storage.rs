@@ -107,8 +107,9 @@ fn incomplete_tail_record_is_ignored() {
 fn malformed_committed_records_fail() {
     let bad_dir = temp_dir();
     let bad = SessionManager::new(&bad_dir, None).unwrap();
-    let bad_id = bad.session_id.clone();
-    let mut file = std::fs::OpenOptions::new().append(true).open(&bad.file_path).unwrap();
+    let (bad_id, bad_path) = (bad.session_id.clone(), bad.file_path.clone());
+    drop(bad);
+    let mut file = std::fs::OpenOptions::new().append(true).open(&bad_path).unwrap();
     file.write_all(b"{malformed}\n").unwrap();
     file.write_all(b"{\"record_type\":\"canonical_reset\",\"sequence\":1,\"session_id\":\"ignored\",\"timestamp\":\"2025-01-01T00:00:00Z\"}\n").unwrap();
     let error = SessionManager::new(&bad_dir, Some(&bad_id)).unwrap_err().to_string();
@@ -174,7 +175,9 @@ async fn cwd_for_session_tracks_latest_relocated_workspace() {
     );
 
     // Relocating the session to a worktree updates session_id -> cwd.
-    SessionManager::record_session_for_cwd(&sessions_dir, &worktree_dir, "sess-1").unwrap();
+    SessionManager::record_session_for_cwd_async(&sessions_dir, &worktree_dir, "sess-1")
+        .await
+        .unwrap();
     assert_eq!(
         SessionManager::cwd_for_session_async(&sessions_dir, "sess-1")
             .await

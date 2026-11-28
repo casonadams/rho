@@ -3,7 +3,8 @@
 
 use super::SessionManager;
 use super::format::{
-    Durability, SessionRecord, StoreState, append_records, load_file, refresh_stale_messages, replay_record,
+    AppendError, Durability, SessionRecord, StoreState, append_records, load_file, refresh_stale_messages,
+    replay_record, truncate_file,
 };
 use super::fs::{run_blocking, session_error};
 use super::tree::TreeNodeData;
@@ -36,11 +37,14 @@ impl SessionManager {
         let state = Arc::clone(&self.state);
         let path = self.file_path.clone();
         let session_id = self.session_id.clone();
+        let title = Arc::clone(&self.title);
         let step = tokio::spawn(async move {
             let mut state = state.lock().await;
             let planned = plan(&state, &session_id)?;
             if !planned.records.is_empty() {
-                commit(&mut state, &path, &session_id, planned.records, durability).await?;
+                let committed = commit(&mut state, &path, &session_id, planned.records, durability).await;
+                title.publish(&state.tree);
+                committed?;
             }
             Ok(planned.output)
         });
@@ -49,8 +53,9 @@ impl SessionManager {
     }
 }
 
-/// Writes `records`, then replays them into `state`. A failed write may have reached the file
-/// in part or in full, so on failure `state` is rebuilt from the file.
+/// Writes `records`, then replays them into `state`. A failed write is cut from the file and
+/// leaves `state` as it was; `state` is rebuilt from the file only when that cut fails or the
+/// written records do not replay.
 async fn commit(
     state: &mut StoreState,
     path: &Path,
@@ -58,12 +63,19 @@ async fn commit(
     records: Vec<SessionRecord>,
     durability: Durability,
 ) -> Result<()> {
-    let written = append_records(path, &records, durability).await;
-    let applied = written.and_then(|()| replay_all(state, records, session_id));
-    match applied {
-        Ok(()) => Ok(()),
-        Err(cause) => Err(resync(state, path, session_id, cause).await),
-    }
+    let start = match append_records(path, &records, durability).await {
+        Ok(start) => start,
+        Err(AppendError::RolledBack(cause)) => return Err(cause),
+        Err(AppendError::Unknown(cause)) => return Err(resync(state, path, session_id, cause).await),
+    };
+    let Err(cause) = replay_all(state, records, session_id) else {
+        return Ok(());
+    };
+    let cause = match truncate_file(path, start).await {
+        Ok(()) => cause,
+        Err(undo) => session_error(format!("{cause}; removing the records also failed: {undo}")),
+    };
+    Err(resync(state, path, session_id, cause).await)
 }
 
 fn replay_all(state: &mut StoreState, records: Vec<SessionRecord>, session_id: &str) -> Result<()> {

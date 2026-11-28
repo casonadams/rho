@@ -17,6 +17,7 @@ pub mod prune;
 mod secrets;
 mod subagents;
 pub mod summary;
+mod summary_scan;
 #[cfg(test)]
 mod tests;
 pub mod tree;
@@ -59,6 +60,7 @@ pub struct SessionManager {
     pub session_id: String,
     pub file_path: PathBuf,
     pub(crate) state: Arc<tokio::sync::Mutex<StoreState>>,
+    pub(crate) title: Arc<lock::TitleCell>,
     pub(crate) secrets: Arc<SecretGuard>,
     pub(crate) _session_lock: Arc<lock::SessionLock>,
 }
@@ -92,13 +94,19 @@ fn empty_store_state() -> StoreState {
     }
 }
 
-fn load_or_create_state(path: &Path, session_id: &str, resume: bool) -> Result<StoreState> {
+/// Takes the session lock first, so a session held elsewhere is refused before its file is parsed.
+fn open_session(path: &Path, session_id: &str, resume: bool) -> Result<Arc<lock::SessionLock>> {
     if resume {
         set_private_file_permissions(path)?;
-        load_file(path, session_id)
+        lock::acquire(path, || load_file(path, session_id)).map_err(|error| match error {
+            crate::error::AppError::Io(io) if io.kind() == std::io::ErrorKind::NotFound => {
+                session_error(format!("unknown session id: {session_id}"))
+            }
+            other => other,
+        })
     } else {
         create_session_file(path, session_id)?;
-        Ok(empty_store_state())
+        lock::acquire(path, || Ok(empty_store_state()))
     }
 }
 
@@ -129,8 +137,7 @@ impl SessionManager {
         std::fs::create_dir_all(sessions_dir)?;
         set_private_directory_permissions(sessions_dir)?;
         let (session_id, file_path) = session_paths(sessions_dir, resume_id)?;
-        let state = load_or_create_state(&file_path, &session_id, resume_id.is_some())?;
-        let session_lock = lock::acquire(&file_path, state)?;
+        let session_lock = open_session(&file_path, &session_id, resume_id.is_some())?;
         record_cwd_if_present(sessions_dir, &session_id);
         Ok(Self::assemble(session_id, file_path, secrets, session_lock))
     }
@@ -155,6 +162,7 @@ impl SessionManager {
             session_id,
             file_path,
             state: Arc::clone(session_lock.state()),
+            title: Arc::clone(session_lock.title()),
             secrets: Arc::new(SecretGuard::new(secrets)),
             _session_lock: session_lock,
         }
@@ -162,6 +170,11 @@ impl SessionManager {
 
     pub fn record_session_for_cwd(sessions_dir: &Path, cwd: &Path, session_id: &str) -> Result<()> {
         cwd::record_session_for_cwd(sessions_dir, cwd, session_id)
+    }
+
+    pub async fn record_session_for_cwd_async(sessions_dir: &Path, cwd: &Path, session_id: &str) -> Result<()> {
+        let (sessions_dir, cwd, session_id) = (sessions_dir.to_path_buf(), cwd.to_path_buf(), session_id.to_string());
+        run_blocking(move || cwd::record_session_for_cwd(&sessions_dir, &cwd, &session_id)).await
     }
 
     pub fn last_session_for_cwd(sessions_dir: &Path, cwd: &Path) -> Result<Option<String>> {
@@ -185,12 +198,13 @@ impl SessionManager {
     }
 
     pub async fn add_secrets_async(&self, secrets: impl IntoIterator<Item = String>) -> Result<()> {
-        let secrets: Vec<String> = secrets.into_iter().collect();
-        if !self.secrets.needs_persisted_scan(&secrets)? {
+        let needles = self.secrets.add(secrets)?;
+        if needles.is_empty() {
             return Ok(());
         }
-        let persisted = tokio::fs::read_to_string(&self.file_path).await?;
-        self.secrets.add(secrets, &persisted)
+        let path = self.file_path.clone();
+        let found = run_blocking(move || secrets::file_contains_any(&path, &needles)).await?;
+        self.secrets.record_scan(found)
     }
 
     pub fn redact_credentials(&self, value: &str) -> String {
@@ -203,12 +217,20 @@ impl SessionManager {
         self.secrets.redact_stream(carry, chunk)
     }
 
-    pub fn spawn_auto_prune(&self, retention_days: u32) -> tokio::task::JoinHandle<()> {
+    /// Prunes expired sessions in the background, at most once per sessions directory per process.
+    pub fn spawn_auto_prune(&self, retention_days: u32) -> Option<tokio::task::JoinHandle<()>> {
+        static PRUNED_DIRS: std::sync::Mutex<std::collections::BTreeSet<PathBuf>> =
+            std::sync::Mutex::new(std::collections::BTreeSet::new());
         let active_id = self.session_id.clone();
         let sessions_dir = self.file_path.parent().unwrap_or_else(|| Path::new(".")).to_path_buf();
-        tokio::spawn(async move {
-            let _ = prune_expired_sessions_async(&sessions_dir, &active_id, retention_days).await;
-        })
+        if !crate::locking::lock(&PRUNED_DIRS).insert(sessions_dir.clone()) {
+            return None;
+        }
+        Some(tokio::spawn(async move {
+            if let Err(error) = prune_expired_sessions_async(&sessions_dir, &active_id, retention_days).await {
+                tracing::warn!(dir = %sessions_dir.display(), %error, "could not prune expired sessions");
+            }
+        }))
     }
 
     pub(crate) fn reject_secrets<T: Serialize>(&self, value: &T) -> Result<()> {

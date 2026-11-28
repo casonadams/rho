@@ -1,16 +1,45 @@
 use super::format::StoreState;
 use super::fs::session_error;
+use super::tree::{SessionTree, TitleSource};
 use crate::error::Result;
-use crate::locking::lock;
+use crate::locking::{lock, read, write};
 use std::collections::BTreeMap;
 use std::fs::{File, OpenOptions, TryLockError};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::{Arc, Mutex, MutexGuard, RwLock};
+
+/// The session name and its source, readable without waiting for the session state mutex.
+#[derive(Debug, Default)]
+pub(crate) struct TitleCell(RwLock<(Option<String>, Option<TitleSource>)>);
+
+impl TitleCell {
+    fn of(tree: &SessionTree) -> Self {
+        let cell = Self::default();
+        cell.publish(tree);
+        cell
+    }
+
+    pub(crate) fn publish(&self, tree: &SessionTree) {
+        let mut title = write(&self.0);
+        if title.0 != tree.session_name || title.1 != tree.session_name_source {
+            *title = (tree.session_name.clone(), tree.session_name_source);
+        }
+    }
+
+    pub(crate) fn name(&self) -> Option<String> {
+        read(&self.0).0.clone()
+    }
+
+    pub(crate) fn source(&self) -> Option<TitleSource> {
+        read(&self.0).1
+    }
+}
 
 struct Entry {
     file: File,
     holders: usize,
     state: Arc<tokio::sync::Mutex<StoreState>>,
+    title: Arc<TitleCell>,
 }
 
 impl Drop for Entry {
@@ -35,11 +64,16 @@ fn held() -> MutexGuard<'static, BTreeMap<PathBuf, Entry>> {
 pub(crate) struct SessionLock {
     path: PathBuf,
     state: Arc<tokio::sync::Mutex<StoreState>>,
+    title: Arc<TitleCell>,
 }
 
 impl SessionLock {
     pub(crate) fn state(&self) -> &Arc<tokio::sync::Mutex<StoreState>> {
         &self.state
+    }
+
+    pub(crate) fn title(&self) -> &Arc<TitleCell> {
+        &self.title
     }
 }
 
@@ -55,36 +89,46 @@ impl Drop for SessionLock {
     }
 }
 
-/// Registers a holder for `path`. The first holder's `loaded` state becomes the shared one; later
-/// holders in this process adopt it and their freshly loaded copy is discarded.
-pub(crate) fn acquire(path: &Path, loaded: StoreState) -> Result<Arc<SessionLock>> {
+/// Registers a holder for `path`. Later holders in this process adopt the first holder's state;
+/// only the first, once it holds the OS lock, runs `load`.
+pub(crate) fn acquire(path: &Path, load: impl FnOnce() -> Result<StoreState>) -> Result<Arc<SessionLock>> {
     let mut held = held();
-    let state = if let Some(entry) = held.get_mut(path) {
+    if let Some(entry) = held.get_mut(path) {
         entry.holders += 1;
-        Arc::clone(&entry.state)
-    } else {
-        let file = OpenOptions::new().read(true).append(true).open(path)?;
-        match file.try_lock() {
-            Ok(()) => {}
-            Err(TryLockError::WouldBlock) => {
-                return Err(session_error("session is already open in another rho process"));
-            }
-            Err(TryLockError::Error(error)) => return Err(error.into()),
+        return Ok(Arc::new(SessionLock {
+            path: path.to_path_buf(),
+            state: Arc::clone(&entry.state),
+            title: Arc::clone(&entry.title),
+        }));
+    }
+    let file = OpenOptions::new().read(true).append(true).open(path)?;
+    match file.try_lock() {
+        Ok(()) => {}
+        Err(TryLockError::WouldBlock) => {
+            return Err(session_error("session is already open in another rho process"));
         }
-        let state = Arc::new(tokio::sync::Mutex::new(loaded));
-        held.insert(
-            path.to_path_buf(),
-            Entry {
-                file,
-                holders: 1,
-                state: Arc::clone(&state),
-            },
-        );
-        state
+        Err(TryLockError::Error(error)) => return Err(error.into()),
+    }
+    let loaded = match load() {
+        Ok(loaded) => loaded,
+        Err(error) => {
+            drop(file.unlock());
+            return Err(error);
+        }
     };
+    let title = Arc::new(TitleCell::of(&loaded.tree));
+    let state = Arc::new(tokio::sync::Mutex::new(loaded));
+    let entry = Entry {
+        file,
+        holders: 1,
+        state: Arc::clone(&state),
+        title: Arc::clone(&title),
+    };
+    held.insert(path.to_path_buf(), entry);
     Ok(Arc::new(SessionLock {
         path: path.to_path_buf(),
         state,
+        title,
     }))
 }
 
@@ -111,6 +155,7 @@ pub(crate) fn remove_unless_held(path: &Path) -> bool {
 mod tests {
     use crate::session::SessionManager;
     use std::fs::{OpenOptions, TryLockError};
+    use std::sync::Arc;
 
     #[tokio::test]
     async fn session_lock_is_exclusive_across_openers_and_shared_in_process() {
@@ -133,6 +178,41 @@ mod tests {
         assert!(SessionManager::new_async(&dir, Some(&session_id)).await.is_err());
         drop(holder);
         assert!(SessionManager::new_async(&dir, Some(&session_id)).await.is_ok());
+    }
+
+    fn append_malformed_record(path: &std::path::Path) {
+        use std::io::Write;
+        let mut file = OpenOptions::new().append(true).open(path).unwrap();
+        file.write_all(b"{malformed}\n").unwrap();
+    }
+
+    #[test]
+    fn resuming_a_session_locked_elsewhere_is_refused_before_its_file_is_parsed() {
+        let dir = crate::test_support::temp_dir();
+        let owner = SessionManager::new(&dir, None).unwrap();
+        let (session_id, path) = (owner.session_id.clone(), owner.file_path.clone());
+        drop(owner);
+        append_malformed_record(&path);
+        let other_process = external_handle(&path);
+        other_process.try_lock().unwrap();
+
+        let error = SessionManager::new(&dir, Some(&session_id)).unwrap_err().to_string();
+
+        assert!(error.contains("already open in another rho process"), "{error}");
+        drop(other_process);
+        let error = SessionManager::new(&dir, Some(&session_id)).unwrap_err().to_string();
+        assert!(error.contains("malformed committed record"), "{error}");
+    }
+
+    #[test]
+    fn reopening_a_session_held_in_process_adopts_its_state_without_reparsing() {
+        let dir = crate::test_support::temp_dir();
+        let owner = SessionManager::new(&dir, None).unwrap();
+        append_malformed_record(&owner.file_path);
+
+        let shared = SessionManager::new(&dir, Some(&owner.session_id)).unwrap();
+
+        assert!(Arc::ptr_eq(&owner.state, &shared.state));
     }
 
     #[test]

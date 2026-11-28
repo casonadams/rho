@@ -2,6 +2,7 @@ use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 use rho_harness_core::locking::lock;
+use rho_harness_core::queue::QueueFull;
 use tokio::sync::Notify;
 
 use crate::engine::runner::{PendingMessageQueue, SteeringQueueProvider};
@@ -21,9 +22,10 @@ impl SharedSteeringQueue {
         }
     }
 
-    pub fn enqueue(&self, msg: String) {
-        lock(&self.queue).enqueue(msg);
+    pub fn enqueue(&self, msg: String) -> Result<(), QueueFull> {
+        lock(&self.queue).enqueue(msg)?;
         self.enqueued.notify_waiters();
+        Ok(())
     }
 
     pub fn clear(&self) {
@@ -67,8 +69,8 @@ mod tests {
     #[tokio::test]
     async fn shared_steering_queue_records_and_drains_consumed_prompts() {
         let queue = SharedSteeringQueue::new(QueueMode::All);
-        queue.enqueue("first steer".to_string());
-        queue.enqueue("second steer".to_string());
+        queue.enqueue("first steer".to_string()).unwrap();
+        queue.enqueue("second steer".to_string()).unwrap();
 
         assert!(queue.consumed().is_empty());
 
@@ -80,7 +82,7 @@ mod tests {
         assert_eq!(taken, vec!["first steer", "second steer"]);
         assert!(queue.consumed().is_empty());
 
-        queue.enqueue("third steer".to_string());
+        queue.enqueue("third steer".to_string()).unwrap();
         queue.clear();
         let polled_after_clear = queue.poll_steering().await;
         assert!(polled_after_clear.is_empty());
@@ -96,7 +98,7 @@ mod tests {
         tokio::task::yield_now().await;
         assert!(!waiter.is_finished());
 
-        queue.enqueue("steer".to_string());
+        queue.enqueue("steer".to_string()).unwrap();
 
         let started = tokio::time::Instant::now();
         waiter.await.unwrap();

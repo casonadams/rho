@@ -1,6 +1,6 @@
 use super::apply::{refresh_stale_messages, replay_record};
 use super::types::{HeaderRecordType, SESSION_VERSION, SessionHeader, SessionRecord, StoreState};
-use crate::error::Result;
+use crate::error::{AppError, Result};
 use chrono::Utc;
 use serde_json::Value;
 use std::io::Write;
@@ -84,16 +84,64 @@ fn run_write_hook(path: &Path) -> std::io::Result<()> {
     hook.map_or(Ok(()), |hook| hook())
 }
 
-fn write_line_sync(path: &Path, line: &[u8], durable: bool) -> Result<()> {
-    let mut file = std::fs::OpenOptions::new().read(true).append(true).open(path)?;
-    drop_torn_tail(&mut file)?;
+/// Why an append failed, and whether the file may still hold part of it.
+#[derive(Debug)]
+pub(crate) enum AppendError {
+    /// The file holds nothing from this append.
+    RolledBack(AppError),
+    /// The file may hold some or all of this append.
+    Unknown(AppError),
+}
+
+fn write_and_sync(file: &mut std::fs::File, _path: &Path, line: &[u8], durable: bool) -> std::io::Result<()> {
     file.write_all(line)?;
     #[cfg(test)]
-    run_write_hook(path)?;
+    run_write_hook(_path)?;
     if durable && crate::fs::FSYNC_ENABLED {
         file.sync_data()?;
     }
     Ok(())
+}
+
+fn truncate_to(file: &std::fs::File, len: u64) -> std::io::Result<()> {
+    file.set_len(len)?;
+    if crate::fs::FSYNC_ENABLED {
+        file.sync_data()?;
+    }
+    Ok(())
+}
+
+/// Appends `line` and returns the file length before it. A failed write is truncated away.
+fn write_line_sync(path: &Path, line: &[u8], durable: bool) -> std::result::Result<u64, AppendError> {
+    let rolled_back = |error: std::io::Error| AppendError::RolledBack(error.into());
+    let mut file = std::fs::OpenOptions::new()
+        .read(true)
+        .append(true)
+        .open(path)
+        .map_err(rolled_back)?;
+    drop_torn_tail(&mut file).map_err(rolled_back)?;
+    let start = file.metadata().map_err(rolled_back)?.len();
+    let Err(cause) = write_and_sync(&mut file, path, line, durable) else {
+        return Ok(start);
+    };
+    Err(match truncate_to(&file, start) {
+        Ok(()) => AppendError::RolledBack(cause.into()),
+        Err(undo) => AppendError::Unknown(session_error(format!(
+            "{cause}; removing the partial write also failed: {undo}"
+        ))),
+    })
+}
+
+/// Cuts the file back to `len`, dropping records appended after it.
+pub(crate) async fn truncate_file(path: &Path, len: u64) -> Result<()> {
+    let path = path.to_path_buf();
+    tokio::task::spawn_blocking(move || {
+        let file = std::fs::OpenOptions::new().write(true).open(&path)?;
+        truncate_to(&file, len)
+    })
+    .await
+    .map_err(|e| session_error(format!("session truncate task failed: {e}")))?
+    .map_err(Into::into)
 }
 
 /// How an appended record reaches stable storage.
@@ -107,25 +155,25 @@ pub(crate) enum Durability {
     Durable,
 }
 
-/// Appends `records` as consecutive JSONL lines in one write.
-pub(crate) async fn append_records(path: &Path, records: &[SessionRecord], durability: Durability) -> Result<()> {
+/// Appends `records` as consecutive JSONL lines in one write and returns the file length before them.
+pub(crate) async fn append_records(
+    path: &Path,
+    records: &[SessionRecord],
+    durability: Durability,
+) -> std::result::Result<u64, AppendError> {
     let mut lines = Vec::new();
     for record in records {
-        lines.extend(serialize_record_line(record)?);
+        lines.extend(serialize_record_line(record).map_err(AppendError::RolledBack)?);
     }
     let path = path.to_path_buf();
     let durable = durability == Durability::Durable;
     tokio::task::spawn_blocking(move || write_line_sync(&path, &lines, durable))
         .await
-        .map_err(|e| session_error(format!("session write task failed: {e}")))?
+        .map_err(|e| AppendError::Unknown(session_error(format!("session write task failed: {e}"))))?
 }
 
 pub(crate) fn load_file(path: &Path, expected_id: &str) -> Result<StoreState> {
     parse_read_result(std::fs::read(path), expected_id)
-}
-
-pub(crate) async fn load_file_async(path: &Path, expected_id: &str) -> Result<StoreState> {
-    parse_read_result(tokio::fs::read(path).await, expected_id)
 }
 
 fn parse_read_result(read: std::io::Result<Vec<u8>>, expected_id: &str) -> Result<StoreState> {

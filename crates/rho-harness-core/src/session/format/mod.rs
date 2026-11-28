@@ -5,5 +5,8 @@ mod types;
 pub(crate) use apply::{refresh_stale_messages, replay_record};
 #[cfg(test)]
 pub(crate) use io::inject_write_hook;
-pub(crate) use io::{Durability, append_records, create_session_file, load_file, load_file_async};
+pub(crate) use io::{
+    AppendError, Durability, append_records, create_session_file, load_file, parse_header, truncate_file,
+    validate_header,
+};
 pub use types::{SessionEvent, SessionEventKind, SessionHeader, SessionRecord, StoreState};

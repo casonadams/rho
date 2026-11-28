@@ -193,9 +193,58 @@ async fn spawn_auto_prune_removes_only_expired_inactive_sessions_in_the_backgrou
     create_test_session_file(&dir, "old", 30, false);
     create_test_session_file(&dir, "recent", 1, false);
 
-    active.spawn_auto_prune(7).await.unwrap();
+    active.spawn_auto_prune(7).unwrap().await.unwrap();
 
     assert!(!dir.join("old.jsonl").exists(), "expired session was pruned");
     assert!(dir.join("recent.jsonl").exists());
     assert!(active.file_path.exists());
+}
+
+#[tokio::test]
+async fn auto_prune_runs_at_most_once_per_sessions_directory() {
+    let dir = temp_dir();
+    let active = SessionManager::new_async(&dir, None).await.unwrap();
+    active.spawn_auto_prune(7).unwrap().await.unwrap();
+    create_test_session_file(&dir, "expired_after_first_prune", 30, false);
+
+    assert!(active.spawn_auto_prune(7).is_none());
+    assert!(dir.join("expired_after_first_prune.jsonl").exists());
+}
+
+fn write_aged_session(dir: &Path, session_id: &str, lines: &[String]) {
+    let path = dir.join(format!("{session_id}.jsonl"));
+    std::fs::write(&path, lines.concat()).unwrap();
+    let mtime = SystemTime::now() - Duration::from_secs(30 * 86_400);
+    File::open(&path)
+        .unwrap()
+        .set_times(std::fs::FileTimes::new().set_modified(mtime))
+        .unwrap();
+}
+
+#[tokio::test]
+async fn expiry_keeps_sessions_only_when_a_record_is_a_session_name() {
+    let dir = temp_dir();
+    let header = "{\"record_type\":\"header\"}\n".to_string();
+    let huge_event = format!(
+        "{{\"record_type\":\"audit_event\",\"pad\":\"{}\"}}\n",
+        "x".repeat(1 << 20)
+    );
+    let named = "{\"record_type\":\"session_named\",\"name\":\"Kept\"}\n".to_string();
+    let key_only = "{\"record_type\":\"audit_event\",\"payload\":{\"session_named\":1}}\n".to_string();
+    write_aged_session(&dir, "named_after_huge_record", &[header.clone(), huge_event, named]);
+    write_aged_session(&dir, "name_key_in_payload", &[header.clone(), key_only]);
+    write_aged_session(
+        &dir,
+        "unterminated_name",
+        &[header, "{\"record_type\":\"session_na".to_string()],
+    );
+
+    let pruned = prune_expired_sessions_async(&dir, "active", 5).await.unwrap();
+
+    assert_eq!(pruned, 2);
+    assert_sessions(
+        &dir,
+        &["named_after_huge_record"],
+        &["name_key_in_payload", "unterminated_name"],
+    );
 }

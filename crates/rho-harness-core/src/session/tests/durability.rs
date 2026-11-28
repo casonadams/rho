@@ -65,6 +65,25 @@ async fn aborting_a_durable_append_mid_write_keeps_later_appends_loadable() {
 }
 
 #[tokio::test]
+async fn failed_write_is_removed_from_the_file_and_leaves_memory_unchanged() {
+    let dir = temp_dir();
+    let manager = SessionManager::new_async(&dir, None).await.unwrap();
+    manager.set_session_name("Before").await.unwrap();
+    let path = manager.file_path.clone();
+    let before = std::fs::read_to_string(&path).unwrap();
+
+    inject_write_hook(&path, || Err(std::io::Error::other("injected fsync failure")));
+    assert!(manager.set_session_name("Failed").await.is_err());
+
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), before);
+    assert_eq!(
+        manager.load_tree().await.unwrap().session_name.as_deref(),
+        Some("Before")
+    );
+    assert_eq!(manager.cached_session_name().as_deref(), Some("Before"));
+}
+
+#[tokio::test]
 async fn failed_write_after_bytes_reached_disk_keeps_memory_matching_the_file() {
     let dir = temp_dir();
     let manager = SessionManager::new_async(&dir, None).await.unwrap();

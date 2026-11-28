@@ -1,4 +1,22 @@
+use std::fs::{File, TryLockError};
 use std::sync::{Mutex, MutexGuard, PoisonError, RwLock, RwLockReadGuard, RwLockWriteGuard};
+use std::time::{Duration, Instant};
+
+const FILE_LOCK_RETRY: Duration = Duration::from_millis(10);
+
+/// Takes an exclusive lock on `file`, retrying while another holder has it. Returns `Ok(false)`
+/// once `timeout` passes without the lock. Blocks the calling thread between retries.
+pub fn lock_file_within(file: &File, timeout: Duration) -> std::io::Result<bool> {
+    let deadline = Instant::now() + timeout;
+    loop {
+        match file.try_lock() {
+            Ok(()) => return Ok(true),
+            Err(TryLockError::WouldBlock) if Instant::now() < deadline => std::thread::sleep(FILE_LOCK_RETRY),
+            Err(TryLockError::WouldBlock) => return Ok(false),
+            Err(TryLockError::Error(error)) => return Err(error),
+        }
+    }
+}
 
 /// Locks `mutex` even if a panicking holder poisoned it: the state behind these locks stays
 /// consistent across a panic, and one failed task must not take the process down with it.
@@ -23,8 +41,23 @@ pub fn write<T>(rwlock: &RwLock<T>) -> RwLockWriteGuard<'_, T> {
 
 #[cfg(test)]
 mod tests {
-    use super::{into_inner, lock, read, write};
+    use super::{into_inner, lock, lock_file_within, read, write};
     use std::sync::{Arc, Mutex, RwLock};
+    use std::time::Duration;
+
+    #[test]
+    fn file_lock_gives_up_at_the_deadline_while_another_handle_holds_it() {
+        let dir = rho_test_support::TestDir::new();
+        let path = dir.join("held.lock");
+        let holder = std::fs::File::create(&path).unwrap();
+        let waiter = std::fs::File::open(&path).unwrap();
+        holder.lock().unwrap();
+
+        assert!(!lock_file_within(&waiter, Duration::ZERO).unwrap());
+
+        holder.unlock().unwrap();
+        assert!(lock_file_within(&waiter, Duration::ZERO).unwrap());
+    }
 
     #[test]
     fn lock_recovers_the_value_after_a_holder_panicked() {

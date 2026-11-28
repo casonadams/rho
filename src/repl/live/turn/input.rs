@@ -42,8 +42,12 @@ fn queue_status_message<B: TerminalBackend>(ctx: &mut TurnInputContext<'_, B>, k
         ctx.controller
             .set_system_message("[Command queued for turn completion]");
     } else if kind == QueueKind::Steering {
-        ctx.steering.enqueue(text.to_string());
-        ctx.controller.set_system_message("[Steering queued for tool boundary]");
+        match ctx.steering.enqueue(text.to_string()) {
+            Ok(()) => ctx.controller.set_system_message("[Steering queued for tool boundary]"),
+            Err(full) => ctx
+                .controller
+                .set_system_message(format!("[Steering rejected: {full}]")),
+        }
     } else if kind == QueueKind::FollowUp {
         ctx.controller
             .set_system_message("[Follow-up queued for turn completion]");

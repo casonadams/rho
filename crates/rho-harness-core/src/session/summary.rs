@@ -1,11 +1,13 @@
-use super::cwd::forget_session_async;
-use super::format::{StoreState, load_file, load_file_async};
+use super::cwd::forget_sessions_async;
+use super::summary_scan::{ScannedSession, scan_session};
 use crate::error::Result;
-use crate::model::{ChatMessage, UserContent};
 use crate::text::truncate_chars;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeSet;
 use std::path::Path;
+
+const MAX_CONCURRENT_SCANS: usize = 8;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct SessionSummary {
@@ -25,27 +27,27 @@ fn jsonl_stem(path: &Path) -> Option<String> {
     }
 }
 
-/// Sessions that fail to load are left out of listings, with a warning naming the file.
-fn skip_unloadable(path: &Path, loaded: Result<StoreState>) -> Option<StoreState> {
-    match loaded {
-        Ok(state) => Some(state),
+/// Sessions that fail to scan are left out of listings, with a warning naming the file.
+fn summarize_path(path: &Path) -> Option<SessionSummary> {
+    let stem = jsonl_stem(path)?;
+    let (created_at, scanned) = match scan_session(path, &stem) {
+        Ok(scan) => scan,
         Err(error) => {
             tracing::warn!(path = %path.display(), %error, "skipping session that failed to load");
-            None
+            return None;
         }
-    }
-}
-
-fn summarize_entry(entry: &std::fs::DirEntry) -> Option<SessionSummary> {
-    let path = entry.path();
-    let stem = jsonl_stem(&path)?;
-    let state = skip_unloadable(&path, load_file(&path, &stem))?;
-    let metadata = entry.metadata().ok()?;
-    let last_modified: DateTime<Utc> = metadata
+    };
+    let last_modified: DateTime<Utc> = std::fs::metadata(path)
+        .ok()?
         .modified()
         .map(DateTime::<Utc>::from)
         .unwrap_or_else(|_| Utc::now());
-    Some(make_session_summary(&stem, state, last_modified))
+    Some(make_session_summary(stem, created_at, scanned, last_modified))
+}
+
+fn newest_first(mut summaries: Vec<SessionSummary>) -> Vec<SessionSummary> {
+    summaries.sort_by_key(|b| std::cmp::Reverse(b.last_modified));
+    summaries
 }
 
 pub fn list_session_summaries(sessions_dir: &Path) -> Result<Vec<SessionSummary>> {
@@ -54,44 +56,35 @@ pub fn list_session_summaries(sessions_dir: &Path) -> Result<Vec<SessionSummary>
     }
     let mut summaries = Vec::new();
     for entry in std::fs::read_dir(sessions_dir)? {
-        if let Some(summary) = summarize_entry(&entry?) {
-            summaries.push(summary);
-        }
+        summaries.extend(summarize_path(&entry?.path()));
     }
-    summaries.sort_by_key(|b| std::cmp::Reverse(b.last_modified));
-    Ok(summaries)
+    Ok(newest_first(summaries))
 }
 
-async fn summarize_entry_async(entry: &tokio::fs::DirEntry) -> Option<SessionSummary> {
-    let path = entry.path();
-    let stem = jsonl_stem(&path)?;
-    let state = skip_unloadable(&path, load_file_async(&path, &stem).await)?;
-    let metadata = entry.metadata().await.ok()?;
-    let last_modified: DateTime<Utc> = metadata
-        .modified()
-        .map(DateTime::<Utc>::from)
-        .unwrap_or_else(|_| Utc::now());
-    Some(make_session_summary(&stem, state, last_modified))
-}
-
-async fn collect_summary_set(mut entries: tokio::fs::ReadDir) -> Result<tokio::task::JoinSet<Option<SessionSummary>>> {
-    let mut set = tokio::task::JoinSet::new();
-    while let Some(entry) = entries.next_entry().await? {
-        set.spawn(async move { summarize_entry_async(&entry).await });
+async fn join_one(scans: &mut tokio::task::JoinSet<Option<SessionSummary>>, summaries: &mut Vec<SessionSummary>) {
+    if let Some(Ok(Some(summary))) = scans.join_next().await {
+        summaries.push(summary);
     }
-    Ok(set)
 }
 
-async fn drain_summaries_async(entries: tokio::fs::ReadDir) -> Result<Vec<SessionSummary>> {
-    let mut set = collect_summary_set(entries).await?;
+/// Scans session files on the blocking pool, at most `MAX_CONCURRENT_SCANS` at a time.
+async fn scan_paths_async(mut entries: tokio::fs::ReadDir) -> Result<Vec<SessionSummary>> {
+    let mut scans = tokio::task::JoinSet::new();
     let mut summaries = Vec::new();
-    while let Some(res) = set.join_next().await {
-        if let Ok(Some(summary)) = res {
-            summaries.push(summary);
+    while let Some(entry) = entries.next_entry().await? {
+        let path = entry.path();
+        if jsonl_stem(&path).is_none() {
+            continue;
         }
+        if scans.len() >= MAX_CONCURRENT_SCANS {
+            join_one(&mut scans, &mut summaries).await;
+        }
+        scans.spawn_blocking(move || summarize_path(&path));
     }
-    summaries.sort_by_key(|b| std::cmp::Reverse(b.last_modified));
-    Ok(summaries)
+    while !scans.is_empty() {
+        join_one(&mut scans, &mut summaries).await;
+    }
+    Ok(newest_first(summaries))
 }
 
 pub async fn list_session_summaries_async(sessions_dir: &Path) -> Result<Vec<SessionSummary>> {
@@ -99,24 +92,7 @@ pub async fn list_session_summaries_async(sessions_dir: &Path) -> Result<Vec<Ses
         return Ok(Vec::new());
     }
     let entries = tokio::fs::read_dir(sessions_dir).await?;
-    drain_summaries_async(entries).await
-}
-
-fn extract_root_preview(state: &StoreState) -> String {
-    state
-        .tree
-        .root_nodes()
-        .first()
-        .and_then(|n| {
-            n.messages.iter().find_map(|m| match m {
-                ChatMessage::User { content } => content.first().and_then(|c| match c {
-                    UserContent::Text(t) => Some(t.text.clone()),
-                    _ => None,
-                }),
-                _ => None,
-            })
-        })
-        .unwrap_or_else(|| "Empty session".to_string())
+    scan_paths_async(entries).await
 }
 
 fn truncate_preview_text(preview: String) -> String {
@@ -127,16 +103,23 @@ fn truncate_preview_text(preview: String) -> String {
     }
 }
 
-fn make_session_summary(stem: &str, state: StoreState, last_modified: DateTime<Utc>) -> SessionSummary {
-    let turn_count = state.tree.len();
-    let preview = truncate_preview_text(extract_root_preview(&state));
+fn make_session_summary(
+    session_id: String,
+    created_at: DateTime<Utc>,
+    scanned: ScannedSession,
+    last_modified: DateTime<Utc>,
+) -> SessionSummary {
+    let preview = scanned
+        .root_text
+        .flatten()
+        .unwrap_or_else(|| "Empty session".to_string());
     SessionSummary {
-        session_id: stem.to_string(),
-        name: state.tree.session_name,
-        created_at: state.created_at,
+        session_id,
+        name: scanned.name,
+        created_at,
         last_modified,
-        turn_count,
-        preview,
+        turn_count: scanned.node_count,
+        preview: truncate_preview_text(preview),
     }
 }
 
@@ -144,7 +127,7 @@ pub async fn delete_session_async(sessions_dir: &Path, session_id: &str) -> Resu
     let file_path = sessions_dir.join(format!("{session_id}.jsonl"));
     if tokio::fs::try_exists(&file_path).await? {
         tokio::fs::remove_file(file_path).await?;
-        forget_session_async(sessions_dir, session_id).await?;
+        forget_sessions_async(sessions_dir, BTreeSet::from([session_id.to_string()])).await?;
     }
     Ok(())
 }

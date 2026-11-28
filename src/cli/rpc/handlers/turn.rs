@@ -29,10 +29,11 @@ pub(crate) async fn handle_steer_command<W: tokio::io::AsyncWrite + Unpin>(
     req_id: Option<String>,
     ctx: &mut RpcDaemonContext<'_, W>,
 ) -> Result<()> {
-    ctx.steering.enqueue(message);
-    ctx.writer
-        .write_message(&RpcResponse::success(req_id, "steer", None))
-        .await
+    let response = match ctx.steering.enqueue(message) {
+        Ok(()) => RpcResponse::success(req_id, "steer", None),
+        Err(full) => RpcResponse::failure(req_id, "steer", &full.to_string()),
+    };
+    ctx.writer.write_message(&response).await
 }
 
 pub(crate) async fn handle_abort_cmd<W: tokio::io::AsyncWrite + Unpin>(

@@ -153,7 +153,9 @@ A steering message (`Enter` while the agent runs) waits in the queue until the
 agent reaches its next tool boundary, or until it would otherwise finish its
 answer (then it keeps working with your message, unless it is on its last
 turn). When the agent takes it, it leaves the queue and appears in the
-transcript as your message, at the point where the agent read it.
+transcript as your message, at the point where the agent read it. The steering
+queue holds at most 256 messages; past that a new one is rejected with a status
+message (and the RPC `steer` command returns a failure response).
 
 ---
 

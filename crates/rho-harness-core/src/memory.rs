@@ -6,14 +6,13 @@ use crate::secrets::contains_credential;
 use std::fmt::Write as _;
 use std::io;
 use std::path::{Path, PathBuf};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 pub const MAX_NOTE_CHARS: usize = 300;
 pub const MAX_NOTES: usize = 50;
 pub const MAX_FILE_BYTES: usize = 8 * 1024;
 const KEY_PATH_CHARS: usize = 80;
 const LOCK_TIMEOUT: Duration = Duration::from_secs(5);
-const LOCK_RETRY: Duration = Duration::from_millis(10);
 
 #[derive(Debug, thiserror::Error)]
 pub enum MemoryError {
@@ -134,13 +133,8 @@ impl MemoryStore {
             .write(true)
             .open(&path)
             .map_err(io_error)?;
-        let deadline = Instant::now() + self.lock_timeout;
-        while let Err(error) = lock.try_lock() {
-            match error {
-                std::fs::TryLockError::WouldBlock if Instant::now() < deadline => std::thread::sleep(LOCK_RETRY),
-                std::fs::TryLockError::WouldBlock => return Err(MemoryError::Locked { path }),
-                std::fs::TryLockError::Error(source) => return Err(io_error(source)),
-            }
+        if !crate::locking::lock_file_within(&lock, self.lock_timeout).map_err(io_error)? {
+            return Err(MemoryError::Locked { path });
         }
         change()
     }

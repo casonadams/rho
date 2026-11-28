@@ -778,6 +778,28 @@ async fn switching_to_an_unknown_node_over_rpc_reports_failure() {
 }
 
 #[tokio::test]
+async fn steering_over_rpc_reports_failure_once_the_queue_is_full() {
+    use super::handlers::turn::handle_steer_command;
+    use rho_harness_core::queue::PENDING_QUEUE_CAPACITY;
+
+    let (mut client_reader, mut writer, temp_dir) = rpc_fixture("rpc_steer_full");
+    let mut active_turn = None;
+    let mut ctx = setup_test_rpc_context(&mut writer, &temp_dir, &mut active_turn).await;
+    for n in 0..PENDING_QUEUE_CAPACITY {
+        ctx.steering.enqueue(format!("steer {n}")).unwrap();
+    }
+
+    handle_steer_command("one too many".into(), Some("req-steer".into()), &mut ctx)
+        .await
+        .unwrap();
+
+    let resp = read_response(&mut client_reader).await;
+    assert_eq!(resp.command, "steer");
+    assert!(!resp.success);
+    assert!(resp.error.unwrap().contains("queue is full"));
+}
+
+#[tokio::test]
 async fn test_handle_session_lifecycle_cmd_variants() {
     use super::handlers::handle_session_lifecycle_cmd;
     use rho_harness_core::rpc::protocol::RpcCommand;

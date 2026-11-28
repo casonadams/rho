@@ -87,8 +87,10 @@ async fn dispatch_key_event<B: TerminalBackend>(
     let monitor = lp.engine.agent_monitor();
     if let Some(text) = agent_focus::take_submission(lp.controller, &key) {
         crate::repl::live::navigation::record_submission(res.history, &text)?;
-        if let agent_focus::Routed::ContinueThroughMain(prompt) = agent_focus::route(lp.controller, lp.engine, &text) {
-            lp.steering.enqueue(prompt);
+        if let agent_focus::Routed::ContinueThroughMain(prompt) = agent_focus::route(lp.controller, lp.engine, &text)
+            && let Err(full) = lp.steering.enqueue(prompt)
+        {
+            lp.controller.set_system_message(format!("[Steering rejected: {full}]"));
         }
         lp.batch.flush(lp.controller, true)?;
         return Ok(false);

@@ -1,9 +1,52 @@
 use crate::error::Result;
 use serde::Serialize;
+use std::io::Read;
+use std::path::Path;
 use std::sync::Mutex;
 
 use super::session_error;
 use crate::secrets::{MIN_SECRET_LEN, REDACTED_MARKER, redact_credentials_text};
+
+const SCAN_CHUNK_BYTES: usize = 64 * 1024;
+
+/// Searches `reader` for any of `needles` a chunk at a time, overlapping chunks by the longest
+/// needle so a match across a chunk boundary is still found.
+fn reader_contains_any(mut reader: impl Read, needles: &[String], chunk_bytes: usize) -> std::io::Result<bool> {
+    let Some(overlap) = needles.iter().map(|needle| needle.len().saturating_sub(1)).max() else {
+        return Ok(false);
+    };
+    let mut window = Vec::with_capacity(chunk_bytes + overlap);
+    loop {
+        let kept = window.len();
+        window.resize(kept + chunk_bytes, 0);
+        let read = loop {
+            match reader.read(&mut window[kept..]) {
+                Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
+                other => break other?,
+            }
+        };
+        window.truncate(kept + read);
+        if read == 0 {
+            return Ok(false);
+        }
+        let text = String::from_utf8_lossy(&window);
+        if needles.iter().any(|needle| text.contains(needle.as_str())) {
+            return Ok(true);
+        }
+        window.drain(..window.len().saturating_sub(overlap));
+    }
+}
+
+pub(crate) fn file_contains_any(path: &Path, needles: &[String]) -> Result<bool> {
+    if needles.is_empty() {
+        return Ok(false);
+    }
+    Ok(reader_contains_any(
+        std::fs::File::open(path)?,
+        needles,
+        SCAN_CHUNK_BYTES,
+    )?)
+}
 
 fn replace_known_secrets(value: &str, secrets: &[String]) -> String {
     if secrets.is_empty() || !secrets.iter().any(|secret| value.contains(secret)) {
@@ -38,36 +81,42 @@ fn contaminated_error() -> crate::error::AppError {
 
 impl SecretGuard {
     pub(crate) fn new(secrets: impl IntoIterator<Item = String>) -> Self {
+        let mut secrets: Vec<String> = secrets
+            .into_iter()
+            .filter(|secret| secret.len() >= MIN_SECRET_LEN)
+            .collect();
+        secrets.sort();
+        secrets.dedup();
         Self {
-            secrets: Mutex::new(
-                secrets
-                    .into_iter()
-                    .filter(|secret| secret.len() >= MIN_SECRET_LEN)
-                    .collect(),
-            ),
+            secrets: Mutex::new(secrets),
             persisted_scan: Mutex::new(PersistedScan::Pending),
         }
     }
 
-    pub(crate) fn needs_persisted_scan(&self, secrets: &[String]) -> Result<bool> {
-        match *self.scan_lock()? {
-            PersistedScan::Contaminated => return Err(contaminated_error()),
-            PersistedScan::Pending => return Ok(true),
-            PersistedScan::Clean => {}
+    /// Starts redacting `secrets` and returns those the persisted history must be searched for:
+    /// every known secret before the first scan, afterwards only ones not known yet.
+    pub(crate) fn add(&self, secrets: impl IntoIterator<Item = String>) -> Result<Vec<String>> {
+        let scan = *self.scan_lock()?;
+        if scan == PersistedScan::Contaminated {
+            return Err(contaminated_error());
         }
-        let current = self.lock()?;
-        Ok(secrets
-            .iter()
-            .any(|secret| secret.len() >= MIN_SECRET_LEN && !current.contains(secret)))
+        let mut current = self.lock()?;
+        let mut added: Vec<String> = secrets
+            .into_iter()
+            .filter(|secret| secret.len() >= MIN_SECRET_LEN && !current.contains(secret))
+            .collect();
+        added.sort();
+        added.dedup();
+        current.extend(added.iter().cloned());
+        Ok(if scan == PersistedScan::Pending {
+            current.clone()
+        } else {
+            added
+        })
     }
 
-    pub(crate) fn add(&self, secrets: impl IntoIterator<Item = String>, persisted: &str) -> Result<()> {
-        let mut current = self.lock()?;
-        current.extend(secrets.into_iter().filter(|secret| secret.len() >= MIN_SECRET_LEN));
-        current.sort();
-        current.dedup();
-        let found = current.iter().any(|secret| persisted.contains(secret));
-        drop(current);
+    /// Records whether a search of the persisted history found any of the secrets from [`Self::add`].
+    pub(crate) fn record_scan(&self, found: bool) -> Result<()> {
         let mut scan = self.scan_lock()?;
         if found || *scan == PersistedScan::Contaminated {
             *scan = PersistedScan::Contaminated;
@@ -141,39 +190,73 @@ mod tests {
         secrets.iter().map(|secret| (*secret).to_string()).collect()
     }
 
+    fn scan(guard: &SecretGuard, secrets: &[&str], persisted: &str) -> Result<()> {
+        let needles = guard.add(owned(secrets))?;
+        let found = reader_contains_any(persisted.as_bytes(), &needles, SCAN_CHUNK_BYTES).unwrap();
+        guard.record_scan(found)
+    }
+
     #[test]
-    fn only_a_clean_scan_lets_known_secrets_skip_rescanning() {
-        let guard = SecretGuard::new(owned(&["known-secret"]));
-        assert!(guard.needs_persisted_scan(&[]).unwrap());
-        guard.add(Vec::new(), "clean history").unwrap();
-        let cases: [(&[&str], bool); 4] = [
-            (&[], false),
-            (&["known-secret"], false),
-            (&["abc"], false),
-            (&["known-secret", "new-secret"], true),
+    fn after_a_clean_scan_only_secrets_not_known_yet_are_searched_for() {
+        let guard = SecretGuard::new(owned(&["known-secret", "known-secret"]));
+        assert_eq!(guard.add(Vec::new()).unwrap(), owned(&["known-secret"]));
+        guard.record_scan(false).unwrap();
+        let cases: [(&[&str], &[&str]); 4] = [
+            (&[], &[]),
+            (&["known-secret"], &[]),
+            (&["abc"], &[]),
+            (&["known-secret", "new-secret", "new-secret"], &["new-secret"]),
         ];
         for (candidates, expected) in cases {
-            assert_eq!(
-                guard.needs_persisted_scan(&owned(candidates)).unwrap(),
-                expected,
-                "{candidates:?}"
-            );
+            assert_eq!(guard.add(owned(candidates)).unwrap(), owned(expected), "{candidates:?}");
         }
+        assert_eq!(guard.redact("new-secret known-secret"), "[REDACTED] [REDACTED]");
     }
 
     #[test]
     fn constructor_secret_in_persisted_history_rejects_resume() {
         let guard = SecretGuard::new(owned(&["known-secret"]));
-        let err = guard.add(Vec::new(), "log known-secret").unwrap_err();
+        let err = scan(&guard, &[], "log known-secret").unwrap_err();
         assert!(err.to_string().contains("cannot be resumed"));
     }
 
     #[test]
     fn contamination_keeps_rejecting_after_the_first_failure() {
         let guard = SecretGuard::new(Vec::new());
-        assert!(guard.add(owned(&["fresh-secret"]), "log fresh-secret").is_err());
+        assert!(scan(&guard, &["fresh-secret"], "log fresh-secret").is_err());
         assert_eq!(guard.redact("fresh-secret"), "[REDACTED]");
-        assert!(guard.needs_persisted_scan(&owned(&["fresh-secret"])).is_err());
-        assert!(guard.add(owned(&["fresh-secret"]), "").is_err());
+        assert!(guard.add(owned(&["other-secret"])).is_err());
+        assert!(guard.record_scan(false).is_err());
+    }
+
+    #[test]
+    fn chunked_search_finds_secrets_anywhere_including_across_chunk_boundaries() {
+        let needles = owned(&["secret-value", "\u{e9}-secret"]);
+        let cases = [
+            ("empty", String::new(), false),
+            ("absent", "x".repeat(100), false),
+            ("at start", format!("secret-value{}", "x".repeat(50)), true),
+            (
+                "across boundary",
+                format!("{}secret-value{}", "x".repeat(13), "x".repeat(40)),
+                true,
+            ),
+            ("at end", format!("{}secret-value", "x".repeat(77)), true),
+            (
+                "multibyte across boundary",
+                format!("{}\u{e9}-secret", "\u{e9}".repeat(9)),
+                true,
+            ),
+            ("near miss", format!("{}secret-valu", "x".repeat(20)), false),
+        ];
+        for (name, haystack, expected) in cases {
+            for chunk in [1, 7, 16, 1024] {
+                assert_eq!(
+                    reader_contains_any(haystack.as_bytes(), &needles, chunk).unwrap(),
+                    expected,
+                    "{name} chunk {chunk}"
+                );
+            }
+        }
     }
 }

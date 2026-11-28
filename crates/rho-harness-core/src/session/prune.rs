@@ -1,8 +1,13 @@
-use super::cwd::forget_session_async;
+use super::cwd::forget_sessions_async;
+use super::fs::run_blocking;
 use super::lock;
 use crate::error::Result;
+use std::collections::BTreeSet;
+use std::io::{BufRead, BufReader, Read};
 use std::path::Path;
 use std::time::{Duration, SystemTime};
+
+const SESSION_NAMED_PREFIX: &[u8] = br#"{"record_type":"session_named""#;
 
 struct PruneContext<'a> {
     active_session_id: &'a str,
@@ -32,15 +37,19 @@ fn should_prune_empty_session(
     !content.contains("\"tree_node\"") && !content.contains("\"session_named\"")
 }
 
-/// Removes an unheld session file and drops that session from the working-directory index.
-async fn remove_session_file(path: &Path) -> Result<bool> {
-    if !lock::remove_unless_held(path) {
-        return Ok(false);
+/// Removes an unheld session file, noting its id so the working-directory index can drop it.
+fn remove_session_file(path: &Path, removed: &mut BTreeSet<String>) {
+    if let Some(id) = path.file_stem().and_then(|stem| stem.to_str())
+        && lock::remove_unless_held(path)
+    {
+        removed.insert(id.to_string());
     }
-    if let (Some(dir), Some(id)) = (path.parent(), path.file_stem().and_then(|stem| stem.to_str())) {
-        forget_session_async(dir, id).await?;
-    }
-    Ok(true)
+}
+
+async fn forget_removed(sessions_dir: &Path, removed: BTreeSet<String>) -> Result<usize> {
+    let count = removed.len();
+    forget_sessions_async(sessions_dir, removed).await?;
+    Ok(count)
 }
 
 pub async fn prune_empty_sessions_async(sessions_dir: &Path, active_session_id: Option<&str>) -> Result<usize> {
@@ -48,15 +57,15 @@ pub async fn prune_empty_sessions_async(sessions_dir: &Path, active_session_id: 
         return Ok(0);
     }
     let mut entries = tokio::fs::read_dir(sessions_dir).await?;
-    let mut count = 0;
+    let mut removed = BTreeSet::new();
     while let Some(entry) = entries.next_entry().await? {
         let path = entry.path();
         let metadata = entry.metadata().await.ok();
-        if should_prune_empty_session(&path, active_session_id, metadata) && remove_session_file(&path).await? {
-            count += 1;
+        if should_prune_empty_session(&path, active_session_id, metadata) {
+            remove_session_file(&path, &mut removed);
         }
     }
-    Ok(count)
+    forget_removed(sessions_dir, removed).await
 }
 
 fn calculate_prune_cutoff(retention_days: u32) -> Option<SystemTime> {
@@ -66,24 +75,19 @@ fn calculate_prune_cutoff(retention_days: u32) -> Option<SystemTime> {
     SystemTime::now().checked_sub(Duration::from_secs(retention_days as u64 * 86_400))
 }
 
-async fn prune_single_entry_async(ctx: &PruneContext<'_>, entry: tokio::fs::DirEntry) -> Result<bool> {
-    let path = entry.path();
-    let metadata = entry.metadata().await.ok();
-    if ctx.should_prune_async(&path, metadata).await {
-        remove_session_file(&path).await
-    } else {
-        Ok(false)
-    }
-}
-
-async fn drain_prune_entries_async(ctx: &PruneContext<'_>, mut entries: tokio::fs::ReadDir) -> Result<usize> {
-    let mut count = 0;
+async fn drain_prune_entries_async(
+    ctx: &PruneContext<'_>,
+    mut entries: tokio::fs::ReadDir,
+) -> Result<BTreeSet<String>> {
+    let mut removed = BTreeSet::new();
     while let Some(entry) = entries.next_entry().await? {
-        if prune_single_entry_async(ctx, entry).await? {
-            count += 1;
+        let path = entry.path();
+        let metadata = entry.metadata().await.ok();
+        if ctx.should_prune_async(&path, metadata).await {
+            remove_session_file(&path, &mut removed);
         }
     }
-    Ok(count)
+    Ok(removed)
 }
 
 pub async fn prune_expired_sessions_async(
@@ -103,7 +107,8 @@ pub async fn prune_expired_sessions_async(
         cutoff,
     };
     let entries = tokio::fs::read_dir(sessions_dir).await?;
-    drain_prune_entries_async(&ctx, entries).await
+    let removed = drain_prune_entries_async(&ctx, entries).await?;
+    forget_removed(sessions_dir, removed).await
 }
 
 impl PruneContext<'_> {
@@ -117,25 +122,32 @@ impl PruneContext<'_> {
         if modified >= self.cutoff {
             return false;
         }
-        !is_named_session_file_async(path).await
+        let path = path.to_path_buf();
+        !run_blocking(move || Ok(is_named_session_file(&path)))
+            .await
+            .unwrap_or(true)
     }
 }
 
-async fn is_named_session_file_async(path: &Path) -> bool {
-    use tokio::io::{AsyncBufReadExt, BufReader};
-    let Ok(file) = tokio::fs::File::open(path).await else {
+/// Reports whether any record in the file is a session name, reading only the start of each line.
+fn is_named_session_file(path: &Path) -> bool {
+    let Ok(file) = std::fs::File::open(path) else {
         return false;
     };
     let mut reader = BufReader::new(file);
-    let mut line = String::new();
-    while let Ok(bytes_read) = reader.read_line(&mut line).await {
-        if bytes_read == 0 {
-            break;
+    let mut prefix = Vec::with_capacity(SESSION_NAMED_PREFIX.len());
+    loop {
+        prefix.clear();
+        let limit = SESSION_NAMED_PREFIX.len() as u64;
+        match (&mut reader).take(limit).read_until(b'\n', &mut prefix) {
+            Ok(0) | Err(_) => return false,
+            Ok(_) => {}
         }
-        if line.contains("\"session_named\"") {
+        if prefix.starts_with(SESSION_NAMED_PREFIX) {
             return true;
         }
-        line.clear();
+        if prefix.last() != Some(&b'\n') && reader.skip_until(b'\n').is_err() {
+            return false;
+        }
     }
-    false
 }

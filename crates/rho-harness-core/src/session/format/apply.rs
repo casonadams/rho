@@ -125,16 +125,11 @@ fn apply_checkpoint_promoted(
     Ok(())
 }
 
-/// Applies a non-canonical record and reports whether it moved the active leaf, which leaves
-/// `state.messages` stale until rebuilt from the tree.
+/// Applies a non-canonical, non-node record and reports whether it moved the active leaf, which
+/// leaves `state.messages` stale until rebuilt from the tree.
 fn apply_tree_record(state: &mut StoreState, record: SessionRecord) -> bool {
     match record {
         SessionRecord::AuditEvent { event, .. } => state.events.push(event),
-        SessionRecord::TreeNode { node, .. } => {
-            state.tree.add_node(node);
-            state.checkpoint = None;
-            return true;
-        }
         SessionRecord::ActiveLeafChanged { active_leaf_id, .. } => {
             state.tree.set_active_leaf(active_leaf_id);
             return true;
@@ -154,6 +149,26 @@ fn apply_tree_record(state: &mut StoreState, record: SessionRecord) -> bool {
         _ => {}
     }
     false
+}
+
+/// A node that continues the active leaf extends `state.messages` in place. A new branch, a
+/// compaction, or a child of one changes what the active path keeps, so it needs a rebuild.
+fn apply_tree_node(state: &mut StoreState, node: TreeNodeData, messages_stale: &mut bool) {
+    let tree = &state.tree;
+    let continues_leaf = node.parent_id == tree.active_leaf_id
+        && node.kind != TreeNodeKind::Compaction
+        && node
+            .parent_id
+            .as_deref()
+            .and_then(|parent| tree.get_node(parent))
+            .is_none_or(|parent| parent.kind != TreeNodeKind::Compaction);
+    if *messages_stale || !continues_leaf {
+        *messages_stale = true;
+    } else {
+        state.messages.extend(node.messages.iter().cloned());
+    }
+    state.tree.add_node(node);
+    state.checkpoint = None;
 }
 
 fn reset_canonical_state(state: &mut StoreState) {
@@ -201,6 +216,7 @@ pub(crate) fn replay_record(
             refresh_stale_messages(state, messages_stale);
             apply_checkpoint_promoted(state, messages, timestamp)?;
         }
+        SessionRecord::TreeNode { node, .. } => apply_tree_node(state, node, messages_stale),
         other => *messages_stale |= apply_tree_record(state, other),
     }
     state.next_sequence += 1;
@@ -330,6 +346,60 @@ mod tests {
             assert_eq!(deferred.messages, eager.messages, "prefix {len}");
             assert_eq!(deferred.messages, deferred.tree.active_messages(), "prefix {len}");
             assert_eq!(deferred.checkpoint, eager.checkpoint, "prefix {len}");
+        }
+    }
+
+    fn tree_node(sequence: u64, node: TreeNodeData) -> SessionRecord {
+        SessionRecord::TreeNode {
+            sequence,
+            session_id: SID.to_string(),
+            node,
+        }
+    }
+
+    fn compaction(id: &str, parent: &str) -> TreeNodeData {
+        TreeNodeData {
+            kind: TreeNodeKind::Compaction,
+            messages: Vec::new(),
+            metadata: Some(serde_json::json!({
+                "summary": "summary",
+                "first_kept_node_id": "d",
+                "first_kept_message_index": 1,
+            })),
+            ..node(id, Some(parent), Vec::new())
+        }
+    }
+
+    #[test]
+    fn tree_nodes_extend_messages_in_place_and_rebuild_only_off_the_active_path() {
+        let leaf = |sequence, id: &str| SessionRecord::ActiveLeafChanged {
+            sequence,
+            session_id: SID.to_string(),
+            timestamp: ts(),
+            active_leaf_id: Some(id.to_string()),
+        };
+        let cases: Vec<(&str, SessionRecord, bool)> = vec![
+            ("first root", tree_node(1, node("a", None, turn(1))), false),
+            ("child of leaf", tree_node(2, node("b", Some("a"), turn(2))), false),
+            ("sibling branch", tree_node(3, node("c", Some("a"), turn(3))), true),
+            ("switch back", leaf(4, "b"), true),
+            (
+                "child of switched leaf",
+                tree_node(5, node("d", Some("b"), turn(4))),
+                false,
+            ),
+            ("compaction", tree_node(6, compaction("k", "d")), true),
+            ("child of compaction", tree_node(7, node("e", Some("k"), turn(5))), true),
+            ("after compaction", tree_node(8, node("f", Some("e"), turn(6))), false),
+            ("second root", tree_node(9, node("g", None, turn(7))), true),
+        ];
+        let mut state = empty_store_state();
+        for (name, record, rebuilds) in cases {
+            let mut stale = false;
+            replay_record(&mut state, record, SID, &mut stale).unwrap();
+            assert_eq!(stale, rebuilds, "{name}");
+            refresh_stale_messages(&mut state, &mut stale);
+            assert_eq!(state.messages, state.tree.active_messages(), "{name}");
         }
     }
 

@@ -39,6 +39,22 @@ impl std::fmt::Display for QueueMode {
     }
 }
 
+pub const PENDING_QUEUE_CAPACITY: usize = 256;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct QueueFull;
+
+impl std::fmt::Display for QueueFull {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "message queue is full ({PENDING_QUEUE_CAPACITY} pending); wait for queued messages to be delivered"
+        )
+    }
+}
+
+impl std::error::Error for QueueFull {}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PendingMessageQueue<T> {
     messages: VecDeque<T>,
@@ -53,8 +69,12 @@ impl<T> PendingMessageQueue<T> {
         }
     }
 
-    pub fn enqueue(&mut self, item: T) {
+    pub fn enqueue(&mut self, item: T) -> Result<(), QueueFull> {
+        if self.messages.len() >= PENDING_QUEUE_CAPACITY {
+            return Err(QueueFull);
+        }
         self.messages.push_back(item);
+        Ok(())
     }
 
     pub fn len(&self) -> usize {
@@ -134,19 +154,34 @@ mod tests {
     #[test]
     fn test_pending_message_queue_one_at_a_time() {
         let mut queue = PendingMessageQueue::new(QueueMode::OneAtATime);
-        queue.enqueue("msg 1");
-        queue.enqueue("msg 2");
+        queue.enqueue("msg 1").unwrap();
+        queue.enqueue("msg 2").unwrap();
         assert_eq!(queue.drain(), vec!["msg 1"]);
         assert_eq!(queue.drain(), vec!["msg 2"]);
         assert!(queue.drain().is_empty());
     }
 
     #[test]
+    fn a_full_queue_rejects_new_items_and_keeps_the_queued_ones() {
+        let mut queue = PendingMessageQueue::new(QueueMode::All);
+        for n in 0..PENDING_QUEUE_CAPACITY {
+            queue.enqueue(n).unwrap();
+        }
+
+        let error = queue.enqueue(PENDING_QUEUE_CAPACITY).unwrap_err();
+
+        assert_eq!(error, QueueFull);
+        assert!(error.to_string().contains(&PENDING_QUEUE_CAPACITY.to_string()));
+        assert_eq!(queue.drain(), (0..PENDING_QUEUE_CAPACITY).collect::<Vec<_>>());
+        assert!(queue.enqueue(0).is_ok());
+    }
+
+    #[test]
     fn test_pending_message_queue_all() {
         let mut queue = PendingMessageQueue::new(QueueMode::All);
-        queue.enqueue("msg 1");
-        queue.enqueue("msg 2");
-        queue.enqueue("msg 3");
+        queue.enqueue("msg 1").unwrap();
+        queue.enqueue("msg 2").unwrap();
+        queue.enqueue("msg 3").unwrap();
 
         let drained = queue.drain();
         assert_eq!(drained, vec!["msg 1", "msg 2", "msg 3"]);

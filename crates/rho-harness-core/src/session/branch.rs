@@ -106,11 +106,11 @@ impl SessionManager {
     }
 
     pub fn cached_session_name(&self) -> Option<String> {
-        self.state.try_lock().ok().and_then(|s| s.tree.session_name.clone())
+        self.title.name()
     }
 
     pub fn cached_session_name_source(&self) -> Option<TitleSource> {
-        self.state.try_lock().ok().and_then(|s| s.tree.session_name_source)
+        self.title.source()
     }
 
     pub async fn append_branch_summary(&self, summary: &str, source_leaf_id: &str) -> Result<()> {
@@ -242,6 +242,34 @@ mod tests {
 
         let empty_tree = SessionTree::default();
         assert_eq!(resolve_turn_node_id_from_tree(&empty_tree, 1, 2, "fallback"), None);
+    }
+
+    #[tokio::test]
+    async fn cached_session_name_stays_readable_while_the_session_state_is_locked() {
+        let dir = crate::test_support::temp_dir();
+        let session = SessionManager::new_async(&dir, None).await.unwrap();
+        session.set_session_name("Named").await.unwrap();
+
+        let _append_in_flight = session.state.lock().await;
+
+        assert_eq!(session.cached_session_name().as_deref(), Some("Named"));
+        assert_eq!(session.cached_session_name_source(), Some(TitleSource::User));
+    }
+
+    #[tokio::test]
+    async fn cached_session_name_is_shared_by_managers_and_survives_resume() {
+        let dir = crate::test_support::temp_dir();
+        let first = SessionManager::new_async(&dir, None).await.unwrap();
+        let id = first.session_id.clone();
+        let second = SessionManager::new_async(&dir, Some(&id)).await.unwrap();
+        assert!(first.set_auto_session_name("Auto").await.unwrap());
+        assert_eq!(second.cached_session_name().as_deref(), Some("Auto"));
+        drop((first, second));
+
+        let resumed = SessionManager::new_async(&dir, Some(&id)).await.unwrap();
+
+        assert_eq!(resumed.cached_session_name().as_deref(), Some("Auto"));
+        assert_eq!(resumed.cached_session_name_source(), Some(TitleSource::Auto));
     }
 
     #[tokio::test]
