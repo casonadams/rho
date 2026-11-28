@@ -1,13 +1,14 @@
 //! Frontend-neutral session operations. Each function performs one operation and
 //! returns its outcome as text or a domain result; line mode, live mode and RPC only render it.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use crate::engine::AgentEngine;
 use crate::error::Result;
 use crate::repl::ReplSession;
 use crate::repl::commands::ForkTarget;
 use crate::repl::fork_launch::fork_status_message;
+use crate::session_restore::{WorkspaceRestore, restore_workspace};
 use rho_harness_core::session::SessionManager;
 use rho_harness_core::session::tree::SessionTree;
 
@@ -26,33 +27,6 @@ pub(crate) async fn fork(
         .await?
         .session_id;
     Ok(fork_status_message(&session_id, target, &engine.base_dir))
-}
-
-#[derive(Debug, PartialEq, Eq)]
-pub(crate) enum WorkspaceRestore {
-    Unchanged,
-    Restored,
-    Missing(PathBuf),
-    Failed { path: PathBuf, error: String },
-}
-
-pub(crate) fn restore_workspace(
-    saved: Option<PathBuf>,
-    change_dir: impl FnOnce(&Path) -> std::io::Result<()>,
-) -> WorkspaceRestore {
-    let Some(saved) = saved else {
-        return WorkspaceRestore::Unchanged;
-    };
-    if !saved.is_dir() {
-        return WorkspaceRestore::Missing(saved);
-    }
-    match change_dir(&saved) {
-        Ok(()) => WorkspaceRestore::Restored,
-        Err(err) => WorkspaceRestore::Failed {
-            path: saved,
-            error: err.to_string(),
-        },
-    }
 }
 
 pub(crate) struct Resumed {
@@ -78,14 +52,10 @@ pub(crate) async fn resume(session: &mut ReplSession, engine: &mut AgentEngine, 
 
 pub(crate) fn resumed_message(resumed: &Resumed) -> String {
     let id = &resumed.session_id;
-    let note = match &resumed.workspace {
-        WorkspaceRestore::Unchanged | WorkspaceRestore::Restored => String::new(),
-        WorkspaceRestore::Missing(path) => format!(" (previous workspace {} no longer exists)", path.display()),
-        WorkspaceRestore::Failed { path, error } => {
-            format!(" (could not restore workspace {}: {error})", path.display())
-        }
-    };
-    format!("Resumed session {id}{note}")
+    match resumed.workspace.note() {
+        Some(note) => format!("Resumed session {id} ({note})"),
+        None => format!("Resumed session {id}"),
+    }
 }
 
 pub(crate) fn resume_failed_message(session_id: &str, err: &impl std::fmt::Display) -> String {
@@ -153,33 +123,7 @@ pub(crate) async fn enter_worktree(engine: &mut AgentEngine, branch: Option<&str
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rho_test_support::TestDir;
-
-    #[test]
-    fn restore_workspace_maps_the_saved_cwd_to_an_outcome() {
-        let scratch = TestDir::new();
-        let existing = scratch.to_path_buf();
-        let missing = scratch.join("gone");
-        let ok = |_: &Path| -> std::io::Result<()> { Ok(()) };
-        let denied = |_: &Path| -> std::io::Result<()> { Err(std::io::Error::other("permission denied")) };
-
-        assert_eq!(restore_workspace(None, ok), WorkspaceRestore::Unchanged);
-        assert_eq!(
-            restore_workspace(Some(existing.clone()), ok),
-            WorkspaceRestore::Restored
-        );
-        assert_eq!(
-            restore_workspace(Some(missing.clone()), ok),
-            WorkspaceRestore::Missing(missing)
-        );
-        assert_eq!(
-            restore_workspace(Some(existing.clone()), denied),
-            WorkspaceRestore::Failed {
-                path: existing,
-                error: "permission denied".to_string(),
-            }
-        );
-    }
+    use std::path::PathBuf;
 
     #[test]
     fn rewind_failure_is_reported_as_text() {

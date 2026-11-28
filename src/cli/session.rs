@@ -3,6 +3,7 @@
 use super::CliResult;
 use crate::config::Config;
 use crate::config::cli::Cli;
+use crate::session_restore::restore_saved_cwd;
 use rho_harness_core::error::AppError;
 use rho_harness_core::session::SessionManager;
 use rho_harness_core::session::export::{ExportFormat, write_export};
@@ -30,38 +31,15 @@ fn resolve_continue_target(sessions_dir: &std::path::Path) -> CliResult<Option<S
     Ok(SessionManager::last_session_for_cwd(sessions_dir, &cwd)?)
 }
 
-#[derive(Debug, PartialEq, Eq)]
-pub(crate) enum SessionCwdRestore {
-    Relocate(PathBuf),
-    Missing(PathBuf),
-    Unchanged,
-}
-
-pub(crate) fn resolve_session_cwd_to_restore(sessions_dir: &std::path::Path, session_id: &str) -> SessionCwdRestore {
-    let Ok(Some(saved)) = SessionManager::cwd_for_session(sessions_dir, session_id) else {
-        return SessionCwdRestore::Unchanged;
-    };
-    if saved.is_dir() {
-        SessionCwdRestore::Relocate(saved)
-    } else {
-        SessionCwdRestore::Missing(saved)
-    }
-}
-
 pub fn restore_session_cwd(sessions_dir: &std::path::Path, session_id: &str) {
-    match resolve_session_cwd_to_restore(sessions_dir, session_id) {
-        SessionCwdRestore::Relocate(saved) => {
-            if let Err(err) = std::env::set_current_dir(&saved) {
-                eprintln!("Warning: could not restore workspace {}: {err}", saved.display());
+    match restore_saved_cwd(sessions_dir, session_id, |dir| std::env::set_current_dir(dir)) {
+        Ok(outcome) => {
+            if let Some(note) = outcome.note() {
+                let level = if outcome.is_failure() { "Warning" } else { "Note" };
+                eprintln!("{level}: {note}");
             }
         }
-        SessionCwdRestore::Missing(saved) => {
-            eprintln!(
-                "Note: previous workspace {} no longer exists; staying in current directory.",
-                saved.display()
-            );
-        }
-        SessionCwdRestore::Unchanged => {}
+        Err(err) => eprintln!("Warning: could not read the session's workspace: {err}"),
     }
 }
 
@@ -225,31 +203,5 @@ mod tests {
         assert!(export_md.exists());
         let content = tokio::fs::read_to_string(&export_md).await.unwrap();
         assert!(content.contains(&session_id));
-    }
-
-    #[test]
-    fn resolve_session_cwd_to_restore_handles_existing_missing_and_unknown() {
-        let dir = rho_test_support::TestDir::new();
-        let sessions_dir = dir.join("sessions");
-        let worktree = dir.join("wt");
-        std::fs::create_dir_all(&worktree).unwrap();
-
-        assert_eq!(
-            resolve_session_cwd_to_restore(&sessions_dir, "missing-sess"),
-            SessionCwdRestore::Unchanged
-        );
-
-        SessionManager::record_session_for_cwd(&sessions_dir, &worktree, "sess-wt").unwrap();
-        let canonical_wt = std::fs::canonicalize(&worktree).unwrap();
-        assert_eq!(
-            resolve_session_cwd_to_restore(&sessions_dir, "sess-wt"),
-            SessionCwdRestore::Relocate(canonical_wt.clone())
-        );
-
-        std::fs::remove_dir_all(&worktree).unwrap();
-        assert_eq!(
-            resolve_session_cwd_to_restore(&sessions_dir, "sess-wt"),
-            SessionCwdRestore::Missing(canonical_wt)
-        );
     }
 }

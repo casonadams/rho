@@ -22,6 +22,7 @@ pub use rho_harness_core::{
     args, config, error, net, presentation, provider, queue, session, skills, tokens, workspace,
 };
 pub mod platform;
+mod session_restore;
 pub mod steering;
 pub mod tree_display;
 
