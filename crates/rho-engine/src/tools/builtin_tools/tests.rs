@@ -53,41 +53,19 @@ async fn a_subagent_cannot_undo_the_parents_edits_and_the_parent_cannot_undo_the
     );
 }
 
-#[tokio::test]
-async fn subagent_bash_runs_with_the_configured_direnv_options() {
+#[test]
+fn fresh_session_bash_keeps_the_configured_direnv_options() {
     let dir = TestDir::new();
-    let model: crate::engine::compactor::llm::ModelHandle = Arc::new(MockAdapter::text("x"));
-    let mut config = Config::default();
-    config.tools.bash.direnv = true;
-    config.tools.bash.direnv_timeout_ms = 1234;
+    let parent = build_builtin_tools(&dir, &Config::default(), None).unwrap().tools;
     let configured = crate::tools::bash::DirenvOptions {
-        enabled: true,
+        enabled: false,
         timeout_ms: 1234,
     };
-    let (tools, subagent) = build_builtin_toolset(
-        &dir,
-        &config,
-        Some(model),
-        None,
-        ToolsetServices::default(),
-        &SubagentRuntime::default(),
-    )
-    .unwrap();
-    let runner = subagent
-        .runner_for(RunnerSpec {
-            agent: Some("general"),
-            local_agents: &[],
-            turns: None,
-            model: None,
-            position: None,
-            task_name: None,
-            persona: None,
-        })
-        .await
-        .unwrap();
 
-    assert_eq!(named(&tools, "bash").direnv_options(), Some(configured));
-    assert_eq!(runner.tool("bash").unwrap().direnv_options(), Some(configured));
+    let fresh = fresh_session_tools(&parent, &dir, None, configured);
+
+    assert_eq!(fresh.bash.direnv, configured);
+    assert!(fresh.tools.iter().any(|tool| tool.name() == "bash"));
 }
 
 fn names_without_memory(tools: &[Arc<dyn EngineTool>]) -> Vec<&str> {

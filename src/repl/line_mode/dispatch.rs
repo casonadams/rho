@@ -30,11 +30,20 @@ pub(crate) async fn maybe_summarize_abandoned(
     engine: &AgentEngine,
     reader: &mut impl BufRead,
     writer: &mut impl Write,
+    renderer: &crate::ui::TerminalRenderer,
 ) -> Option<String> {
     if !has_assistant_turn(abandoned) {
         return None;
     }
-    let answer = crate::repl::prompt::read_answer(reader, writer, SUMMARY_PROMPT)?;
+    let answer = match crate::repl::prompt::try_read_answer(reader, writer, SUMMARY_PROMPT) {
+        Ok(answer) => answer,
+        Err(err) => {
+            renderer.print_notice(&format!(
+                "  [Warning: could not read answer, skipping branch summary: {err}]\n"
+            ));
+            return None;
+        }
+    };
     summarize_abandoned(engine, abandoned, should_summarize_branch(&answer)).await
 }
 
@@ -58,7 +67,14 @@ pub async fn switch_active_branch(leaf_id: String, session: &mut ReplSession, en
     let (old_leaf, tree) = load_branch_context(engine).await?;
     let (abandoned, _) = tree.branch_divergence(&old_leaf, &leaf_id);
     let summary = if std::io::stdin().is_terminal() {
-        maybe_summarize_abandoned(&abandoned, engine, &mut std::io::stdin().lock(), &mut std::io::stdout()).await
+        maybe_summarize_abandoned(
+            &abandoned,
+            engine,
+            &mut std::io::stdin().lock(),
+            &mut std::io::stdout(),
+            &session.renderer,
+        )
+        .await
     } else {
         None
     };

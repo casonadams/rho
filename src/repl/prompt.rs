@@ -6,11 +6,19 @@ pub(crate) fn read_answer<R: std::io::BufRead, W: std::io::Write>(
     writer: &mut W,
     prompt: &str,
 ) -> Option<String> {
-    write!(writer, "{prompt}").ok()?;
-    writer.flush().ok()?;
+    try_read_answer(reader, writer, prompt).ok()
+}
+
+pub(crate) fn try_read_answer<R: std::io::BufRead, W: std::io::Write>(
+    reader: &mut R,
+    writer: &mut W,
+    prompt: &str,
+) -> std::io::Result<String> {
+    write!(writer, "{prompt}")?;
+    writer.flush()?;
     let mut input = String::new();
-    reader.read_line(&mut input).ok()?;
-    Some(input)
+    reader.read_line(&mut input)?;
+    Ok(input)
 }
 
 #[derive(Debug, Clone, Copy, Default)]

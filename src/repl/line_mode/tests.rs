@@ -394,7 +394,14 @@ async fn abandoned_branch_without_assistant_turn_is_not_offered_a_summary() {
     let mut reader = std::io::Cursor::new(b"y\n".to_vec());
     let mut writer = Vec::new();
 
-    let summary = super::dispatch::maybe_summarize_abandoned(&[&user_node], &engine, &mut reader, &mut writer).await;
+    let summary = super::dispatch::maybe_summarize_abandoned(
+        &[&user_node],
+        &engine,
+        &mut reader,
+        &mut writer,
+        &TerminalRenderer::default(),
+    )
+    .await;
 
     assert_eq!(summary, None);
     assert!(writer.is_empty(), "no prompt is printed");
@@ -424,8 +431,14 @@ async fn abandoned_branch_summary_follows_the_typed_answer() {
         let mut reader = std::io::Cursor::new(answer.to_vec());
         let mut writer = Vec::new();
 
-        let summary =
-            super::dispatch::maybe_summarize_abandoned(&[&assistant_node], &engine, &mut reader, &mut writer).await;
+        let summary = super::dispatch::maybe_summarize_abandoned(
+            &[&assistant_node],
+            &engine,
+            &mut reader,
+            &mut writer,
+            &TerminalRenderer::default(),
+        )
+        .await;
 
         assert_eq!(summary.is_some(), expect_summary, "answer {answer:?}");
         assert_eq!(
@@ -433,6 +446,49 @@ async fn abandoned_branch_summary_follows_the_typed_answer() {
             crate::repl::branch_summary::SUMMARY_PROMPT
         );
     }
+}
+
+struct FailingReader;
+
+impl std::io::Read for FailingReader {
+    fn read(&mut self, _buf: &mut [u8]) -> std::io::Result<usize> {
+        Err(std::io::Error::other("stdin unavailable"))
+    }
+}
+
+impl std::io::BufRead for FailingReader {
+    fn fill_buf(&mut self) -> std::io::Result<&[u8]> {
+        Err(std::io::Error::other("stdin unavailable"))
+    }
+
+    fn consume(&mut self, _amt: usize) {}
+}
+
+#[tokio::test]
+async fn a_summary_prompt_read_error_is_reported_and_skips_the_summary() {
+    let temp = rho_test_support::TestDir::new();
+    let (_session, engine) = setup_test_session(&temp).await;
+    let (renderer, mut events) = crate::repl::collecting_renderer();
+    let assistant_node = TreeNodeData::turn(
+        TreeNodeKind::AssistantTurn,
+        None,
+        chrono::Utc::now(),
+        vec![rho_harness_core::model::ChatMessage::assistant("hi")],
+    );
+    let mut writer = Vec::new();
+
+    let summary = super::dispatch::maybe_summarize_abandoned(
+        &[&assistant_node],
+        &engine,
+        &mut FailingReader,
+        &mut writer,
+        &renderer,
+    )
+    .await;
+
+    assert_eq!(summary, None);
+    let printed = crate::repl::collected_output(&mut events);
+    assert!(printed.contains("stdin unavailable"), "{printed}");
 }
 
 #[tokio::test]

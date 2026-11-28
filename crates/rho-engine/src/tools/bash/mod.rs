@@ -31,7 +31,7 @@ pub struct BashTool {
     log_dir: PathBuf,
     /// The agent whose mailbox hears about commands this tool moves to the background.
     owner: Option<crate::mailbox::Mailbox>,
-    direnv: DirenvOptions,
+    pub(crate) direnv: DirenvOptions,
     /// Where the output of a running command goes as it is produced.
     progress: ToolStreamPort,
 }
@@ -114,11 +114,6 @@ impl TypedTool for BashTool {
         let port = self.progress.clone();
         self.execute_streaming(args, move |chunk| port.stream_chunk(chunk))
             .await
-    }
-
-    #[cfg(test)]
-    fn direnv_options(&self) -> Option<DirenvOptions> {
-        Some(self.direnv)
     }
 
     fn bind_to_turn(&self, ctx: &TurnToolContext) -> Option<Arc<dyn EngineTool>> {
