@@ -5,7 +5,7 @@ use rho_harness_core::model::{ChatMessage, Reasoning, ToolCall};
 use rho_harness_core::thinking::ThinkingLevel;
 use serde::{Deserialize, Serialize};
 use std::pin::Pin;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 pub type ModelHandle = Arc<dyn ModelAdapter>;
 
@@ -130,81 +130,90 @@ pub trait ModelAdapter: Send + Sync + std::fmt::Debug {
     }
 }
 
-type MockTurns = Arc<Mutex<Vec<Vec<Result<ModelStreamEvent, AppError>>>>>;
+#[cfg(any(test, feature = "test-support"))]
+pub use mock::MockAdapter;
 
-#[derive(Clone, Debug, Default)]
-pub struct MockAdapter {
-    model: String,
-    provider: String,
-    turns: MockTurns,
-    requests: Arc<Mutex<Vec<ModelCompletionRequest>>>,
-}
+#[cfg(any(test, feature = "test-support"))]
+mod mock {
+    use super::*;
+    use std::sync::Mutex;
 
-impl MockAdapter {
-    pub fn new(model: impl Into<String>, provider: impl Into<String>) -> Self {
-        Self {
-            model: model.into(),
-            provider: provider.into(),
-            turns: Arc::new(Mutex::new(Vec::new())),
-            requests: Arc::new(Mutex::new(Vec::new())),
+    type MockTurns = Arc<Mutex<Vec<Vec<Result<ModelStreamEvent, AppError>>>>>;
+
+    #[derive(Clone, Debug, Default)]
+    pub struct MockAdapter {
+        model: String,
+        provider: String,
+        turns: MockTurns,
+        requests: Arc<Mutex<Vec<ModelCompletionRequest>>>,
+    }
+
+    impl MockAdapter {
+        pub fn new(model: impl Into<String>, provider: impl Into<String>) -> Self {
+            Self {
+                model: model.into(),
+                provider: provider.into(),
+                turns: Arc::new(Mutex::new(Vec::new())),
+                requests: Arc::new(Mutex::new(Vec::new())),
+            }
+        }
+
+        pub fn text(response_text: impl Into<String>) -> Self {
+            let adapter = Self::new("mock-model", "mock-provider");
+            adapter.add_turn(vec![
+                Ok(ModelStreamEvent::Text(response_text.into())),
+                Ok(ModelStreamEvent::Finish(FinishReason::Stop)),
+            ]);
+            adapter
+        }
+
+        pub fn from_turns(turns: impl IntoIterator<Item = Vec<ModelStreamEvent>>) -> Self {
+            let adapter = Self::new("mock-model", "mock-provider");
+            for turn in turns {
+                let res_turn = turn.into_iter().map(Ok).collect();
+                adapter.add_turn(res_turn);
+            }
+            adapter
+        }
+
+        pub fn from_result_turns(turns: impl IntoIterator<Item = Vec<Result<ModelStreamEvent, AppError>>>) -> Self {
+            let adapter = Self::new("mock-model", "mock-provider");
+            for turn in turns {
+                adapter.add_turn(turn);
+            }
+            adapter
+        }
+
+        pub fn add_turn(&self, turn: Vec<Result<ModelStreamEvent, AppError>>) {
+            self.turns.lock().unwrap().push(turn);
+        }
+
+        pub fn requests(&self) -> Vec<ModelCompletionRequest> {
+            self.requests.lock().unwrap().clone()
         }
     }
 
-    pub fn text(response_text: impl Into<String>) -> Self {
-        let adapter = Self::new("mock-model", "mock-provider");
-        adapter.add_turn(vec![
-            Ok(ModelStreamEvent::Text(response_text.into())),
-            Ok(ModelStreamEvent::Finish(FinishReason::Stop)),
-        ]);
-        adapter
-    }
-
-    pub fn from_turns(turns: impl IntoIterator<Item = Vec<ModelStreamEvent>>) -> Self {
-        let adapter = Self::new("mock-model", "mock-provider");
-        for turn in turns {
-            let res_turn = turn.into_iter().map(Ok).collect();
-            adapter.add_turn(res_turn);
+    #[async_trait::async_trait]
+    impl ModelAdapter for MockAdapter {
+        fn model_name(&self) -> &str {
+            &self.model
         }
-        adapter
-    }
 
-    pub fn from_result_turns(turns: impl IntoIterator<Item = Vec<Result<ModelStreamEvent, AppError>>>) -> Self {
-        let adapter = Self::new("mock-model", "mock-provider");
-        for turn in turns {
-            adapter.add_turn(turn);
+        fn provider_name(&self) -> &str {
+            &self.provider
         }
-        adapter
-    }
 
-    pub fn add_turn(&self, turn: Vec<Result<ModelStreamEvent, AppError>>) {
-        self.turns.lock().unwrap().push(turn);
-    }
-
-    pub fn requests(&self) -> Vec<ModelCompletionRequest> {
-        self.requests.lock().unwrap().clone()
-    }
-}
-
-#[async_trait::async_trait]
-impl ModelAdapter for MockAdapter {
-    fn model_name(&self) -> &str {
-        &self.model
-    }
-
-    fn provider_name(&self) -> &str {
-        &self.provider
-    }
-
-    async fn stream(
-        &self,
-        request: ModelCompletionRequest,
-    ) -> Result<Pin<Box<dyn Stream<Item = Result<ModelStreamEvent, AppError>> + Send>>, AppError> {
-        self.requests.lock().unwrap().push(request);
-        let turn = {
-            let mut turns = self.turns.lock().unwrap();
-            if turns.is_empty() { Vec::new() } else { turns.remove(0) }
-        };
-        Ok(Box::pin(futures::stream::iter(turn)))
+        async fn stream(
+            &self,
+            request: ModelCompletionRequest,
+        ) -> Result<Pin<Box<dyn Stream<Item = Result<ModelStreamEvent, AppError>> + Send>>, AppError> {
+            self.requests.lock().unwrap().push(request);
+            let turn = {
+                let mut turns = self.turns.lock().unwrap();
+                if turns.is_empty() { Vec::new() } else { turns.remove(0) }
+            };
+            Ok(Box::pin(futures::stream::iter(turn)))
+        }
     }
 }
 

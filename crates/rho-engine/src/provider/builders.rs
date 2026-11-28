@@ -44,13 +44,8 @@ fn stored_tokens(request: &ModelRequest<'_>) -> Arc<dyn TokenProvider> {
     ))
 }
 
-pub(super) fn build_chatgpt_model(request: &ModelRequest<'_>, auth_store: &AuthStore) -> ModelHandle {
-    let token = auth_store
-        .get_key_sync(request.connection)
-        .ok()
-        .flatten()
-        .unwrap_or_default();
-    let account_id = auth_store.chatgpt_account_id(request.connection, &token);
+pub(super) fn build_chatgpt_model(request: &ModelRequest<'_>, auth_store: &AuthStore, token: &str) -> ModelHandle {
+    let account_id = auth_store.chatgpt_account_id(request.connection, token);
     Arc::new(
         crate::chatgpt::ChatGptClient::with_token_provider(stored_tokens(request), request.model)
             .with_account_id(account_id),

@@ -83,8 +83,7 @@ impl ChatGptClient {
         );
         if let Some(account_id) = &self.account_id {
             let val = header_value(account_id, "The account id")?;
-            headers.insert("chatgpt-account-id", val.clone());
-            headers.insert("ChatGPT-Account-Id", val);
+            headers.insert("chatgpt-account-id", val);
         }
         headers.insert(
             reqwest::header::ACCEPT,
@@ -93,7 +92,7 @@ impl ChatGptClient {
         Ok(headers)
     }
 
-    fn build_request(&self, request: &ModelCompletionRequest) -> Result<serde_json::Value, AppError> {
+    fn build_request(&self, request: &ModelCompletionRequest) -> serde_json::Value {
         let mut input = Vec::new();
         if let Some(preamble) = &request.preamble
             && !preamble.trim().is_empty()
@@ -136,13 +135,11 @@ impl ChatGptClient {
         if !tools.is_empty() {
             body["tools"] = json!(tools);
         }
-        Ok(body)
+        body
     }
 
     async fn post_stream(&self, token: &str, request: &ModelCompletionRequest) -> HttpResult {
-        let body = self
-            .build_request(request)
-            .map_err(|e| HttpFailure::Local(e.to_string()))?;
+        let body = self.build_request(request);
         post_json_checked(&self.target_url(), self.headers(token)?, &body).await
     }
 
@@ -278,18 +275,20 @@ mod tests {
         assert_eq!(headers.get("OpenAI-Beta").unwrap(), "responses=experimental");
         assert_eq!(headers.get("originator").unwrap(), "codex");
         assert_eq!(headers.get("User-Agent").unwrap(), "Codex/0.22.4");
-        assert_eq!(headers.get("chatgpt-account-id").unwrap(), "acc-123");
-        assert_eq!(headers.get("ChatGPT-Account-Id").unwrap(), "acc-123");
+        assert_eq!(
+            headers.get_all("chatgpt-account-id").iter().collect::<Vec<_>>(),
+            ["acc-123"]
+        );
         assert!(headers.get("session_id").is_some());
     }
 
     #[test]
-    fn build_request_sets_store_false_and_encrypted_reasoning() {
+    fn build_request_sets_model_and_streaming() {
         let client = ChatGptClient::new("test-token", "gpt-5.4");
         let mut req = sample_completion_request();
         req.temperature = Some(0.7);
         req.max_tokens = Some(100);
-        let json_body = client.build_request(&req).unwrap();
+        let json_body = client.build_request(&req);
 
         assert_eq!(json_body["model"], "gpt-5.4");
         assert_eq!(json_body["stream"], true);
@@ -457,7 +456,7 @@ mod tests {
 
         let mut req_with_custom = sample_completion_request();
         req_with_custom.preamble = Some("Act as a Rust compiler.".to_string());
-        let res_custom = client.build_request(&req_with_custom).unwrap();
+        let res_custom = client.build_request(&req_with_custom);
         let input = res_custom["input"].as_array().unwrap();
         assert_eq!(input[0]["content"][0]["text"], "Act as a Rust compiler.");
     }

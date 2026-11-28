@@ -188,8 +188,8 @@ fn build_builtin_model(request: &ModelRequest<'_>, auth_store: &AuthStore) -> Re
             Ok(build_claude_code_model(request))
         }
         ProviderId::ChatGpt => {
-            resolve_provider_key(provider, connection, auth_store)?;
-            Ok(build_chatgpt_model(request, auth_store))
+            let token = resolve_provider_key(provider, connection, auth_store)?;
+            Ok(build_chatgpt_model(request, auth_store, &token))
         }
         ProviderId::Anthropic
         | ProviderId::OpenAi

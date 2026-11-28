@@ -141,6 +141,7 @@ libc.workspace = true
 winres = "0.1"
 
 [dev-dependencies]
+rho-engine = { workspace = true, features = ["test-support"] }
 rho-harness-core = { workspace = true, features = ["skip-fsync"] }
 rho-test-support.workspace = true
 tempfile.workspace = true

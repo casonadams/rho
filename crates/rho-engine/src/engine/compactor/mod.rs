@@ -24,6 +24,7 @@ pub(crate) enum CompactionSummaries {
     #[default]
     SessionModel,
     /// A summary built from the messages without asking a model.
+    #[cfg(any(test, feature = "test-support"))]
     Heuristic,
 }
 
@@ -32,6 +33,7 @@ impl CompactionSummaries {
     pub(crate) fn model(self, session_model: Option<&llm::ModelHandle>) -> Option<llm::ModelHandle> {
         match self {
             Self::SessionModel => session_model.cloned(),
+            #[cfg(any(test, feature = "test-support"))]
             Self::Heuristic => None,
         }
     }

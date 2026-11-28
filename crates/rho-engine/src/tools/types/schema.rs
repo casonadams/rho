@@ -111,6 +111,11 @@ fn try_clean_any_of(map: &mut serde_json::Map<String, serde_json::Value>) -> Opt
         .collect();
     if non_null.len() == 1 {
         let mut single = non_null[0].clone();
+        if let serde_json::Value::Object(single_map) = &mut single {
+            for (key, outer) in map.iter().filter(|(key, _)| key.as_str() != "anyOf") {
+                single_map.insert(key.clone(), outer.clone());
+            }
+        }
         clean_schema(&mut single);
         Some(single)
     } else {
@@ -151,4 +156,21 @@ pub(crate) fn generated_schema<T: JsonSchema>() -> serde_json::Value {
     let mut schema = serde_json::to_value(schemars::schema_for!(T)).expect("generated JSON Schema must serialize");
     normalize_schema(&mut schema);
     schema
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn optional_enum_property_keeps_its_own_description() {
+        let schema = generated_schema::<rho_harness_core::args::WebSearchArgs>();
+        let recency = &schema["properties"]["recency"];
+        assert_eq!(
+            recency["description"],
+            "Filter search results by time period: 'day', 'week', 'month', or 'year'"
+        );
+        assert_eq!(recency["enum"], serde_json::json!(["day", "week", "month", "year"]));
+        assert!(recency.get("anyOf").is_none(), "{recency}");
+    }
 }

@@ -256,6 +256,9 @@ impl GoogleSseParser {
     }
 
     fn report_usage(&mut self, events: &mut SseEvents) {
+        if self.usage_reported {
+            return;
+        }
         if let Some(usage) = self.latest_usage.take() {
             self.usage_reported = true;
             events.push(Ok(ModelStreamEvent::Usage(usage.into())));
@@ -302,7 +305,7 @@ impl GoogleSseParser {
         if let Some(metadata) = body.usage_metadata.as_ref() {
             self.latest_usage = Some(usage_from_metadata(metadata));
         }
-        if body.candidates.is_empty() {
+        if body.candidates.is_empty() && self.finish_seen {
             self.report_usage(events);
         }
         for candidate in body.candidates {
@@ -316,7 +319,7 @@ impl SseStreamParser for GoogleSseParser {
         GoogleSseParser::feed(self, bytes)
     }
 
-    /// Usage may trail the finishing candidate in its own chunk, so reading continues until it arrives.
+    /// Usage metadata is cumulative and may trail the finishing candidate, so only the latest is reported, once.
     fn is_done(&self) -> bool {
         self.failed || (self.finish_seen && self.usage_reported)
     }

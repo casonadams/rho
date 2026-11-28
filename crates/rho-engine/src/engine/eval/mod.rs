@@ -14,8 +14,11 @@
 
 pub mod presenter;
 
+#[cfg(any(test, feature = "test-support"))]
 pub mod harness;
 
+#[cfg(any(test, feature = "test-support"))]
 pub mod mock;
 
+#[cfg(any(test, feature = "test-support"))]
 pub mod types;

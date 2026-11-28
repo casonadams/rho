@@ -130,6 +130,25 @@ struct FunctionCallPayload {
 struct ResponseCompletedPayload {
     #[serde(default)]
     usage: Option<ResponsesUsagePayload>,
+    #[serde(default)]
+    incomplete_details: Option<IncompleteDetailsPayload>,
+}
+
+#[derive(Deserialize)]
+struct IncompleteDetailsPayload {
+    #[serde(default)]
+    reason: Option<String>,
+}
+
+fn incomplete_finish_reason(response: Option<&ResponseCompletedPayload>) -> FinishReason {
+    let reason = response
+        .and_then(|r| r.incomplete_details.as_ref())
+        .and_then(|d| d.reason.as_deref());
+    match reason {
+        Some("max_output_tokens") => FinishReason::Length,
+        Some("content_filter") => FinishReason::ContentFilter,
+        _ => FinishReason::Other,
+    }
 }
 
 #[derive(Deserialize)]
@@ -388,7 +407,8 @@ impl SseParser {
                 Self::handle_completed(response.and_then(|r| r.usage), FinishReason::Stop, events);
             }
             ResponsesWireEvent::ResponseIncomplete { response } => {
-                Self::handle_completed(response.and_then(|r| r.usage), FinishReason::Length, events);
+                let finish = incomplete_finish_reason(response.as_ref());
+                Self::handle_completed(response.and_then(|r| r.usage), finish, events);
             }
             ResponsesWireEvent::ResponseFailed { response } => {
                 let error = response.and_then(|r| r.error);

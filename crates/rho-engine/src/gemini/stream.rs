@@ -117,6 +117,34 @@ mod tests {
         assert!(matches!(events.last(), Some(Ok(ModelStreamEvent::Usage(u))) if u.total_tokens == 6));
     }
 
+    fn usage_totals(events: &SseEvents) -> Vec<u64> {
+        events
+            .iter()
+            .filter_map(|e| match e {
+                Ok(ModelStreamEvent::Usage(u)) => Some(u.total_tokens),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[tokio::test]
+    async fn cumulative_usage_is_reported_once_with_the_latest_totals() {
+        let cases: [&[&str]; 2] = [
+            &[
+                r#"{"usageMetadata":{"promptTokenCount":4,"candidatesTokenCount":1,"totalTokenCount":5}}"#,
+                r#"{"candidates":[{"content":{"parts":[{"text":"hi"}]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":4,"candidatesTokenCount":2,"totalTokenCount":6}}"#,
+            ],
+            &[
+                r#"{"usageMetadata":{"promptTokenCount":4,"candidatesTokenCount":2,"totalTokenCount":6}}"#,
+                r#"{"candidates":[{"content":{"parts":[{"text":"hi"}]},"finishReason":"STOP"}]}"#,
+            ],
+        ];
+        for payloads in cases {
+            let events = collect_body(payloads).await;
+            assert_eq!(usage_totals(&events), [6], "{payloads:?}");
+        }
+    }
+
     #[test]
     fn in_band_errors_classify_quota_overflow_and_rate_limits() {
         let cases = [

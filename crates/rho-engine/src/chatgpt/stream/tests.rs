@@ -186,13 +186,28 @@ const FINISH_CASES: &[FinishCase] = &[
     },
     FinishCase {
         line: r#"{"type": "response.incomplete"}"#,
-        finish: FinishReason::Length,
+        finish: FinishReason::Other,
         usage: None,
     },
     FinishCase {
-        line: r#"{"type": "response.incomplete", "response": {"usage": {"input_tokens": 3, "output_tokens": 7, "total_tokens": 10}}}"#,
+        line: r#"{"type": "response.incomplete", "response": {"incomplete_details": {"reason": "max_output_tokens"}, "usage": {"input_tokens": 3, "output_tokens": 7, "total_tokens": 10}}}"#,
         finish: FinishReason::Length,
         usage: Some((3, 10)),
+    },
+    FinishCase {
+        line: r#"{"type": "response.incomplete", "response": {"incomplete_details": {"reason": "content_filter"}}}"#,
+        finish: FinishReason::ContentFilter,
+        usage: None,
+    },
+    FinishCase {
+        line: r#"{"type": "response.incomplete", "response": {"incomplete_details": {"reason": "something_new"}}}"#,
+        finish: FinishReason::Other,
+        usage: None,
+    },
+    FinishCase {
+        line: r#"{"type": "response.incomplete", "response": {"incomplete_details": null}}"#,
+        finish: FinishReason::Other,
+        usage: None,
     },
 ];
 
