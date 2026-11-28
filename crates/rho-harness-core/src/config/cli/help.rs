@@ -20,7 +20,7 @@ Environment Variables:
   AI_MAX_TURNS                     - Maximum model turns per run (default: 1000)
   AI_CONTEXT_WINDOW_MESSAGES       - Context window messages before compaction (default: 24)
   AI_COMPACTION_MAX_BYTES          - Maximum bytes per compaction summary (default: 8192)
-  RHO_HOME                         - Custom configuration directory (default: ~/.config/rho)
+  RHO_HOME                         - Custom configuration directory (default: ~/.config/rho); also the home for global MCP files
 
 Authentication:
   OAuth or API key: openrouter

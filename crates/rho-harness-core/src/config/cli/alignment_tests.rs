@@ -27,6 +27,8 @@ mod tests {
         let cli = Cli::parse_from(args);
         check_cli_flags(&cli);
 
+        let home = rho_test_support::TestDir::with_prefix("rho_test_home_");
+        let _env = rho_test_support::EnvVarGuard::set("RHO_HOME", home.to_str().unwrap());
         let config = Config::load(Some(&cli)).unwrap();
         assert_eq!(config.thinking_level.as_deref(), Some("high"));
     }

@@ -48,8 +48,7 @@ async fn setup_reload_session(home: &std::path::Path) -> (crate::repl::ReplSessi
     use clap::Parser;
     use rho_harness_core::config::Config;
 
-    // Disabling MCP keeps host-global MCP servers out of the config loads and engine builds here.
-    std::fs::write(home.join("config.toml"), "max_turns = 42\n[mcp]\nenabled = false\n").unwrap();
+    std::fs::write(home.join("config.toml"), "max_turns = 42\n").unwrap();
     let config = Config::load(None).unwrap();
     config.ensure_dirs().unwrap();
     let mut session = crate::repl::ReplSession::new(config, AuthStore::default(), None)
@@ -61,15 +60,11 @@ async fn setup_reload_session(home: &std::path::Path) -> (crate::repl::ReplSessi
 
 #[tokio::test]
 async fn reload_adopts_file_and_cli_values_but_keeps_runtime_model() {
-    static ENV_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
-    let _env = ENV_LOCK.lock().await;
-    unsafe {
-        std::env::set_var("ANTHROPIC_API_KEY", "test-key-not-real");
-    }
     let home = rho_test_support::TestDir::new();
-    unsafe {
-        std::env::set_var("RHO_HOME", &*home);
-    }
+    let _env = rho_test_support::EnvVarGuard::set_all(&[
+        ("ANTHROPIC_API_KEY", Some("test-key-not-real")),
+        ("RHO_HOME", home.to_str()),
+    ]);
 
     let (mut session, engine) = setup_reload_session(&home).await;
     let reloaded = session.reload_engine(&engine).await.unwrap();
@@ -82,10 +77,6 @@ async fn reload_adopts_file_and_cli_values_but_keeps_runtime_model() {
         (session.config.max_turns, session.config.model.as_str()),
         (9, "runtime-model")
     );
-
-    unsafe {
-        std::env::remove_var("RHO_HOME");
-    }
 }
 
 #[tokio::test]

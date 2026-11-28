@@ -15,7 +15,7 @@
 
 MCP servers are configured in standard JSON files:
 
-- **Global**: `~/.config/mcp/mcp.json` (canonical, fallback: `~/.agents/mcp.json` or `~/.config/rho/mcp.json`)
+- **Global**: the first existing file of `~/.config/mcp/mcp.json`, `~/.agents/mcp.json`, `~/.claude/mcp.json`, `~/.claude.json`, then `~/.config/rho/mcp.json`. When `RHO_HOME` is set, it replaces `~` for the first four paths (for example `$RHO_HOME/.claude.json`) and the real home directory is not read; `$RHO_HOME/mcp.json` is the last candidate.
 - **Local / Workspace**: `.agents/mcp.json` (fallback: `.mcp.json`)
 
 Local server definitions extend and override global servers on name collisions.

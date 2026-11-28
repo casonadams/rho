@@ -18,7 +18,7 @@ pub use integrations::{
     PermissionConfig, ProjectMcpServers, ProviderConfig, default_idle_timeout_seconds,
 };
 pub(crate) use key::ConfigKey;
-pub use paths::{config_dir, default_config_dir, dirs_fallback, home_dir};
+pub use paths::{config_dir, default_config_dir, dirs_fallback, global_mcp_home, home_dir};
 pub use ui::{
     A2uiConfig, ContextLineMode, DisplayUiConfig, DividerStyle, GitSegmentOptions, ModelSegmentOptions,
     PathSegmentOptions, PromptUiConfig, StatusBarConfig, StatusBarIconMode, StatusBarPreset, StatusBarSegmentId,

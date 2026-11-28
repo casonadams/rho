@@ -1,30 +1,52 @@
+use std::ffi::OsString;
 use std::ops::Deref;
 use std::path::Path;
 use std::sync::{Mutex, MutexGuard, PoisonError};
 
 static ENV_LOCK: Mutex<()> = Mutex::new(());
 
-/// Sets one process environment variable until dropped. The lock serializes environment changes
-/// across parallel tests, so tests that read the variable must hold it too.
+/// Sets process environment variables until dropped, then restores each one's previous value or unsets it.
+/// The lock serializes environment changes across parallel tests, so tests that read these variables must hold it too.
 #[derive(Debug)]
 pub struct EnvVarGuard {
-    name: &'static str,
+    saved: Vec<(&'static str, Option<OsString>)>,
     _lock: MutexGuard<'static, ()>,
 }
 
 impl EnvVarGuard {
     pub fn set(name: &'static str, value: &str) -> Self {
+        Self::set_all(&[(name, Some(value))])
+    }
+
+    /// Applies every change under one lock acquisition; a `None` value unsets the variable.
+    pub fn set_all(changes: &[(&'static str, Option<&str>)]) -> Self {
         let lock = ENV_LOCK.lock().unwrap_or_else(PoisonError::into_inner);
-        // SAFETY: every environment write in these tests happens under ENV_LOCK.
-        unsafe { std::env::set_var(name, value) };
-        Self { name, _lock: lock }
+        let mut saved = Vec::with_capacity(changes.len());
+        for &(name, value) in changes {
+            saved.push((name, std::env::var_os(name)));
+            // SAFETY: every environment write in these tests happens under ENV_LOCK.
+            unsafe {
+                match value {
+                    Some(value) => std::env::set_var(name, value),
+                    None => std::env::remove_var(name),
+                }
+            }
+        }
+        Self { saved, _lock: lock }
     }
 }
 
 impl Drop for EnvVarGuard {
     fn drop(&mut self) {
         // SAFETY: ENV_LOCK is still held while this guard drops.
-        unsafe { std::env::remove_var(self.name) };
+        for (name, previous) in self.saved.drain(..).rev() {
+            unsafe {
+                match previous {
+                    Some(value) => std::env::set_var(name, value),
+                    None => std::env::remove_var(name),
+                }
+            }
+        }
     }
 }
 
@@ -130,6 +152,29 @@ mod tests {
             assert_eq!(std::env::var(NAME).as_deref(), Ok("held"));
         }
         assert!(std::env::var(NAME).is_err());
+    }
+
+    #[test]
+    fn env_var_guard_restores_previous_values_and_unsets_new_ones() {
+        const ABSENT: &str = "RHO_TEST_SUPPORT_ABSENT";
+        let home_before = std::env::var_os("HOME");
+        {
+            let _guard = EnvVarGuard::set_all(&[("HOME", Some("/rho/test/home")), (ABSENT, Some("held"))]);
+            assert_eq!(std::env::var("HOME").as_deref(), Ok("/rho/test/home"));
+            assert_eq!(std::env::var(ABSENT).as_deref(), Ok("held"));
+        }
+        assert_eq!(std::env::var_os("HOME"), home_before);
+        assert!(std::env::var(ABSENT).is_err());
+    }
+
+    #[test]
+    fn env_var_guard_unset_change_is_restored_on_drop() {
+        let home_before = std::env::var_os("HOME");
+        {
+            let _guard = EnvVarGuard::set_all(&[("HOME", None)]);
+            assert!(std::env::var_os("HOME").is_none());
+        }
+        assert_eq!(std::env::var_os("HOME"), home_before);
     }
 
     #[test]

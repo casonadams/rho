@@ -1,6 +1,6 @@
 use super::types::{
     McpConfig, McpDirectTools, McpExposureMode, McpLifecycleMode, McpOAuthConfig, McpServerConfig, McpTransportKind,
-    dirs_fallback,
+    global_mcp_home,
 };
 use crate::error::{AppError, Result};
 use crate::fs::write_atomic;
@@ -212,11 +212,12 @@ fn load_first_mcp_candidate(candidates: &[PathBuf]) -> Result<Option<McpConfig>>
 }
 
 pub fn load_global_mcp_config(config_dir: &Path) -> Result<Option<McpConfig>> {
+    let home = global_mcp_home();
     load_first_mcp_candidate(&[
-        dirs_fallback().join(".config").join("mcp").join("mcp.json"),
-        dirs_fallback().join(".agents").join("mcp.json"),
-        dirs_fallback().join(".claude").join("mcp.json"),
-        dirs_fallback().join(".claude.json"),
+        home.join(".config").join("mcp").join("mcp.json"),
+        home.join(".agents").join("mcp.json"),
+        home.join(".claude").join("mcp.json"),
+        home.join(".claude.json"),
         config_dir.join("mcp.json"),
     ])
 }

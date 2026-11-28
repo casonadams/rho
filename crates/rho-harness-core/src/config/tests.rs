@@ -1,3 +1,4 @@
+mod global_mcp;
 mod merge;
 mod parse;
 mod storage;
