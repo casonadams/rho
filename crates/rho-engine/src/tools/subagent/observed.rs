@@ -13,6 +13,7 @@ use crate::tools::engine_tool::{EngineTool, TurnToolContext};
 use crate::tools::types::ToolResult;
 use rho_harness_core::error::AppError;
 use rho_harness_core::model::ToolCall;
+use rho_harness_core::text::clip_chars;
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::path::PathBuf;
@@ -30,12 +31,11 @@ const QUESTION_SENT: &str = "Question sent to the delegating agent; its reply ar
 const NO_QUESTION: &str = "(the subagent asked without a question)";
 
 pub(crate) fn truncate_output(output: String) -> String {
-    let total = output.chars().count();
-    if total <= MAX_TOOL_OUTPUT_CHARS {
+    let (kept, omitted) = clip_chars(&output, MAX_TOOL_OUTPUT_CHARS);
+    if omitted == 0 {
         return output;
     }
-    let kept: String = output.chars().take(MAX_TOOL_OUTPUT_CHARS).collect();
-    format!("{kept}\n[truncated {} characters]", total - MAX_TOOL_OUTPUT_CHARS)
+    format!("{kept}\n[truncated {omitted} characters]")
 }
 
 /// What the subagent's tool calls did, gathered as they run.

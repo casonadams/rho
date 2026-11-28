@@ -2,10 +2,11 @@ use super::conversation::{
     FILE_VERSIONS_ARTIFACT, FILES_CHANGED_ARTIFACT, RESULT_ARTIFACT, TOOL_CALLS_ARTIFACT, WORKSPACE_CHANGES_ARTIFACT,
     artifact_data, artifact_text, worktree_record,
 };
-use super::evidence::{ToolOutcome, outcome_line};
+use super::evidence::{ToolOutcome, clip, outcome_line};
 use super::workspace::{Fingerprint, WorkspaceChange, stale_paths};
 use rho_harness_core::a2a::{Role, Task};
 use rho_harness_core::session::SubagentContext;
+use rho_harness_core::text::clip_chars;
 use serde::de::DeserializeOwned;
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
@@ -16,17 +17,11 @@ const MAX_RESULT_CHARS: usize = 12_000;
 const MAX_LISTED_CONTEXTS: usize = 30;
 const MAX_TITLE_CHARS: usize = 80;
 
-fn clip(text: &str, max: usize) -> String {
-    let text = text.trim();
-    let total = text.chars().count();
-    if total <= max {
-        return text.to_string();
+fn excerpt_with_omitted_count(text: &str, max: usize) -> String {
+    match clip_chars(text.trim(), max) {
+        (kept, 0) => kept.to_string(),
+        (kept, omitted) => format!("{kept}\n[... {omitted} more characters]"),
     }
-    format!(
-        "{}\n[... {} more characters]",
-        text.chars().take(max).collect::<String>(),
-        total - max
-    )
 }
 
 fn data<T: DeserializeOwned + Default>(task: &Task, name: &str) -> T {
@@ -54,12 +49,7 @@ fn title(task: &Task) -> String {
         .find(|m| m.role == Role::User)
         .map(|m| m.text_content())
         .unwrap_or_default();
-    let line = first.lines().map(str::trim).find(|l| !l.is_empty()).unwrap_or_default();
-    if line.chars().count() > MAX_TITLE_CHARS {
-        format!("{}...", line.chars().take(MAX_TITLE_CHARS).collect::<String>())
-    } else {
-        line.to_string()
-    }
+    clip(&first, MAX_TITLE_CHARS)
 }
 
 fn push_messages(out: &mut String, task: &Task, result: Option<&str>) {
@@ -76,7 +66,11 @@ fn push_messages(out: &mut String, task: &Task, result: Option<&str>) {
             Role::User => "parent",
             Role::Agent => "agent",
         };
-        let _ = writeln!(out, "[{speaker}] {}", clip(&message.text_content(), MAX_MESSAGE_CHARS));
+        let _ = writeln!(
+            out,
+            "[{speaker}] {}",
+            excerpt_with_omitted_count(&message.text_content(), MAX_MESSAGE_CHARS)
+        );
     }
 }
 
@@ -136,7 +130,11 @@ pub(crate) async fn render_task(context: &SubagentContext, task_id: &str, root: 
     let result = artifact_text(task, RESULT_ARTIFACT);
     push_messages(&mut out, task, result);
     if let Some(result) = result {
-        let _ = writeln!(out, "\nFinal answer:\n{}", clip(result, MAX_RESULT_CHARS));
+        let _ = writeln!(
+            out,
+            "\nFinal answer:\n{}",
+            excerpt_with_omitted_count(result, MAX_RESULT_CHARS)
+        );
     }
     let worktree = worktree_record(task)
         .filter(|record| !record.removed)

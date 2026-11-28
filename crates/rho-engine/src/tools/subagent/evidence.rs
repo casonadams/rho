@@ -1,4 +1,5 @@
 use super::workspace::WorkspaceChange;
+use rho_harness_core::text::truncate_chars;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::BTreeSet;
@@ -40,10 +41,10 @@ pub struct ToolOutcome {
 
 pub(crate) fn clip(text: &str, max: usize) -> String {
     let line = text.lines().map(str::trim).find(|l| !l.is_empty()).unwrap_or_default();
-    if line.chars().count() <= max {
-        return line.to_string();
+    match truncate_chars(line, max) {
+        (kept, true) => format!("{kept}..."),
+        (_, false) => line.to_string(),
     }
-    format!("{}...", line.chars().take(max).collect::<String>())
 }
 
 impl ToolOutcome {

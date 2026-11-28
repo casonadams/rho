@@ -1,5 +1,6 @@
 use crate::locking::lock;
 use rho_harness_core::a2a::TaskState;
+use rho_harness_core::text::truncate_chars;
 use serde_json::{Map, Value, json};
 use std::io::Write as _;
 use std::path::{Path, PathBuf};
@@ -234,11 +235,10 @@ fn outputs_section(outputs: &Value) -> String {
 
 fn clamp_json(value: &Value) -> String {
     let text = serde_json::to_string_pretty(value).unwrap_or_default();
-    if text.chars().count() <= MAX_OUTPUT_JSON_CHARS {
-        return text;
+    match truncate_chars(&text, MAX_OUTPUT_JSON_CHARS) {
+        (kept, true) => format!("{kept}\n... (truncated; see the run log)"),
+        (_, false) => text,
     }
-    let kept: String = text.chars().take(MAX_OUTPUT_JSON_CHARS).collect();
-    format!("{kept}\n... (truncated; see the run log)")
 }
 
 #[cfg(test)]

@@ -19,6 +19,12 @@ pub fn truncate_chars(text: &str, max_chars: usize) -> (&str, bool) {
     }
 }
 
+/// The first `max_chars` characters of `text`, and how many characters were cut off after them.
+pub fn clip_chars(text: &str, max_chars: usize) -> (&str, usize) {
+    let (kept, _) = truncate_chars(text, max_chars);
+    (kept, text[kept.len()..].chars().count())
+}
+
 /// Trims a value and strips surrounding `"` and `'` quote characters.
 pub fn unquote_scalar(value: &str) -> &str {
     value.trim().trim_matches('"').trim_matches('\'')
@@ -27,6 +33,21 @@ pub fn unquote_scalar(value: &str) -> &str {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn clip_chars_reports_how_many_characters_were_omitted() {
+        for (text, max, expected) in [
+            ("", 0, ("", 0)),
+            ("", 3, ("", 0)),
+            ("abc", 3, ("abc", 0)),
+            ("abcd", 3, ("abc", 1)),
+            ("abcd", 0, ("", 4)),
+            ("h\u{e9}llo", 2, ("h\u{e9}", 3)),
+            ("\u{65e5}\u{672c}\u{8a9e}", 1, ("\u{65e5}", 2)),
+        ] {
+            assert_eq!(clip_chars(text, max), expected, "{text:?} at {max}");
+        }
+    }
 
     #[test]
     fn truncate_chars_cuts_on_character_boundaries() {

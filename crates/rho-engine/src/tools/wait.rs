@@ -7,6 +7,7 @@ use crate::tools::jobs::BackgroundJobInfo;
 use crate::tools::types::ToolResult;
 use rho_harness_core::args::WaitArgs;
 use rho_harness_core::error::AppError;
+use rho_harness_core::text::truncate_chars;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::time::Instant;
@@ -86,7 +87,7 @@ impl WaitTool {
 }
 
 fn describe(job: &BackgroundJobInfo) -> String {
-    let command: String = job.command.chars().take(COMMAND_PREVIEW_CHARS).collect();
+    let (command, _) = truncate_chars(&job.command, COMMAND_PREVIEW_CHARS);
     format!(
         "{} ({}, {}s)",
         job.id,

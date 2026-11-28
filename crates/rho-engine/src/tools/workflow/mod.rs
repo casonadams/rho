@@ -13,6 +13,7 @@ use crate::tools::subagent::SubagentTool;
 use executor::{Executor, Frame};
 use report::RunLog;
 use resume::Replay;
+use rho_harness_core::text::truncate_chars;
 use rho_harness_core::workflow::{AgentNode, ModelRole, Node, NodeKind, WorkflowBundle, WorkflowCatalog};
 use serde_json::json;
 use std::collections::BTreeMap;
@@ -244,9 +245,9 @@ async fn hand_off(worktree: &crate::worktree::Worktree) -> String {
 }
 
 fn clamp_summary(text: &str) -> String {
-    match text.char_indices().nth(MAX_SUMMARY_CHARS) {
-        Some((end, _)) => format!("{}\n[summary truncated; see the report]", &text[..end]),
-        None => text.to_string(),
+    match truncate_chars(text, MAX_SUMMARY_CHARS) {
+        (kept, true) => format!("{kept}\n[summary truncated; see the report]"),
+        (_, false) => text.to_string(),
     }
 }
 
