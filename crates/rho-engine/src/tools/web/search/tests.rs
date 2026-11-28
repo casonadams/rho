@@ -1,3 +1,4 @@
+use super::query::normalize_domain;
 use super::*;
 
 #[test]
@@ -114,7 +115,7 @@ fn test_format_search_results() {
 }
 
 #[tokio::test]
-async fn search_without_configured_engines_returns_no_results() {
+async fn perform_search_without_configured_engines_returns_no_results() {
     let tool = WebSearchTool {
         http: HttpClient::new(false).unwrap(),
         rate_limiter: SearchRateLimiter::new(0),
@@ -125,13 +126,87 @@ async fn search_without_configured_engines_returns_no_results() {
             auth_file: None,
         },
     };
-    let results = tool
-        .search(SearchQueryParams {
-            query: "rust",
-            limit: 5,
-            recency: None,
-            domains: None,
-        })
-        .await;
-    assert!(results.is_empty());
+    let outcome = tool.perform_search("rust", 5, None, None).await;
+    assert!(outcome.results.is_empty());
+    assert!(outcome.last_error.is_none());
+}
+
+fn fake_engine_outcome(results: Vec<SearchResult>, last_error: Option<AppError>) -> engine::MultiEngineOutcome {
+    engine::MultiEngineOutcome { results, last_error }
+}
+
+#[tokio::test]
+async fn relaxed_results_are_labelled_with_relaxed_query() {
+    let queries = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let recorded = queries.clone();
+    let result = try_relaxed_search("rust +async runtime", 5, "2026-11-27", move |relaxed: String| {
+        let recorded = recorded.clone();
+        async move {
+            recorded.lock().unwrap().push(relaxed);
+            fake_engine_outcome(vec![SearchResult::new("Tokio", "runtime", "https://tokio.rs/")], None)
+        }
+    })
+    .await
+    .unwrap()
+    .expect("relaxed search should produce a result");
+
+    assert!(!result.is_error);
+    assert_eq!(*queries.lock().unwrap(), vec!["rust async runtime".to_string()]);
+    assert!(result.content.starts_with(
+        "No search results found for: \"rust +async runtime\". Results for relaxed query \"rust async runtime\":"
+    ));
+}
+
+#[tokio::test]
+async fn relaxed_attempt_error_is_reported() {
+    let error = try_relaxed_search("rust +async runtime", 5, "2026-11-27", |_relaxed: String| async {
+        fake_engine_outcome(Vec::new(), Some(AppError::Tool("timeout".to_string())))
+    })
+    .await
+    .unwrap_err();
+
+    assert!(error.to_string().contains("timeout"));
+}
+
+#[test]
+fn an_empty_search_reports_relaxed_results_then_the_first_error() {
+    let found = || Ok(Some(ToolResult::success("relaxed hits")));
+    let failed = |why: &str| AppError::Tool(why.to_string());
+    let cases = [
+        (
+            "relaxed hits win",
+            found(),
+            Some(failed("first")),
+            "relaxed hits",
+            false,
+        ),
+        (
+            "first error before the retry's",
+            Err(failed("retry")),
+            Some(failed("first")),
+            "first",
+            true,
+        ),
+        ("retry error alone", Err(failed("retry")), None, "retry", true),
+        ("nothing found", Ok(None), None, "No search results found", false),
+    ];
+    for (case, relaxed, last_error, expected, is_error) in cases {
+        let result = empty_search_result("q", "2026-11-27", relaxed, last_error);
+        assert!(result.content.contains(expected), "{case}: {}", result.content);
+        assert_eq!(result.is_error, is_error, "{case}");
+    }
+}
+
+#[tokio::test]
+async fn unchanged_query_skips_relaxed_attempt() {
+    let called = std::sync::Arc::new(std::sync::Mutex::new(false));
+    let flag = called.clone();
+    let result = try_relaxed_search("rust", 5, "2026-11-27", move |_relaxed: String| {
+        *flag.lock().unwrap() = true;
+        async { fake_engine_outcome(Vec::new(), None) }
+    })
+    .await;
+
+    assert!(matches!(result, Ok(None)));
+    assert!(!*called.lock().unwrap());
 }

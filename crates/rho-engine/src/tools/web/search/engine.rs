@@ -144,10 +144,6 @@ pub struct MultiEngineOutcome {
     pub last_error: Option<AppError>,
 }
 
-pub async fn search_multi_engine(params: MultiEngineParams<'_>) -> Vec<SearchResult> {
-    search_multi_engine_outcome(params).await.results
-}
-
 pub(crate) async fn search_multi_engine_outcome(params: MultiEngineParams<'_>) -> MultiEngineOutcome {
     let (allowed, blocked) = normalize_domain_filters(params.domains);
     let scraper_query = build_search_query_with_filters(params.query, params.domains);

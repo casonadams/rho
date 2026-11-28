@@ -14,24 +14,12 @@ use crate::tools::engine_tool::TypedTool;
 use crate::tools::types::ToolResult;
 use crate::tools::web::http::HttpClient;
 use crate::tools::web::rate_limiter::SearchRateLimiter;
-pub use engine::{
-    EngineKind, EngineRequest, MultiEngineParams, default_engine_chain, resolve_engine_chain, search_multi_engine,
-};
+pub use engine::{EngineKind, EngineRequest, MultiEngineParams, default_engine_chain, resolve_engine_chain};
 pub use format::{FormatResultsParams, format_search_results};
-pub use query::{
-    build_search_query_with_filters, matches_domain_filters, matches_site, normalize_domain, normalize_domain_filters,
-    relax_query,
-};
+pub use query::{build_search_query_with_filters, matches_domain_filters, normalize_domain_filters, relax_query};
 pub use result::{SearchResult, deduplicate_results};
 pub use rho_harness_core::args::{WebSearchArgs, WebSearchRecency};
 use rho_harness_core::error::AppError;
-
-pub struct SearchQueryParams<'a> {
-    pub query: &'a str,
-    pub limit: usize,
-    pub recency: Option<WebSearchRecency>,
-    pub domains: Option<&'a [String]>,
-}
 
 #[derive(Clone)]
 pub struct WebSearchConfig {
@@ -57,31 +45,6 @@ impl WebSearchTool {
             http,
             rate_limiter,
             config,
-        }
-    }
-
-    async fn try_relaxed_search(&self, query: &str, limit: usize, today: &str) -> Option<ToolResult> {
-        let relaxed = relax_query(query);
-        if relaxed == query {
-            return None;
-        }
-        let relaxed_results = self
-            .search(SearchQueryParams {
-                query: &relaxed,
-                limit,
-                recency: None,
-                domains: None,
-            })
-            .await;
-        if relaxed_results.is_empty() {
-            None
-        } else {
-            Some(ToolResult::success(format_search_results(FormatResultsParams {
-                query,
-                results: &relaxed_results,
-                limit,
-                today,
-            })))
         }
     }
 
@@ -115,15 +78,15 @@ impl WebSearchTool {
         no_filters: bool,
         last_error: Option<AppError>,
     ) -> ToolResult {
-        if no_filters && let Some(res) = self.try_relaxed_search(query, limit, today).await {
-            return res;
-        }
-        if let Some(err) = last_error {
-            return ToolResult::error(err.to_string());
-        }
-        ToolResult::success(format!(
-            "No search results found for: \"{query}\" (searched on {today})"
-        ))
+        let relaxed = if no_filters {
+            try_relaxed_search(query, limit, today, |relaxed: String| async move {
+                self.perform_search(&relaxed, limit, None, None).await
+            })
+            .await
+        } else {
+            Ok(None)
+        };
+        empty_search_result(query, today, relaxed, last_error)
     }
 
     pub async fn execute(&self, args: WebSearchArgs) -> Result<ToolResult, AppError> {
@@ -153,22 +116,55 @@ impl WebSearchTool {
             today: &today,
         })))
     }
+}
 
-    async fn search(&self, params: SearchQueryParams<'_>) -> Vec<SearchResult> {
-        search_multi_engine(MultiEngineParams {
-            http: &self.http,
-            rate_limiter: &self.rate_limiter,
-            region: &self.config.region,
-            timeout_sec: self.config.timeout_sec,
-            query: params.query,
-            limit: params.limit,
-            recency: params.recency,
-            domains: params.domains,
-            engines: &self.config.engines,
-            auth_file: self.config.auth_file.as_deref(),
-        })
-        .await
+/// What an empty search reports: relaxed results, else the first search's error, else the retry's
+/// error, else that nothing was found.
+fn empty_search_result(
+    query: &str,
+    today: &str,
+    relaxed: Result<Option<ToolResult>, AppError>,
+    last_error: Option<AppError>,
+) -> ToolResult {
+    match (relaxed, last_error) {
+        (Ok(Some(found)), _) => found,
+        (_, Some(err)) | (Err(err), None) => ToolResult::error(err.to_string()),
+        (Ok(None), None) => ToolResult::success(format!(
+            "No search results found for: \"{query}\" (searched on {today})"
+        )),
     }
+}
+
+/// Retries `query` relaxed; `None` when it cannot be relaxed or the retry also finds nothing.
+async fn try_relaxed_search<F, Fut>(
+    query: &str,
+    limit: usize,
+    today: &str,
+    search: F,
+) -> Result<Option<ToolResult>, AppError>
+where
+    F: Fn(String) -> Fut,
+    Fut: Future<Output = engine::MultiEngineOutcome>,
+{
+    let relaxed = relax_query(query);
+    if relaxed == query {
+        return Ok(None);
+    }
+    let outcome = search(relaxed.clone()).await;
+    if let Some(err) = outcome.last_error {
+        return Err(err);
+    }
+    if outcome.results.is_empty() {
+        return Ok(None);
+    }
+    let header = format!("No search results found for: \"{query}\". Results for relaxed query \"{relaxed}\":");
+    let body = format_search_results(FormatResultsParams {
+        query: &relaxed,
+        results: &outcome.results,
+        limit,
+        today,
+    });
+    Ok(Some(ToolResult::success(format!("{header}\n\n{body}"))))
 }
 
 #[async_trait::async_trait]
