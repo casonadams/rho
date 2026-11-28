@@ -3,7 +3,9 @@
 //! Combines `syntect` syntax highlighting (`CodeHighlighter`) with `similar`
 //! line- and word-level diffs and subtle red/green background tints.
 
-use super::diff::{DiffToken, compute_token_diff, format_gutter_prefix, replace_tabs, tokenize};
+use super::diff::{
+    DiffToken, capture_diff, compute_token_diff, fits_word_diff, format_gutter_prefix, replace_tabs, tokenize,
+};
 use crate::ui::block::leading_escape;
 use crate::ui::markdown::CodeHighlighter;
 use crate::ui::terminal_stream::is_sgr_reset;
@@ -74,6 +76,9 @@ fn overlay_diff_background(highlighted: &str, base_bg: &str, emph_bg: &str, emph
 }
 
 fn emph_ranges_for_pair(clean_old: &str, clean_new: &str) -> (Vec<Range<usize>>, Vec<Range<usize>>) {
+    if !fits_word_diff(clean_old, clean_new) {
+        return (Vec::new(), Vec::new());
+    }
     let old_tokens = tokenize(clean_old);
     let new_tokens = tokenize(clean_new);
     let diff = compute_token_diff(&old_tokens, &new_tokens);
@@ -208,7 +213,7 @@ pub(crate) struct DeltaDiffRequest<'a> {
 
 pub(crate) fn render_delta_diff(out: &mut String, req: DeltaDiffRequest<'_>) {
     let mut ctx = DeltaRenderCtx::new(req.lang, req.start_line, req.gutter_width, req.theme);
-    for op in similar::capture_diff_slices(similar::Algorithm::Myers, req.old_lines, req.new_lines) {
+    for op in capture_diff(req.old_lines, req.new_lines) {
         match op {
             similar::DiffOp::Equal { new_index, len, .. } => {
                 for (i, line) in req.new_lines[new_index..new_index + len].iter().enumerate() {
@@ -278,6 +283,29 @@ mod tests {
         let plain = strip_ansi(&rendered);
         assert!(plain.contains(" 10 │ - let count = 1;"), "plain:\n{plain}");
         assert!(plain.contains(" 10 │ + let count = 42;"), "plain:\n{plain}");
+    }
+
+    #[test]
+    fn a_huge_single_line_delta_edit_tints_whole_lines_without_word_emphasis() {
+        let theme = Theme {
+            delta_diffs: true,
+            ..Theme::default()
+        };
+        let old: String = (0..6_000).map(|i| format!("a{i}=f({i},b{i});")).collect();
+        let new: String = (0..6_000).map(|i| format!("a{i}=g({},b{i});", i * 7 % 13)).collect();
+        let rendered = format_entry_diff(EntryDiffInput {
+            idx: 0,
+            total: 1,
+            old_text: &old,
+            new_text: &new,
+            theme: &theme,
+            start_line: None,
+            lang: None,
+        });
+        assert!(rendered.contains("\x1b[48;2;58;24;28m") && rendered.contains("\x1b[48;2;22;52;32m"));
+        assert!(!rendered.contains("\x1b[48;2;104;34;40m") && !rendered.contains("\x1b[48;2;34;92;52m"));
+        let plain = strip_ansi(&rendered);
+        assert_eq!(plain, format!("- {old}\n+ {new}\n"));
     }
 
     #[test]

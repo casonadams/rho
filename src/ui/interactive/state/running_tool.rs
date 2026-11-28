@@ -1,3 +1,7 @@
+use crate::ui::render::live_card::LiveCard;
+use crate::ui::theme::Theme;
+use std::cell::RefCell;
+use std::rc::Rc;
 use std::time::Instant;
 
 pub const MAX_RUNNING_OUTPUT_BYTES: usize = 50 * 1024;
@@ -16,7 +20,37 @@ pub struct RunningTool {
     /// same while it runs as when it finishes.
     pub file_change: Option<rho_harness_core::presentation::FileChange>,
     pending_ansi: String,
+    /// Counts changes to `output`, so the live card is redrawn only when they happen.
+    revision: u64,
+    live_card: LiveCardMemo,
 }
+
+/// What the live card is drawn from besides the tool, which `RunningTool` tracks itself.
+#[derive(Debug, Clone, PartialEq)]
+pub struct LiveCardView {
+    pub width: usize,
+    pub expanded: bool,
+    pub theme: Theme,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+struct LiveCardKey {
+    revision: u64,
+    output_len: usize,
+    view: LiveCardView,
+}
+
+/// The last live card drawn, which is derived data, so it never makes two tools differ.
+#[derive(Debug, Clone, Default)]
+struct LiveCardMemo(RefCell<Option<(LiveCardKey, Rc<LiveCard>)>>);
+
+impl PartialEq for LiveCardMemo {
+    fn eq(&self, _: &Self) -> bool {
+        true
+    }
+}
+
+impl Eq for LiveCardMemo {}
 
 fn drain_or_join_ansi(pending_ansi: &mut String, chunk: &str) -> String {
     if pending_ansi.is_empty() {
@@ -55,6 +89,8 @@ impl RunningTool {
             dropped_lines: 0,
             file_change: None,
             pending_ansi: String::new(),
+            revision: 0,
+            live_card: LiveCardMemo::default(),
         };
         if tool.name == "write"
             && let Some(content) = rho_harness_core::args::write_text(&tool.arguments).map(str::to_string)
@@ -84,6 +120,7 @@ impl RunningTool {
             let sanitized = rho_engine::tools::bash::sanitize_binary_output(complete);
             let to_append = clamp_sanitized_chunk(&sanitized, Self::MAX_RUNNING_BUFFER_BYTES * 2);
             self.output.push_str(to_append);
+            self.revision += 1;
             if self.output.len() > Self::MAX_RUNNING_BUFFER_BYTES {
                 self.trim_tail();
             }
@@ -104,6 +141,25 @@ impl RunningTool {
         }
         self.dropped_lines += self.output[..boundary].matches('\n').count();
         self.output = self.output[boundary..].to_string();
+        self.revision += 1;
+    }
+
+    /// The live card for `view`, drawn by `draw` only when the output or `view` changed since the last one.
+    pub(crate) fn live_card(&self, view: LiveCardView, draw: impl FnOnce() -> LiveCard) -> Rc<LiveCard> {
+        let key = LiveCardKey {
+            revision: self.revision,
+            output_len: self.output.len(),
+            view,
+        };
+        let mut memo = self.live_card.0.borrow_mut();
+        match memo.as_ref() {
+            Some((cached, card)) if *cached == key => Rc::clone(card),
+            _ => {
+                let card = Rc::new(draw());
+                *memo = Some((key, Rc::clone(&card)));
+                card
+            }
+        }
     }
 
     pub fn elapsed(&self) -> std::time::Duration {

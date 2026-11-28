@@ -78,9 +78,14 @@ pub(crate) fn earlier_lines_notice(hidden: usize, total: Option<usize>, width: u
 }
 
 /// Numbers `lines` as the file lines after the first `dropped`.
-fn format_preview_lines(lines: &[&str], dropped: usize, lang: Option<&str>, theme: &Theme) -> String {
+fn format_preview_lines(
+    lines: &[&str],
+    dropped: usize,
+    gutter_width: usize,
+    lang: Option<&str>,
+    theme: &Theme,
+) -> String {
     let mut out = String::new();
-    let gutter_width = (dropped + lines.len()).to_string().len().max(3);
     let mut highlighter = crate::ui::markdown::CodeHighlighter::new(lang);
     for (idx, line) in lines.iter().enumerate() {
         let highlighted = highlighter.highlight_line(&super::diff::replace_tabs(line), theme);
@@ -215,11 +220,18 @@ pub(crate) fn format_write_preview(request: WritePreview<'_>, theme: &Theme) -> 
     }
     let lang = super::card::detect_language_from_args(args);
     let lines: Vec<&str> = content.lines().collect();
-    let preview = format_preview_lines(&lines, dropped_lines, lang, theme);
+    let gutter_width = (dropped_lines + lines.len()).to_string().len().max(3);
+    let shown_from = if expanded {
+        0
+    } else {
+        lines.len().saturating_sub(PREVIEW_LINES)
+    };
+    let hidden = dropped_lines + shown_from;
+    let preview = format_preview_lines(&lines[shown_from..], hidden, gutter_width, lang, theme);
     if expanded {
         return Some(preview);
     }
-    Some(collapse_to_tail(&preview, dropped_lines, width, theme))
+    Some(collapse_to_tail(&preview, hidden, width, theme))
 }
 
 const PREVIEW_LINES: usize = 10;
@@ -245,5 +257,46 @@ pub fn format_session_status(session: &SessionStatus) -> String {
     match session.quota.as_deref() {
         Some(quota) => format!("{} | {} | {quota}", session.model, session.context),
         None => format!("{} | {}", session.model, session.context),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn preview(text: &str, dropped_lines: usize, expanded: bool, width: usize) -> Option<String> {
+        let args = serde_json::json!({"path": "src/lib.rs", "text": text});
+        let request = WritePreview {
+            args: &args,
+            dropped_lines,
+            expanded,
+            width,
+        };
+        format_write_preview(request, &Theme::default())
+    }
+
+    #[test]
+    fn collapsed_write_preview_matches_the_tail_of_the_whole_preview() {
+        let module: String = (0..120)
+            .map(|i| format!("/// Item {i}.\npub fn item_{i}() -> usize {{\n    {i} * 2\n}}\n"))
+            .collect();
+        let cases = [
+            ("fn one() {}\n".to_string(), 0),
+            ("a\nb\nc\nd\ne\nf\ng\nh\ni\nj\n".to_string(), 0),
+            ("a\nb\nc\nd\ne\nf\ng\nh\ni\nj\nk\n".to_string(), 0),
+            (module.clone(), 0),
+            (module, 9_000),
+        ];
+        for (text, dropped) in cases {
+            for width in [20, 80] {
+                let whole = preview(&text, dropped, true, width).unwrap_or_default();
+                let expected = collapse_to_tail(&whole, dropped, width, &Theme::default());
+                assert_eq!(
+                    preview(&text, dropped, false, width),
+                    Some(expected),
+                    "{dropped} {width}"
+                );
+            }
+        }
     }
 }

@@ -5,7 +5,7 @@
 
 use super::card::{
     CardStatus, CardView, append_background_hint, append_failed_edit_attempt, fetch_content_kind, file_change_preview,
-    format_output_lines, normalize_tool_name, push_section, raw_output, shows_file_change, shows_output_body,
+    format_tool_output, normalize_tool_name, push_section, raw_output, shows_file_change, shows_output_body,
     split_bash_timeout, style_tool_header_args,
 };
 use super::diff::replace_tabs;
@@ -171,12 +171,7 @@ fn structured_generic_output(tool: &ToolLine, width: usize, expanded: bool, them
     if clean.is_empty() {
         return None;
     }
-    let rendered = if theme.syntax_highlight_tools {
-        super::output_highlight::highlight_tool_output(&tool.name, &clean, theme)
-    } else {
-        clean
-    };
-    Some(format_output_lines(&rendered, width, expanded, theme.dimmed))
+    Some(format_tool_output(&tool.name, &clean, width, expanded, theme))
 }
 
 fn structured_output_body(tool: &ToolLine, width: usize, view: CardView, theme: &Theme) -> Option<String> {
@@ -197,6 +192,30 @@ fn structured_output_body(tool: &ToolLine, width: usize, view: CardView, theme: 
 }
 
 pub(crate) fn render_structured_tool_content(tool: &ToolLine, view: CardView, width: usize, theme: &Theme) -> String {
+    let parts = structured_card_parts(tool, view, width, theme);
+    let duration = tool.duration_ms.map(super::format_duration_ms);
+    let header = align_header_with_right(&parts.header_left, duration.as_deref(), parts.inner_width, theme.dimmed);
+    if parts.sections.is_empty() {
+        header
+    } else {
+        format!("{}{}", header.trim_end_matches('\n'), parts.sections)
+    }
+}
+
+/// A structured card but for the duration on its header's right.
+pub(crate) struct StructuredCardParts {
+    pub header_left: String,
+    pub inner_width: usize,
+    /// The sections under the header, each behind the blank row `push_section` puts before it.
+    pub sections: String,
+}
+
+pub(crate) fn structured_card_parts(
+    tool: &ToolLine,
+    view: CardView,
+    width: usize,
+    theme: &Theme,
+) -> StructuredCardParts {
     let inner_width = theme
         .tool_block(tool.name == "bash", tool.is_error, width)
         .inner_width();
@@ -206,25 +225,30 @@ pub(crate) fn render_structured_tool_content(tool: &ToolLine, view: CardView, wi
         (CardStatus::Finished, true) => ("\u{2717}", theme.tool_err),
         (CardStatus::Finished, false) => ("\u{2713}", theme.tool_ok),
     };
-    let left = format_structured_header_left(&tool.name, icon, icon_style, tool.is_error, meta.as_deref(), theme);
-    let duration = tool.duration_ms.map(super::format_duration_ms);
-    let mut content = align_header_with_right(&left, duration.as_deref(), inner_width, theme.dimmed);
-    append_section(&mut content, "Input", &input_body, theme.dimmed);
+    let header_left =
+        format_structured_header_left(&tool.name, icon, icon_style, tool.is_error, meta.as_deref(), theme);
+    let mut sections = String::new();
+    append_section(&mut sections, "Input", &input_body, theme.dimmed);
     if let Some(output_body) = structured_output_body(tool, width, view, theme) {
-        append_section(&mut content, "Output", &output_body, theme.dimmed);
+        append_section(&mut sections, "Output", &output_body, theme.dimmed);
     }
     if tool.is_error && tool.name == "edit" {
-        append_failed_edit_attempt(&mut content, tool, view, width, theme);
+        append_failed_edit_attempt(&mut sections, tool, view, width, theme);
     }
-    append_background_hint(&mut content, tool, theme.dimmed);
-    content
+    append_background_hint(&mut sections, tool, theme.dimmed);
+    StructuredCardParts {
+        header_left,
+        inner_width,
+        sections,
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::ui::block::strip_ansi;
-    use crate::ui::render::card::{render_running_tool_block, render_tool_block};
+    use crate::ui::render::card::render_tool_block;
+    use crate::ui::render::live_card::LiveCard;
     use serde_json::json;
 
     fn structured_theme() -> Theme {
@@ -280,8 +304,9 @@ mod tests {
 
     #[test]
     fn running_structured_card_shows_dot_icon_instead_of_check() {
-        let tool = ToolLine::new("bash", json!({"command": "cargo test"})).with_duration_ms(1500);
-        let rendered = strip_ansi(&render_running_tool_block(&tool, 0, 60, false, &structured_theme()));
+        let tool = ToolLine::new("bash", json!({"command": "cargo test"}));
+        let theme = structured_theme();
+        let rendered = strip_ansi(&LiveCard::new(&tool, 0, 60, false, &theme).render(1500, &theme));
         assert!(rendered.contains("\u{25cf} Bash"), "got:\n{rendered}");
         assert!(!rendered.contains('\u{2713}'), "got:\n{rendered}");
         assert!(rendered.contains("1.500s"), "got:\n{rendered}");

@@ -3,10 +3,12 @@ use super::file_change;
 use super::formatters::{EditDiffRequest, WritePreview, format_edit_diff, format_read_expanded, format_write_preview};
 use crate::ui::interactive::truncate_to_visual_lines;
 use crate::ui::theme::{BlockStyle, Theme};
+use crate::ui::wrap::wrap_line_into;
 use rho_harness_core::presentation::summary::{
     ReadClassification, classify_read_path, format_bash_full_summary, format_tool_args_summary, read_summary_parts,
 };
 use rho_harness_core::presentation::{SUBAGENT_STARTED_MARKER, ToolLine};
+use unicode_width::UnicodeWidthChar;
 
 pub fn normalize_tool_name(name: &str) -> &str {
     match name {
@@ -210,31 +212,67 @@ fn append_read_expanded(content: &mut String, tool: &ToolLine, theme: &Theme) {
     }
 }
 
-pub(crate) fn format_output_lines(clean: &str, width: usize, expanded: bool, dim: anstyle::Style) -> String {
-    if expanded {
-        clean.to_string()
-    } else {
-        let row_width = width.saturating_sub(4).max(1);
-        let truncated = truncate_to_visual_lines(clean, 5, row_width);
-        let mut out = super::formatters::earlier_lines_notice(truncated.skipped_count, None, row_width, dim);
-        out.push_str(&truncated.visual_lines.join("\n"));
-        out
+const OUTPUT_PREVIEW_ROWS: usize = 5;
+
+/// Rows `line` wraps to in `wrap_to_width`, where a line that shows nothing takes a row only when it comes first.
+fn wrapped_rows(line: &str, width: usize, first: bool) -> usize {
+    let line = line.trim_end_matches('\r');
+    if line.trim().is_empty() {
+        return 1;
     }
+    let columns: usize = line.chars().map(|c| UnicodeWidthChar::width(c).unwrap_or(0)).sum();
+    if !line.contains('\x1b') && (1..=width).contains(&columns) {
+        return 1;
+    }
+    let mut rows = if first { Vec::new() } else { vec![String::new()] };
+    let seeded = rows.len();
+    wrap_line_into(line, width, &mut rows);
+    rows.len() - seeded
 }
 
-fn append_output_lines(content: &mut String, clean: &str, width: usize, expanded: bool, dim: anstyle::Style) {
-    push_section(content, &format_output_lines(clean, width, expanded, dim));
+/// The first line of `text` the collapsed preview needs to fill its rows, and the rows above that line.
+fn preview_start(text: &str, width: usize) -> (usize, usize) {
+    let lines: Vec<&str> = text.split('\n').collect();
+    let mut first_line = lines.len();
+    let mut shown_rows = 0;
+    while first_line > 0 && shown_rows < OUTPUT_PREVIEW_ROWS {
+        first_line -= 1;
+        shown_rows += wrapped_rows(lines[first_line], width, first_line == 0);
+    }
+    let hidden_rows = lines[..first_line]
+        .iter()
+        .enumerate()
+        .map(|(index, line)| wrapped_rows(line, width, index == 0))
+        .sum();
+    (first_line, hidden_rows)
+}
+
+/// The output body: all of `clean` when expanded, else its last rows under a notice. Only the lines
+/// shown are highlighted and wrapped.
+pub(crate) fn format_tool_output(tool_name: &str, clean: &str, width: usize, expanded: bool, theme: &Theme) -> String {
+    let render_from = |first_line: usize| {
+        if theme.syntax_highlight_tools {
+            super::output_highlight::highlight_tool_output(tool_name, clean, first_line, theme)
+        } else {
+            clean[super::output_highlight::line_start(clean, first_line)..].to_string()
+        }
+    };
+    if expanded {
+        return render_from(0);
+    }
+    let row_width = width.saturating_sub(4).max(1);
+    let (first_line, hidden_rows) = preview_start(clean, row_width);
+    let truncated = truncate_to_visual_lines(&render_from(first_line), OUTPUT_PREVIEW_ROWS, row_width);
+    let hidden = hidden_rows + truncated.skipped_count;
+    let mut out = super::formatters::earlier_lines_notice(hidden, None, row_width, theme.dimmed);
+    out.push_str(&truncated.visual_lines.join("\n"));
+    out
 }
 
 fn append_generic_output(content: &mut String, tool: &ToolLine, width: usize, expanded: bool, theme: &Theme) {
     let clean = replace_tabs(raw_output(tool).trim_end());
     if !clean.is_empty() {
-        let rendered = if theme.syntax_highlight_tools {
-            super::output_highlight::highlight_tool_output(&tool.name, &clean, theme)
-        } else {
-            clean
-        };
-        append_output_lines(content, &rendered, width, expanded, theme.dimmed);
+        push_section(content, &format_tool_output(&tool.name, &clean, width, expanded, theme));
     }
 }
 
@@ -299,6 +337,14 @@ pub(crate) fn append_background_hint(content: &mut String, tool: &ToolLine, dim:
 }
 
 pub(crate) fn append_tool_details(content: &mut String, tool: &ToolLine, width: usize, view: CardView, theme: &Theme) {
+    append_tool_body(content, tool, width, view, theme);
+    if let Some(duration_ms) = tool.duration_ms {
+        push_section(content, &duration_row(duration_ms, view.status, theme.dimmed));
+    }
+}
+
+/// The details under the header, all but the duration row.
+pub(crate) fn append_tool_body(content: &mut String, tool: &ToolLine, width: usize, view: CardView, theme: &Theme) {
     if !tool.is_error && tool.name == "read" {
         if view.show_read_expanded {
             append_read_expanded(content, tool, theme);
@@ -310,17 +356,14 @@ pub(crate) fn append_tool_details(content: &mut String, tool: &ToolLine, width: 
         append_failed_edit_attempt(content, tool, view, width, theme);
     }
     append_background_hint(content, tool, theme.dimmed);
-    if let Some(duration_ms) = tool.duration_ms {
-        let dim = theme.dimmed;
-        let label = match view.status {
-            CardStatus::Running => "Elapsed",
-            CardStatus::Finished => "Took",
-        };
-        push_section(
-            content,
-            &format!("{dim}{label} {}{dim:#}", super::format_duration_ms(duration_ms)),
-        );
-    }
+}
+
+pub(crate) fn duration_row(duration_ms: u64, status: CardStatus, dim: anstyle::Style) -> String {
+    let label = match status {
+        CardStatus::Running => "Elapsed",
+        CardStatus::Finished => "Took",
+    };
+    format!("{dim}{label} {}{dim:#}", super::format_duration_ms(duration_ms))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -358,25 +401,7 @@ pub fn render_tool_block(
     render_card(tool, view, width, theme)
 }
 
-/// The live card of a running tool: the committed card with `duration_ms` counting up.
-/// `dropped_lines` counts the lines its streamed output no longer holds.
-pub(crate) fn render_running_tool_block(
-    tool: &ToolLine,
-    dropped_lines: usize,
-    width: usize,
-    expanded: bool,
-    theme: &Theme,
-) -> String {
-    let view = CardView {
-        status: CardStatus::Running,
-        expanded,
-        show_read_expanded: expanded,
-        dropped_lines,
-    };
-    render_card(tool, view, width, theme)
-}
-
-fn render_card(tool: &ToolLine, view: CardView, width: usize, theme: &Theme) -> String {
+pub(super) fn render_card(tool: &ToolLine, view: CardView, width: usize, theme: &Theme) -> String {
     let content = if theme.structured_tool_cards {
         super::structured::render_structured_tool_content(tool, view, width, theme)
     } else {
@@ -399,5 +424,98 @@ pub fn render_tool_transcript(
         block
     } else {
         format!("\n{block}")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The collapsed body as it was drawn by highlighting and wrapping the whole output.
+    fn whole_output_preview(tool_name: &str, clean: &str, width: usize, theme: &Theme) -> String {
+        let rendered = if theme.syntax_highlight_tools {
+            super::super::output_highlight::highlight_tool_output(tool_name, clean, 0, theme)
+        } else {
+            clean.to_string()
+        };
+        let row_width = width.saturating_sub(4).max(1);
+        let truncated = truncate_to_visual_lines(&rendered, OUTPUT_PREVIEW_ROWS, row_width);
+        let mut out =
+            super::super::formatters::earlier_lines_notice(truncated.skipped_count, None, row_width, theme.dimmed);
+        out.push_str(&truncated.visual_lines.join("\n"));
+        out
+    }
+
+    fn sample_outputs() -> Vec<(&'static str, String)> {
+        let log: String = (1..=200)
+            .map(|i| format!("step {i}: compiling crate number {i}\n"))
+            .collect();
+        let json = serde_json::to_string_pretty(
+            &serde_json::json!({"items": vec![serde_json::json!({"k": "v", "n": [1, true, null]}); 40]}),
+        )
+        .unwrap_or_default();
+        let words = "lorem ipsum dolor sit amet ".repeat(30);
+        vec![
+            ("bash", log.trim_end().to_string()),
+            ("bash", format!("{log}{words}")),
+            ("bash", format!("short\n\n{words}\n\nend")),
+            ("bash", words.trim_end().to_string()),
+            ("bash", "one\ntwo\nthree".to_string()),
+            ("bash", "1\n2\n3\n4\n5".to_string()),
+            ("bash", "crlf one\r\ncrlf two\r\n\r\ncrlf three".to_string()),
+            ("bash", format!("\x1b[32m{log}\x1b[0m")),
+            ("mcp", json),
+            (
+                "bash",
+                format!("{log}```rust\nfn main() {{\n    let x = 1;\n}}\n```\ndone"),
+            ),
+            (
+                "bash",
+                format!(
+                    "diff --git a/x b/x\n@@ -1 +1 @@\n{}",
+                    "-old\n+new\n".repeat(20).trim_end()
+                ),
+            ),
+            (
+                "rg",
+                format!(
+                    "src/a.rs\n{}",
+                    (1..40)
+                        .map(|i| format!("{i}:let v{i} = {i};"))
+                        .collect::<Vec<_>>()
+                        .join("\n")
+                ),
+            ),
+            (
+                "fd",
+                (0..30).map(|i| format!("  dir{i}/")).collect::<Vec<_>>().join("\n"),
+            ),
+            (
+                "lsp",
+                (0..30)
+                    .map(|i| format!("src/a.rs:{i}\nerror: e{i}"))
+                    .collect::<Vec<_>>()
+                    .join("\n"),
+            ),
+        ]
+    }
+
+    #[test]
+    fn collapsed_output_matches_the_whole_output_preview() {
+        for syntax_highlight_tools in [false, true] {
+            let theme = Theme {
+                syntax_highlight_tools,
+                ..Theme::default()
+            };
+            for (tool, clean) in sample_outputs() {
+                for width in [12, 40, 80, 200] {
+                    assert_eq!(
+                        format_tool_output(tool, &clean, width, false, &theme),
+                        whole_output_preview(tool, &clean, width, &theme),
+                        "{tool} width {width} highlight {syntax_highlight_tools}: {clean:?}"
+                    );
+                }
+            }
+        }
     }
 }

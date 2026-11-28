@@ -1,7 +1,10 @@
 use crate::ui::interactive::layout::render_running_tool_widget;
 use crate::ui::interactive::layout::widget::RunningToolWidgetInput;
-use crate::ui::interactive::state::RunningTool;
+use crate::ui::interactive::state::{LiveCardView, RunningTool};
+use crate::ui::render::live_card::LiveCard;
 use crate::ui::theme::Theme;
+use rho_harness_core::presentation::ToolLine;
+use std::rc::Rc;
 
 fn tool_with_n_lines(n: usize) -> RunningTool {
     let command = format!("seq 1 {n}");
@@ -128,6 +131,46 @@ fn running_subagent_and_workflow_cards_show_streamed_output_tail() {
             assert!(!text.contains("step line 3"), "{name}: {text}");
         }
     }
+}
+
+#[test]
+fn a_redraw_reuses_the_card_until_the_output_or_view_changes() {
+    let mut tool = tool_with_n_lines(120);
+    let view = LiveCardView {
+        width: 60,
+        expanded: false,
+        theme: Theme::default(),
+    };
+    render_tool_widget(&tool, false);
+    let drawn = tool.live_card(view.clone(), || unreachable!("the widget drew this card"));
+    render_tool_widget(&tool, false);
+    let redrawn = tool.live_card(view.clone(), || unreachable!("nothing changed"));
+    assert!(Rc::ptr_eq(&drawn, &redrawn));
+
+    let wider = LiveCardView {
+        width: 80,
+        ..view.clone()
+    };
+    let mut draws = 0;
+    let blank = || {
+        LiveCard::new(
+            &ToolLine::new("bash", serde_json::json!({})),
+            0,
+            60,
+            false,
+            &Theme::default(),
+        )
+    };
+    tool.live_card(wider, || {
+        draws += 1;
+        blank()
+    });
+    tool.append_chunk("line 121\n");
+    tool.live_card(view, || {
+        draws += 1;
+        blank()
+    });
+    assert_eq!(draws, 2);
 }
 
 #[test]

@@ -346,8 +346,13 @@ pub fn highlight_text(text: &str, lang: Option<&str>, theme: &Theme) -> String {
 /// Highlights the lines between ``` fences by the fence's language and dims the fences; lines
 /// outside a fence are left as they are.
 pub fn highlight_fenced_blocks(text: &str, theme: &Theme) -> String {
+    highlight_fenced_blocks_in(text, None, theme)
+}
+
+/// Like `highlight_fenced_blocks`, for text that starts inside the fence `open` highlights.
+pub fn highlight_fenced_blocks_in(text: &str, open: Option<CodeHighlighter>, theme: &Theme) -> String {
     let dim = theme.dimmed;
-    let mut active: Option<CodeHighlighter> = None;
+    let mut active = open;
     let mut out = Vec::new();
     for line in text.lines() {
         if let Some(info) = line.trim_start().strip_prefix("```") {

@@ -29,6 +29,7 @@ impl Unit {
 pub struct Pacer {
     unit: Unit,
     backlog: String,
+    units: usize,
     last_arrival: Option<Instant>,
     last_release: Option<Instant>,
     gap: Duration,
@@ -41,6 +42,7 @@ impl Pacer {
         Self {
             unit,
             backlog: String::new(),
+            units: 0,
             last_arrival: None,
             last_release: None,
             gap: Duration::ZERO,
@@ -63,13 +65,15 @@ impl Pacer {
         }
         self.last_arrival = Some(now);
         self.backlog.push_str(chunk);
-        self.rate = self.count_units() as f64 / self.gap.min(MAX_SPREAD).as_secs_f64().max(f64::EPSILON);
+        let unit = self.unit;
+        self.units += chunk.chars().filter(|&c| unit.ends(c)).count();
+        self.rate = self.units as f64 / self.gap.min(MAX_SPREAD).as_secs_f64().max(f64::EPSILON);
     }
 
     /// The part of the backlog to show now: whole units at the pace that drains it by the next burst.
     /// A tail that is not yet a whole unit is shown once nothing else is waiting.
     pub fn release(&mut self, now: Instant) -> String {
-        let units = self.count_units();
+        let units = self.units;
         if units == 0 || self.gap < SMOOTH_GAP {
             return self.take_all();
         }
@@ -87,6 +91,7 @@ impl Pacer {
     pub fn take_all(&mut self) -> String {
         self.last_release = None;
         self.credit = 0.0;
+        self.units = 0;
         std::mem::take(&mut self.backlog)
     }
 
@@ -98,22 +103,26 @@ impl Pacer {
         self.backlog.is_empty()
     }
 
-    fn count_units(&self) -> usize {
-        let unit = self.unit;
-        self.backlog.chars().filter(|&c| unit.ends(c)).count()
-    }
-
     fn take_units(&mut self, count: usize) -> String {
         if count == 0 {
             return String::new();
         }
         let unit = self.unit;
-        let end = self
+        let end = match self
             .backlog
             .char_indices()
             .filter(|&(_, c)| unit.ends(c))
             .nth(count - 1)
-            .map_or(self.backlog.len(), |(index, c)| index + c.len_utf8());
+        {
+            Some((index, c)) => {
+                self.units -= count;
+                index + c.len_utf8()
+            }
+            None => {
+                self.units = 0;
+                self.backlog.len()
+            }
+        };
         let rest = self.backlog.split_off(end);
         std::mem::replace(&mut self.backlog, rest)
     }
@@ -219,6 +228,31 @@ mod tests {
         pacer.push("partial", at(base, 320));
         let (shown, _) = drain_over(&mut pacer, base, 320);
         assert_eq!(shown, "a\nb\npartial");
+    }
+
+    #[test]
+    fn the_unit_count_follows_the_backlog_across_pushes_and_releases() {
+        let base = Instant::now();
+        let mut pacer = Pacer::new(Unit::Word);
+        let recount = |pacer: &Pacer| pacer.backlog.chars().filter(|c| c.is_whitespace()).count();
+        pacer.push("one two ", at(base, 0));
+        pacer.release(at(base, 0));
+        let steps: [(&str, u64); 4] = [
+            ("three four five ", 400),
+            ("six", 420),
+            (" seven\neight ", 800),
+            ("", 820),
+        ];
+        for (chunk, ms) in steps {
+            pacer.push(chunk, at(base, ms));
+            assert_eq!(pacer.units, recount(&pacer), "after pushing {chunk:?}");
+            for frame in 1..=3 {
+                pacer.release(at(base, ms + frame * 16));
+                assert_eq!(pacer.units, recount(&pacer), "after a release at {ms}ms");
+            }
+        }
+        pacer.take_all();
+        assert_eq!(pacer.units, 0);
     }
 
     #[test]

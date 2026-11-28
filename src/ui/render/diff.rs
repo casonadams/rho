@@ -105,9 +105,24 @@ fn handle_diff_op<'a>(
     }
 }
 
+/// Longest pair of lines, in bytes, that is diffed word by word; longer pairs show as whole lines.
+const MAX_WORD_DIFF_BYTES: usize = 16 * 1024;
+
+/// How long a diff may search for the shortest edit before settling for a coarser one.
+const DIFF_TIME_LIMIT: std::time::Duration = std::time::Duration::from_millis(30);
+
+pub(crate) fn fits_word_diff(old_line: &str, new_line: &str) -> bool {
+    old_line.len() + new_line.len() <= MAX_WORD_DIFF_BYTES
+}
+
+pub(crate) fn capture_diff<T: std::hash::Hash + Eq>(old: &[T], new: &[T]) -> Vec<similar::DiffOp> {
+    let deadline = std::time::Instant::now() + DIFF_TIME_LIMIT;
+    similar::capture_diff_slices_deadline(similar::Algorithm::Myers, old, new, Some(deadline))
+}
+
 pub(crate) fn compute_token_diff<'a>(old_tokens: &[&'a str], new_tokens: &[&'a str]) -> Vec<DiffToken<'a>> {
     let mut diff = Vec::new();
-    for op in similar::capture_diff_slices(similar::Algorithm::Myers, old_tokens, new_tokens) {
+    for op in capture_diff(old_tokens, new_tokens) {
         handle_diff_op(op, old_tokens, new_tokens, &mut diff);
     }
     diff
@@ -290,7 +305,7 @@ pub fn format_entry_diff(input: EntryDiffInput<'_>) -> String {
         return out;
     }
 
-    if old_lines.len() == 1 && new_lines.len() == 1 {
+    if old_lines.len() == 1 && new_lines.len() == 1 && fits_word_diff(old_lines[0], new_lines[0]) {
         push_single_line_diff(
             &mut out,
             old_lines[0],
@@ -372,6 +387,34 @@ mod tests {
         let (removed, added) = render_single_line_word_diff("let val = old", "let val = new", &unstyled_theme);
         assert!(removed.ends_with("\x1b[0m\n"));
         assert!(added.ends_with("\x1b[0m\n"));
+    }
+
+    fn minified_pair() -> (String, String) {
+        let old: String = (0..6_000).map(|i| format!("a{i}=f({i},b{i});")).collect();
+        let new: String = (0..6_000).map(|i| format!("a{i}=g({},b{i});", i * 7 % 13)).collect();
+        (old, new)
+    }
+
+    #[test]
+    fn a_huge_single_line_edit_is_shown_as_whole_removed_and_added_lines() {
+        let theme = Theme::default();
+        let (old, new) = minified_pair();
+        let input = EntryDiffInput {
+            idx: 0,
+            total: 1,
+            old_text: &old,
+            new_text: &new,
+            theme: &theme,
+            start_line: Some(1),
+            lang: Some("js"),
+        };
+        let mut expected = String::new();
+        let layout = DiffLayout {
+            start_line: Some(1),
+            gutter_width: 3,
+        };
+        push_multi_line_diff(&mut expected, &[&old], &[&new], layout, &theme);
+        assert_eq!(format_entry_diff(input), expected);
     }
 
     #[test]
