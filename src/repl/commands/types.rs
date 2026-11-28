@@ -2,6 +2,7 @@ use crate::config::Config;
 use crate::ui::TerminalRenderer;
 use rho_engine::auth::AuthStore;
 use rho_engine::engine::AgentEngine;
+use rho_harness_core::provider::ModelRoute;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum WorkflowLaunch {
@@ -74,8 +75,7 @@ pub enum CommandResult {
         question: Option<String>,
     },
     ModelChanged {
-        new_model: String,
-        new_provider: Option<String>,
+        route: ModelRoute,
     },
     ExpandedPrompt {
         text: String,

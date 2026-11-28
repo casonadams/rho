@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use crate::engine::AgentEngine;
 use crate::repl::ReplSession;
 use crate::repl::interactive::{CompletionSet, InteractiveHistory};
+use crate::repl::model_switch::{next_listed_route, print_session_model, report_model_update, switch_session_model};
 use crate::ui::interactive::{
     Activity, InteractiveState, TerminalBackend, TerminalController, ToolItem, TranscriptItem,
 };
@@ -110,24 +111,6 @@ pub fn update_footer(state: &mut InteractiveState, session: &ReplSession, engine
         .flatten();
 }
 
-/// Reports a model or thinking change: a warning when it failed, a notice when it resets a warm prompt cache.
-pub(crate) fn report_model_update(
-    session: &ReplSession,
-    engine: &AgentEngine,
-    result: rho_harness_core::error::Result<()>,
-    failure: &str,
-) {
-    use crate::ui::render::NoticeKind;
-    match result {
-        Err(err) => session.renderer.notice(NoticeKind::Warn, &format!("{failure}: {err}")),
-        Ok(()) => {
-            if let Some(warning) = engine.cache_reset_warning() {
-                session.renderer.notice(NoticeKind::Info, &warning);
-            }
-        }
-    }
-}
-
 pub async fn cycle_thinking_level<B: TerminalBackend>(
     session: &mut ReplSession,
     engine: &mut AgentEngine,
@@ -152,39 +135,15 @@ pub struct ModelCycleContext<'a, 'b, B: TerminalBackend> {
     pub controller: &'a mut TerminalController<B>,
 }
 
-fn next_model_index(current_idx: usize, len: usize, direction: i32) -> usize {
-    if direction >= 0 {
-        (current_idx + 1) % len
-    } else if current_idx == 0 {
-        len - 1
-    } else {
-        current_idx - 1
-    }
-}
-
 pub async fn cycle_model<B: TerminalBackend>(ctx: &mut ModelCycleContext<'_, '_, B>, direction: i32) {
-    let models = ctx.session.listed_models();
-    if models.is_empty() {
+    let Some(route) = next_listed_route(ctx.session, direction) else {
         return;
-    }
-    let current_spec = ctx.session.config.canonical_model_spec();
-    let current_idx = models
-        .iter()
-        .position(|m| m.canonical_id() == current_spec)
-        .unwrap_or(0);
-    let item = &models[next_model_index(current_idx, models.len(), direction)];
-    let spec = item.canonical_id();
-    ctx.session.config.model.clone_from(&spec);
-    ctx.session.config.provider = item.provider.clone();
-
-    let result = ctx.engine.switch_model(&spec, &item.provider).await;
-    report_model_update(ctx.session, ctx.engine, result, "Could not switch model");
-
+    };
+    let switched = switch_session_model(&route, ctx.session, ctx.engine).await;
     update_footer(ctx.controller.state_mut(), ctx.session, ctx.engine);
-    ctx.session.renderer.print_status(&format!(
-        "Model: {} ({})",
-        ctx.session.config.model, ctx.session.config.provider
-    ));
+    if switched {
+        print_session_model(ctx.session);
+    }
 }
 
 pub fn record_submission(history: &mut InteractiveHistory, text: &str) -> crate::error::Result<()> {

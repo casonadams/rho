@@ -4,6 +4,7 @@ use crate::repl::ReplSession;
 use crate::repl::branch_summary::{SUMMARY_PROMPT, abandoned_messages, has_assistant_turn, should_summarize_branch};
 use crate::repl::commands::CommandResult;
 use crate::repl::commands::types::WorkflowLaunch;
+use crate::repl::model_switch::{print_session_model, switch_session_model};
 
 pub enum DispatchOutcome {
     Continue,
@@ -242,32 +243,6 @@ pub(crate) async fn handle_auth_actions(
     Ok(true)
 }
 
-/// Switches the engine to `new_model` and records it in the session config only if that worked;
-/// both the line and live frontends use this so a failure is reported, never swallowed.
-pub(crate) async fn switch_session_model(
-    new_model: &str,
-    new_provider: Option<&str>,
-    session: &mut ReplSession,
-    engine: &mut AgentEngine,
-) {
-    let provider = new_provider.map_or_else(|| session.config.provider.clone(), str::to_string);
-    let result = engine.switch_model(new_model, &provider).await;
-    if result.is_ok() {
-        session.config.model = new_model.to_string();
-        session.config.provider = provider;
-    }
-    crate::repl::live::navigation::report_model_update(session, engine, result, "Could not switch model");
-}
-
-pub(crate) async fn handle_model_change(
-    new_model: &str,
-    new_provider: Option<&str>,
-    session: &mut ReplSession,
-    engine: &mut AgentEngine,
-) {
-    switch_session_model(new_model, new_provider, session, engine).await;
-}
-
 pub(crate) async fn handle_config_auth_result(
     cmd_res: &CommandResult,
     session: &mut ReplSession,
@@ -281,11 +256,10 @@ pub(crate) async fn handle_config_auth_result(
             let next = session.new_engine(None).await?;
             engine.switch_to(next);
         }
-        CommandResult::ModelChanged {
-            new_model,
-            new_provider,
-        } => {
-            handle_model_change(new_model, new_provider.as_deref(), session, engine).await;
+        CommandResult::ModelChanged { route } => {
+            if switch_session_model(route, session, engine).await {
+                print_session_model(session);
+            }
         }
         _ => return Ok(false),
     }

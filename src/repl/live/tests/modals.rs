@@ -1167,8 +1167,7 @@ async fn turn_model_switch_applies_claude_model_to_config() {
     let renderer = TerminalRenderer::default();
 
     let input = TurnModelSwitchInput {
-        model: "claude-opus-4-6",
-        provider: "claude",
+        route: rho_harness_core::provider::ModelRoute::new("claude", "claude-opus-4-6"),
         save_as_default: false,
         config: &mut config,
         auth_store: &session.auth_store,

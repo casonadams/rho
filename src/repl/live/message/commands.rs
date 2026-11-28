@@ -2,6 +2,7 @@ use super::types::{LiveCommandContext, SessionCommandIo};
 use crate::error::{AppError, Result};
 use crate::repl::commands::CommandResult;
 use crate::repl::live::LiveIo;
+use crate::repl::model_switch::{print_session_model, switch_session_model};
 use crate::ui::interactive::{TerminalBackend, TerminalController};
 
 pub(crate) fn open_selector_modal<B: TerminalBackend>(
@@ -44,22 +45,9 @@ pub(crate) async fn handle_thinking_changed(
     ctx.session.config.thinking_level = level.map(ToString::to_string);
     ctx.engine.config.thinking_level = ctx.session.config.thinking_level.clone();
     let result = ctx.engine.update_model().await;
-    crate::repl::live::navigation::report_model_update(
-        ctx.session,
-        ctx.engine,
-        result,
-        "Could not update thinking level",
-    );
+    crate::repl::model_switch::report_model_update(ctx.session, ctx.engine, result, "Could not update thinking level");
     crate::repl::live::navigation::update_footer(io_controller.state_mut(), ctx.session, ctx.engine);
     let _ = io_controller.redraw();
-}
-
-pub(crate) async fn handle_model_changed(
-    ctx: &mut LiveCommandContext<'_, '_>,
-    new_model: &str,
-    new_provider: Option<&str>,
-) {
-    crate::repl::line_mode::dispatch::switch_session_model(new_model, new_provider, ctx.session, ctx.engine).await;
 }
 
 pub(crate) async fn handle_compact<B: TerminalBackend>(
@@ -114,11 +102,10 @@ pub(crate) async fn handle_model_or_thinking_command<B: TerminalBackend>(
     result: &CommandResult,
 ) -> bool {
     match result {
-        CommandResult::ModelChanged {
-            new_model,
-            new_provider,
-        } => {
-            handle_model_changed(ctx, new_model, new_provider.as_deref()).await;
+        CommandResult::ModelChanged { route } => {
+            if switch_session_model(route, ctx.session, ctx.engine).await {
+                print_session_model(ctx.session);
+            }
             true
         }
         CommandResult::ThinkingChanged { level } => {

@@ -121,14 +121,9 @@ async fn apply_mid_turn_command<B: TerminalBackend>(
                 ctx.batch.flush(ctx.controller, true)?;
             }
         }
-        CommandResult::ModelChanged {
-            new_model,
-            new_provider,
-        } => {
-            let provider = new_provider.unwrap_or_else(|| ctx.session.config.provider.clone());
+        CommandResult::ModelChanged { route } => {
             super::model_switch::apply_turn_model_switch(super::model_switch::TurnModelSwitchInput {
-                model: &new_model,
-                provider: &provider,
+                route,
                 save_as_default: false,
                 config: &mut ctx.session.config,
                 auth_store: &ctx.session.auth_store,

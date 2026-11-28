@@ -10,6 +10,7 @@ pub(crate) mod input_reader;
 pub mod interactive;
 mod line_mode;
 pub(crate) mod live;
+mod model_switch;
 mod prompt;
 #[cfg(test)]
 mod tests;
@@ -197,7 +198,7 @@ impl ReplSession {
             engine.config.provider = self.config.provider.clone();
             engine.config.thinking_level = self.config.thinking_level.clone();
             let result = engine.update_model().await;
-            live::navigation::report_model_update(self, engine, result, "Could not update model");
+            model_switch::report_model_update(self, engine, result, "Could not update model");
         }
     }
 

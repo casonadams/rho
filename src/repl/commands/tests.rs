@@ -8,6 +8,7 @@ use crate::ui::TerminalRenderer;
 use rho_engine::auth::AuthStore;
 use rho_engine::engine::eval::mock::{MockEngineConfig, mock_engine};
 use rho_engine::provider::adapter::MockAdapter;
+use rho_harness_core::provider::ModelRoute;
 use rho_harness_core::session::SessionManager;
 use std::sync::Arc;
 
@@ -209,7 +210,7 @@ async fn mcp_and_logout_commands_dispatch_by_renderer_mode() {
 }
 
 #[tokio::test]
-async fn model_switch_is_emitted_and_updates_configuration() {
+async fn model_switch_is_returned_for_the_switch_to_apply() {
     let cases = [
         ("/model gpt-4o openai", "", "gpt-4o", "openai"),
         (
@@ -226,7 +227,7 @@ async fn model_switch_is_emitted_and_updates_configuration() {
             ..Config::default()
         };
         let mut auth = AuthStore::default();
-        let (renderer, mut events) = collecting_renderer();
+        let (renderer, _events) = collecting_renderer();
         let mut context = test_context(&mut config, &mut auth, &renderer);
 
         let result = SlashCommandHandler::handle(input, &mut context).await.unwrap();
@@ -234,14 +235,30 @@ async fn model_switch_is_emitted_and_updates_configuration() {
         assert_eq!(
             result,
             Some(CommandResult::ModelChanged {
-                new_model: model.to_string(),
-                new_provider: Some(provider.to_string()),
+                route: ModelRoute::new(provider, model),
             }),
             "{input}"
         );
-        assert_eq!((config.model.as_str(), config.provider.as_str()), (model, provider));
-        assert!(collected_output(&mut events).contains(&format!("Model: {model} ({provider})")));
     }
+}
+
+#[tokio::test]
+async fn model_command_leaves_session_config_to_the_switch() {
+    let mut config = Config {
+        provider: "openai".to_string(),
+        ..Config::default()
+    };
+    let before = (config.model.clone(), config.provider.clone());
+    let mut auth = AuthStore::default();
+    let (renderer, mut events) = collecting_renderer();
+    let mut context = test_context(&mut config, &mut auth, &renderer);
+
+    SlashCommandHandler::handle("/model gpt-4o", &mut context)
+        .await
+        .unwrap();
+
+    assert_eq!((config.model.clone(), config.provider.clone()), before);
+    assert_eq!(collected_output(&mut events), "");
 }
 
 #[tokio::test]
@@ -276,13 +293,8 @@ async fn model_command_keeps_the_selected_provider_that_lists_the_model() {
     assert_eq!(
         result,
         Some(CommandResult::ModelChanged {
-            new_model: "deepseek-v4.1-flash".to_string(),
-            new_provider: Some("ollama-cloud".to_string()),
+            route: ModelRoute::new("ollama-cloud", "deepseek-v4.1-flash"),
         })
-    );
-    assert_eq!(
-        (config.model.as_str(), config.provider.as_str()),
-        ("deepseek-v4.1-flash", "ollama-cloud")
     );
     let _ = std::fs::remove_dir_all(temp);
 }

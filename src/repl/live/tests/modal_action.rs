@@ -778,3 +778,36 @@ async fn test_modal_action_failed_saves_keep_in_memory_settings() {
     assert_eq!(tctx.session.config.thinking_level.as_deref(), Some("high"));
     assert_eq!(std::fs::read_to_string(&blocker).unwrap(), "");
 }
+
+#[tokio::test]
+async fn failed_model_selection_with_save_as_default_changes_neither_config_nor_saved_default() {
+    let dir = rho_test_support::TestDir::new();
+    let (mut controller, mut batch, mut session, mut engine, mut input) = setup_modal_action_harness(&dir).await;
+    let state = |session: &crate::repl::ReplSession| {
+        (
+            session.config.model.clone(),
+            session.config.provider.clone(),
+            session.config.default_model.clone(),
+        )
+    };
+    let before = state(&session);
+    let mut tctx = ModalTestCtx {
+        controller: &mut controller,
+        session: &mut session,
+        engine: &mut engine,
+        input: &mut input,
+        batch: &mut batch,
+    };
+
+    assert!(
+        tctx.dispatch(ModalKeyResult::ModelSelected {
+            model: "some-model".to_string(),
+            provider: "no-such-provider".to_string(),
+            save_as_default: true,
+        })
+        .await
+    );
+
+    assert_eq!(state(tctx.session), before);
+    assert!(!dir.join("config.toml").exists());
+}

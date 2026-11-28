@@ -4,6 +4,7 @@ use crate::repl::interactive::{CompletionSet, InteractiveHistory};
 use crate::ui::TerminalRenderer;
 use crate::ui::interactive::{Activity, NullBackend, QueueKind, RunningTool, TerminalController};
 use crossterm::event::{KeyCode, KeyEvent, KeyEventState, KeyModifiers};
+use rho_harness_core::provider::ModelRoute;
 
 fn key_event(code: KeyCode, modifiers: KeyModifiers) -> KeyEvent {
     KeyEvent {
@@ -254,37 +255,61 @@ fn model_switch_fixture() -> (
 
 #[tokio::test]
 async fn test_apply_turn_model_switch_updates_config_and_footer() {
-    let cases = [("local", false), ("no-such-provider", true)];
-    for (provider, expect_warning) in cases {
-        let (mut controller, mut batch, mut config, auth_store) = model_switch_fixture();
-        let (ui, mut ui_events) = crate::ui::interactive::InteractiveUi::channel();
-        let renderer = TerminalRenderer::with_ui(ui);
-        let input = super::TurnModelSwitchInput {
-            model: "llama3.2",
-            provider,
-            save_as_default: false,
-            config: &mut config,
-            auth_store: &auth_store,
-            renderer: &renderer,
-            controller: &mut controller,
-            batch: &mut batch,
-        };
-        super::apply_turn_model_switch(input).await.unwrap();
-        assert_eq!(
-            (config.model.as_str(), config.provider.as_str()),
-            ("llama3.2", provider)
-        );
-        assert_eq!(controller.state().footer().model.as_str(), "llama3.2");
-        assert_eq!(controller.state().footer().provider.as_str(), provider);
-        let warned = std::iter::from_fn(|| ui_events.try_recv().ok()).any(|event| {
-            matches!(
-                event,
-                crate::ui::interactive::UiEvent::Transcript(crate::ui::interactive::TranscriptItem::Notice(text))
-                    if text.contains("Could not switch model")
-            )
-        });
-        assert_eq!(warned, expect_warning);
-    }
+    let (mut controller, mut batch, mut config, auth_store) = model_switch_fixture();
+    let renderer = TerminalRenderer::default();
+    let input = super::TurnModelSwitchInput {
+        route: ModelRoute::new("local", "llama3.2"),
+        save_as_default: false,
+        config: &mut config,
+        auth_store: &auth_store,
+        renderer: &renderer,
+        controller: &mut controller,
+        batch: &mut batch,
+    };
+    super::apply_turn_model_switch(input).await.unwrap();
+    assert_eq!((config.model.as_str(), config.provider.as_str()), ("llama3.2", "local"));
+    assert_eq!(controller.state().footer().model.as_str(), "llama3.2");
+    assert_eq!(controller.state().footer().provider.as_str(), "local");
+}
+
+#[tokio::test]
+async fn a_failed_mid_turn_switch_changes_neither_config_nor_footer() {
+    let (mut controller, mut batch, mut config, auth_store) = model_switch_fixture();
+    let before = (config.model.clone(), config.provider.clone());
+    let footer_before = (
+        controller.state().footer().model.clone(),
+        controller.state().footer().provider.clone(),
+    );
+    let (ui, mut ui_events) = crate::ui::interactive::InteractiveUi::channel();
+    let renderer = TerminalRenderer::with_ui(ui);
+    let input = super::TurnModelSwitchInput {
+        route: ModelRoute::new("no-such-provider", "llama3.2"),
+        save_as_default: false,
+        config: &mut config,
+        auth_store: &auth_store,
+        renderer: &renderer,
+        controller: &mut controller,
+        batch: &mut batch,
+    };
+
+    super::apply_turn_model_switch(input).await.unwrap();
+
+    assert_eq!((config.model.clone(), config.provider.clone()), before);
+    assert_eq!(
+        (
+            controller.state().footer().model.clone(),
+            controller.state().footer().provider.clone(),
+        ),
+        footer_before
+    );
+    let warned = std::iter::from_fn(|| ui_events.try_recv().ok()).any(|event| {
+        matches!(
+            event,
+            crate::ui::interactive::UiEvent::Transcript(crate::ui::interactive::TranscriptItem::Notice(text))
+                if text.contains("Could not switch model")
+        )
+    });
+    assert!(warned);
 }
 
 #[tokio::test]

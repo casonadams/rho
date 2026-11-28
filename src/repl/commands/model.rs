@@ -70,14 +70,9 @@ pub(crate) fn prompt_terminal_model_select(ctx: &mut SlashCommandContext<'_>) ->
         .collect();
     let mut stdin = std::io::stdin().lock();
     let mut stdout = std::io::stdout();
-    let (model_str, provider_str) = prompt_model_choice_from(&mut stdin, &mut stdout, &models)?;
-    ctx.config.model = model_str.clone();
-    ctx.config.provider = provider_str.clone();
-    ctx.renderer
-        .print_status(&format!("Model: {} ({})", ctx.config.model, ctx.config.provider));
+    let (model, provider) = prompt_model_choice_from(&mut stdin, &mut stdout, &models)?;
     Some(CommandResult::ModelChanged {
-        new_model: model_str,
-        new_provider: Some(provider_str),
+        route: ModelRoute::new(&provider, &model),
     })
 }
 
@@ -90,13 +85,7 @@ pub(crate) fn handle_model(ctx: &mut SlashCommandContext<'_>, parts: &[&str]) ->
             }
             None => ModelRoute::parse(spec, parts.get(2).copied(), &current),
         };
-        ctx.config.set_route(route);
-        ctx.renderer
-            .print_status(&format!("Model: {} ({})", ctx.config.model, ctx.config.provider));
-        return Ok(Some(CommandResult::ModelChanged {
-            new_model: ctx.config.model.clone(),
-            new_provider: Some(ctx.config.provider.clone()),
-        }));
+        return Ok(Some(CommandResult::ModelChanged { route }));
     }
     if ctx.renderer.has_interactive_ui() {
         return Ok(Some(CommandResult::OpenModelSelector));

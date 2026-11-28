@@ -13,12 +13,13 @@ async fn plain_input_is_passthrough() {
 
 use super::dispatch::{
     DispatchOutcome, clone_session, compact_context, fork_session, handle_auth_actions, handle_command_group,
-    handle_command_result, handle_config_auth_result, handle_model_change, handle_session_branching_result,
-    handle_session_manage_result, handle_terminal_result, name_session, resume_session, rewind_session,
-    show_session_summaries, show_tree,
+    handle_command_result, handle_config_auth_result, handle_session_branching_result, handle_session_manage_result,
+    handle_terminal_result, name_session, resume_session, rewind_session, show_session_summaries, show_tree,
 };
 use crate::repl::branch_summary::{has_assistant_turn, should_summarize_branch};
 use crate::repl::commands::CommandResult;
+use crate::repl::model_switch::switch_session_model;
+use rho_harness_core::provider::ModelRoute;
 use rho_harness_core::session::tree::{TreeNodeData, TreeNodeKind};
 
 async fn setup_test_session(dir: &std::path::Path) -> (crate::repl::ReplSession, crate::engine::AgentEngine) {
@@ -180,8 +181,14 @@ async fn a_failed_model_switch_changes_neither_the_session_nor_the_engine() {
     let before = (session.config.model.clone(), session.config.provider.clone());
     assert_eq!(before, (engine.config.model.clone(), engine.config.provider.clone()));
 
-    handle_model_change("some-model", Some("no-such-provider"), &mut session, &mut engine).await;
+    let switched = switch_session_model(
+        &ModelRoute::new("no-such-provider", "some-model"),
+        &mut session,
+        &mut engine,
+    )
+    .await;
 
+    assert!(!switched);
     assert_eq!((session.config.model.clone(), session.config.provider.clone()), before);
     assert_eq!((engine.config.model.clone(), engine.config.provider.clone()), before);
 }
@@ -191,11 +198,13 @@ async fn a_successful_model_switch_updates_the_session_and_the_engine_together()
     let temp = tempfile::tempdir().unwrap();
     let (mut session, mut engine) = setup_test_session(temp.path()).await;
 
-    handle_model_change("new-model", Some("ollama"), &mut session, &mut engine).await;
+    let route = ModelRoute::new("ollama", "new-model");
 
-    assert_eq!(session.config.model, "new-model");
+    assert!(switch_session_model(&route, &mut session, &mut engine).await);
+
+    assert_eq!(session.config.route(), route);
     assert_eq!(engine.config.model, "new-model");
-    assert_eq!(session.config.provider, "ollama");
+    assert_eq!(engine.config.provider, session.config.provider);
 }
 
 #[tokio::test]
@@ -204,7 +213,7 @@ async fn test_handle_auth_and_config_results() {
     let (mut session, mut engine) = setup_test_session(temp.path()).await;
 
     let orig_provider = session.config.provider.clone();
-    handle_model_change("new-model", None, &mut session, &mut engine).await;
+    assert!(switch_session_model(&ModelRoute::new(&orig_provider, "new-model"), &mut session, &mut engine).await);
     assert_eq!(session.config.model, "new-model");
     assert_eq!(session.config.provider, orig_provider);
     let res = handle_auth_actions(&CommandResult::Logout { provider: None }, &mut session, &mut engine).await;
@@ -218,8 +227,7 @@ async fn test_handle_auth_and_config_results() {
 
     let res = handle_config_auth_result(
         &CommandResult::ModelChanged {
-            new_model: "another-model".into(),
-            new_provider: None,
+            route: ModelRoute::new(&orig_provider, "another-model"),
         },
         &mut session,
         &mut engine,

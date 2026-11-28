@@ -1,13 +1,12 @@
 use super::super::batch::LiveBatch;
 use super::super::modal::ModalKeyResult;
-use super::super::modal::actions::{
-    apply_shared_modal_action, open_shared_help_modal, report_save, save_or_print_thinking,
-};
+use super::super::modal::actions::{apply_shared_modal_action, open_shared_help_modal, save_or_print_thinking};
 use super::super::navigation::{hydrate_session_transcript, update_footer};
 use crate::engine::AgentEngine;
 use crate::error::Result;
 use crate::repl::ReplSession;
 use crate::repl::input_reader::TerminalInputReader;
+use crate::repl::model_switch::{save_default_model, switch_session_model};
 use crate::ui::interactive::{TerminalBackend, TerminalController};
 
 pub(crate) struct ModalActionContext<'a, B: TerminalBackend> {
@@ -30,25 +29,15 @@ async fn handle_model_selected(
     save_as_default: bool,
     batch: &mut LiveBatch,
 ) -> Result<bool> {
-    let config = &mut ctx.session.config;
-    config.set_route(rho_harness_core::provider::ModelRoute::new(&provider, &model));
-    let saved = if save_as_default {
-        rho_harness_core::config::Config::save_default_model_async(&config.config_dir, &config.model, &config.provider)
-            .await
-    } else {
-        Ok(())
-    };
-    let saved_default = save_as_default && report_save(&ctx.session.renderer, "default model", &saved);
-    if saved_default {
-        ctx.session.config.default_model = Some(ctx.session.config.canonical_model_spec());
+    let route = rho_harness_core::provider::ModelRoute::new(&provider, &model);
+    if switch_session_model(&route, ctx.session, ctx.engine).await {
+        let saved_default = save_as_default && save_default_model(&mut ctx.session.config, &ctx.session.renderer).await;
+        if ctx.controller.state().active_modal().is_none() {
+            print_model_status(ctx, saved_default);
+        }
+        super::super::modal::update_models_role_description(ctx.controller, None, &model);
+        super::super::modal::update_settings_model_description(ctx.controller, &model);
     }
-    if ctx.controller.state().active_modal().is_none() {
-        print_model_status(ctx, saved_default);
-    }
-    let result = ctx.engine.switch_model(&model, &provider).await;
-    crate::repl::live::navigation::report_model_update(ctx.session, ctx.engine, result, "Could not switch model");
-    super::super::modal::update_models_role_description(ctx.controller, None, &model);
-    super::super::modal::update_settings_model_description(ctx.controller, &model);
     update_footer(ctx.controller.state_mut(), ctx.session, ctx.engine);
     batch.flush(ctx.controller, true)?;
     ctx.controller.redraw()?;
@@ -143,7 +132,7 @@ async fn handle_thinking_selected(
     save_or_print_thinking(ctx.session, level.as_deref(), save_as_default).await;
     if changed {
         let result = ctx.engine.update_model().await;
-        crate::repl::live::navigation::report_model_update(
+        crate::repl::model_switch::report_model_update(
             ctx.session,
             ctx.engine,
             result,

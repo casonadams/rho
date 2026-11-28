@@ -158,8 +158,7 @@ async fn switch_modal_model<B: TerminalBackend>(
     save_as_default: bool,
 ) -> Result<()> {
     apply_turn_model_switch(TurnModelSwitchInput {
-        model,
-        provider,
+        route: rho_harness_core::provider::ModelRoute::new(provider, model),
         save_as_default,
         config: &mut lp.session.config,
         auth_store: &lp.session.auth_store,
