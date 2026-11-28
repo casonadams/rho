@@ -21,6 +21,8 @@ pub struct TurnArtifacts {
     pub turn_started_at: Instant,
     pub ttft_ms: Option<u64>,
     pub cache_miss_tokens: Option<Option<u64>>,
+    /// The provider refused the turn's content with an error rather than a finish reason.
+    pub content_filtered: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]

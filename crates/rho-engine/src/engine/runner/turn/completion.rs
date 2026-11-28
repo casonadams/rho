@@ -147,7 +147,7 @@ impl AgentEngine {
         let usage = self
             .record_turn_usage(&artifacts.response, artifacts.generation_elapsed_ms)
             .await?;
-        let (status, terminal_status) = determine_turn_status(&artifacts.response);
+        let (status, terminal_status) = determine_turn_status(&artifacts);
         let metrics = self.finalize_turn_summary(&artifacts.response, terminal_status).await?;
         self.spawn_local_context_probe();
 
@@ -181,13 +181,14 @@ impl AgentEngine {
     }
 }
 
-fn determine_turn_status(response: &PromptResponse) -> (RunStatus, TerminalStatus) {
-    let is_filtered = response
+fn determine_turn_status(artifacts: &TurnArtifacts) -> (RunStatus, TerminalStatus) {
+    let finished_filtered = artifacts
+        .response
         .completion_calls
         .last()
         .and_then(|call| call.finish_reason.as_ref())
         == Some(&FinishReason::ContentFilter);
-    if is_filtered {
+    if artifacts.content_filtered || finished_filtered {
         (RunStatus::ContentFiltered, TerminalStatus::ContentFiltered)
     } else {
         (RunStatus::Completed, TerminalStatus::Completed)
@@ -283,6 +284,7 @@ mod tests {
                     turn_started_at: std::time::Instant::now(),
                     ttft_ms: None,
                     cache_miss_tokens: None,
+                    content_filtered: false,
                 },
                 &lifecycle,
             )
@@ -302,6 +304,7 @@ mod tests {
                     turn_started_at: std::time::Instant::now(),
                     ttft_ms: Some(120),
                     cache_miss_tokens: None,
+                    content_filtered: false,
                 },
                 &lifecycle,
             )
@@ -327,6 +330,7 @@ mod tests {
                     turn_started_at: std::time::Instant::now(),
                     ttft_ms: Some(20),
                     cache_miss_tokens: None,
+                    content_filtered: false,
                 },
                 &lifecycle,
             )

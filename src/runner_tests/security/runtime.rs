@@ -51,6 +51,23 @@ async fn content_filter_finish_is_distinct() {
     assert_eq!(output.status, RunStatus::ContentFiltered);
 }
 
+#[tokio::test]
+async fn a_content_filter_error_is_recorded_as_filtered_not_completed() {
+    let model = Arc::new(MockAdapter::default());
+    model.add_turn(vec![Err(rho_harness_core::error::AppError::ContentFiltered)]);
+    let engine = test_engine(model, Config::default());
+    let output = engine
+        .run_turn(request("prompt"), presenter(&TerminalRenderer::default()))
+        .await
+        .unwrap();
+
+    assert_eq!(output.status, RunStatus::ContentFiltered);
+    assert_eq!(
+        output.metrics.terminal_status,
+        rho_engine::engine::metrics::TerminalStatus::ContentFiltered
+    );
+}
+
 #[test]
 fn auth_store_type_remains_constructible_for_public_engine_api() {
     let _ = AuthStore::default();

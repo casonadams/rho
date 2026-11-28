@@ -38,7 +38,7 @@ impl AgentEngine {
         turn_started_at: Instant,
     ) -> Result<TurnOutput> {
         sink.record_tool_events().await?;
-        let filtered = res.is_filtered();
+        let content_filtered = res.is_filtered();
         let (state, response) = res.into_response();
         let generation_elapsed_ms = state.elapsed_generation_ms();
         let ttft_ms = state.ttft_ms();
@@ -52,12 +52,9 @@ impl AgentEngine {
             turn_started_at,
             ttft_ms,
             cache_miss_tokens: Some(state.cache_miss_tokens),
+            content_filtered,
         };
-        let mut out = self.finish_turn(artifacts, lifecycle).await?;
-        if filtered {
-            out.status = RunStatus::ContentFiltered;
-        }
-        Ok(out)
+        self.finish_turn(artifacts, lifecycle).await
     }
 
     /// Runs the turn loop until the turn is over, starting it again with the turns it has left
