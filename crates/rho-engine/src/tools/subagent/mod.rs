@@ -52,6 +52,7 @@ pub struct SubagentTool {
     pinned_models: BTreeMap<String, ModelRole>,
     worktrees: Option<crate::worktree::WorktreeStore>,
     worktree_lsp: Option<lsp::WorktreeLsp>,
+    direnv: crate::tools::bash::DirenvOptions,
     fresh_session_state: Option<FreshSessionState>,
     background: background::Backgrounding,
 }
@@ -111,6 +112,7 @@ impl SubagentTool {
             pinned_models: BTreeMap::new(),
             worktrees: None,
             worktree_lsp: None,
+            direnv: crate::tools::bash::DirenvOptions::default(),
             fresh_session_state: None,
             background: background::Backgrounding::default(),
             description: String::new(),
@@ -183,6 +185,13 @@ impl SubagentTool {
     #[must_use]
     pub fn with_worktree_lsp(mut self, open: lsp::WorktreeLsp) -> Self {
         self.worktree_lsp = Some(open);
+        self
+    }
+
+    /// How a subagent's `bash` loads `direnv` once its tools move into a worktree.
+    #[must_use]
+    pub fn with_direnv(mut self, direnv: crate::tools::bash::DirenvOptions) -> Self {
+        self.direnv = direnv;
         self
     }
 
@@ -386,6 +395,7 @@ impl SubagentTool {
         let runner = runner
             .with_context(self.ctx.clone())
             .with_worktree_lsp(self.worktree_lsp.clone())
+            .with_direnv(self.direnv)
             .with_context_policy(source.context);
         let runner = match persona {
             Some(persona) => runner.with_persona(persona),

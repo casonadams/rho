@@ -194,10 +194,12 @@ pub fn build_builtin_toolset(
         subagent = subagent.with_worktree_lsp(Arc::new(LspManager::for_workspace));
     }
     let (subagent_workspace, session_lsp) = (workspace.clone(), shared_lsp);
-    subagent = subagent.with_fresh_session_state(Arc::new(move |tools| {
-        let current_root = subagent_workspace.get();
-        fresh_session_state(tools, &current_root, session_lsp.clone())
-    }));
+    subagent = subagent
+        .with_direnv(direnv)
+        .with_fresh_session_state(Arc::new(move |tools| {
+            let current_root = subagent_workspace.get();
+            fresh_session_state(tools, &current_root, session_lsp.clone(), direnv)
+        }));
     if let Some(store) = services.worktrees {
         subagent = subagent.with_worktrees(store.clone());
         let wt_base = config.worktree.effective_base(&config.config_dir);
@@ -236,8 +238,9 @@ pub(crate) fn rerooted(
     tools: &[Arc<dyn EngineTool>],
     root: &Path,
     lsp: Option<&WorktreeLsp>,
+    direnv: crate::tools::bash::DirenvOptions,
 ) -> Vec<Arc<dyn EngineTool>> {
-    fresh_session_state(tools, root, lsp.map(|open| open(root)))
+    fresh_session_state(tools, root, lsp.map(|open| open(root)), direnv)
 }
 
 /// `tools` with the ones that share an edit history (write, edit, undo and lsp) replaced by new
@@ -247,12 +250,9 @@ pub(crate) fn fresh_session_state(
     tools: &[Arc<dyn EngineTool>],
     root: &Path,
     lsp: Option<Arc<LspManager>>,
+    direnv: crate::tools::bash::DirenvOptions,
 ) -> Vec<Arc<dyn EngineTool>> {
-    let native = build_workspace_native_tools(
-        crate::tools::WorkspaceDir::new(root),
-        lsp,
-        crate::tools::bash::DirenvOptions::default(),
-    );
+    let native = build_workspace_native_tools(crate::tools::WorkspaceDir::new(root), lsp, direnv);
     let fresh = tools
         .iter()
         .filter_map(|tool| match native.iter().find(|n| n.name() == tool.name()) {

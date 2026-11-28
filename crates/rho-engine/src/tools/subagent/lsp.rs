@@ -297,10 +297,10 @@ mod tests {
         let opened: WorktreeLsp = Arc::new(move |_| Arc::clone(&manager));
         let tools = vec![named("read"), lsp_in(&parent)];
 
-        let without = rerooted(&tools, &worktree, None);
+        let without = rerooted(&tools, &worktree, None, Default::default());
         assert!(without.iter().all(|t| t.name() != "lsp"));
 
-        let rooted = rerooted(&tools, &worktree, Some(&opened));
+        let rooted = rerooted(&tools, &worktree, Some(&opened), Default::default());
         let lsp = rooted.iter().find(|t| t.name() == "lsp").unwrap();
         assert!(!lsp.parameters().to_string().contains("rename"));
         let query = json!({"action": "symbols", "path": "src/lib.rs"});
@@ -314,7 +314,7 @@ mod tests {
         let (manager, _) = fake_manager(&worktree, FakeOptions::default());
         let opened: WorktreeLsp = Arc::new(move |_| Arc::clone(&manager));
         let tools = vec![named("edit"), lsp_in(&worktree)];
-        let rooted = rerooted(&tools, &worktree, Some(&opened));
+        let rooted = rerooted(&tools, &worktree, Some(&opened), Default::default());
         let lsp = rooted.iter().find(|t| t.name() == "lsp").unwrap();
         assert!(lsp.parameters().to_string().contains("rename"));
     }

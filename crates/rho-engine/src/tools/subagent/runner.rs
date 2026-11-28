@@ -77,6 +77,7 @@ pub struct SubagentRunner {
     /// overflow, keeping the default recent conversation.
     context_policy: Option<ContextPolicy>,
     worktree_lsp: Option<WorktreeLsp>,
+    direnv: crate::tools::bash::DirenvOptions,
     /// The worktree whose language servers the round started.
     lsp_root: Option<std::path::PathBuf>,
 }
@@ -197,6 +198,7 @@ impl SubagentRunner {
             task_id: None,
             context_policy: None,
             worktree_lsp: None,
+            direnv: crate::tools::bash::DirenvOptions::default(),
             lsp_root: None,
         }
     }
@@ -204,6 +206,12 @@ impl SubagentRunner {
     #[must_use]
     pub fn with_worktree_lsp(mut self, open: Option<WorktreeLsp>) -> Self {
         self.worktree_lsp = open;
+        self
+    }
+
+    #[must_use]
+    pub(crate) fn with_direnv(mut self, direnv: crate::tools::bash::DirenvOptions) -> Self {
+        self.direnv = direnv;
         self
     }
 
@@ -242,7 +250,7 @@ impl SubagentRunner {
     #[must_use]
     pub fn in_worktree(mut self, root: &std::path::Path) -> Self {
         self.isolated = true;
-        self.tools = crate::tools::builtin_tools::rerooted(&self.tools, root, self.worktree_lsp.as_ref());
+        self.tools = crate::tools::builtin_tools::rerooted(&self.tools, root, self.worktree_lsp.as_ref(), self.direnv);
         self.lsp_root = self.worktree_lsp.as_ref().map(|_| root.to_path_buf());
         if let Some(project) = &self.ctx.project {
             let mut moved = (**project).clone();
