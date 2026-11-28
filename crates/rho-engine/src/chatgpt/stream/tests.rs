@@ -244,6 +244,34 @@ fn reasoning_summary_part_added_without_output_index_emits_no_error() {
 }
 
 #[test]
+fn finished_reasoning_item_with_encrypted_content_becomes_a_replayable_block() {
+    use rho_harness_core::model::{Reasoning, ReasoningContent};
+    let events = feed_events(&[
+        r#"{"type": "response.output_item.done", "output_index": 0, "item": {"type": "reasoning", "id": "rs_1", "summary": [{"type": "summary_text", "text": "Plan"}, {"type": "summary_text", "text": "Act"}], "encrypted_content": "ENC"}}"#,
+    ]);
+    let expected = Reasoning {
+        id: Some("rs_1".to_string()),
+        content: vec![
+            ReasoningContent::Summary("Plan".to_string()),
+            ReasoningContent::Summary("Act".to_string()),
+            ReasoningContent::Encrypted("ENC".to_string()),
+        ],
+    };
+    assert_eq!(
+        events.into_iter().collect::<Result<Vec<_>, _>>().unwrap(),
+        vec![ModelStreamEvent::ReasoningBlock(expected)]
+    );
+}
+
+#[test]
+fn finished_reasoning_item_without_encrypted_content_is_not_replayable() {
+    let events = feed_events(&[
+        r#"{"type": "response.output_item.done", "output_index": 0, "item": {"type": "reasoning", "id": "rs_1", "summary": []}}"#,
+    ]);
+    assert!(events.is_empty());
+}
+
+#[test]
 fn non_function_output_items_are_ignored_for_tool_calls() {
     let events = feed_events(&[
         r#"{"type": "response.output_item.added", "output_index": 0, "item": {"type": "message", "id": "msg_1"}}"#,

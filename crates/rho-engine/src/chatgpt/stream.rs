@@ -1,7 +1,8 @@
 //! OpenAI Responses API SSE streaming parser for ChatGPT (Codex).
 //!
 //! Handles `response.output_text.delta`, `response.reasoning_summary_part.added`,
-//! `response.reasoning_summary_text.delta`, function calls, and `response.completed`.
+//! `response.reasoning_summary_text.delta`, function calls, finished reasoning items (kept as
+//! encrypted `ReasoningBlock`s for replay), and `response.completed`.
 //! Crucially, this parser injects `\n\n` paragraph boundaries when new reasoning summary
 //! parts are added (`summary_index > 0`), ensuring discrete thinking steps do not collide.
 
@@ -11,7 +12,7 @@ mod tests;
 use crate::engine::metrics::StructuralUsage;
 use crate::provider::adapter::{FinishReason, ModelStreamEvent};
 use crate::provider::sse::{SseEvents, SseLineDecoder, sse_line_feed};
-use rho_harness_core::model::{ToolCall, ToolFunction};
+use rho_harness_core::model::{Reasoning, ReasoningContent, ToolCall, ToolFunction};
 use serde::Deserialize;
 use std::collections::HashMap;
 
@@ -110,6 +111,8 @@ enum ResponsesWireEvent {
 enum OutputItemPayload {
     #[serde(rename = "function_call")]
     FunctionCall(FunctionCallPayload),
+    #[serde(rename = "reasoning")]
+    Reasoning(ReasoningItemPayload),
     #[serde(other)]
     Other,
 }
@@ -124,6 +127,35 @@ struct FunctionCallPayload {
     name: String,
     #[serde(default)]
     arguments: String,
+}
+
+#[derive(Deserialize)]
+struct ReasoningItemPayload {
+    #[serde(default)]
+    id: Option<String>,
+    #[serde(default)]
+    summary: Vec<ReasoningSummaryPayload>,
+    #[serde(default)]
+    encrypted_content: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct ReasoningSummaryPayload {
+    #[serde(default)]
+    text: String,
+}
+
+impl ReasoningItemPayload {
+    fn into_replayable_block(self) -> Option<Reasoning> {
+        let encrypted = self.encrypted_content?;
+        let mut content: Vec<ReasoningContent> = self
+            .summary
+            .into_iter()
+            .map(|s| ReasoningContent::Summary(s.text))
+            .collect();
+        content.push(ReasoningContent::Encrypted(encrypted));
+        Some(Reasoning { id: self.id, content })
+    }
 }
 
 #[derive(Deserialize)]
@@ -322,6 +354,19 @@ impl SseParser {
         events.push(Ok(ModelStreamEvent::ToolCall(call)));
     }
 
+    fn handle_output_item_done(&mut self, item: OutputItemPayload, index: u64, events: &mut SseEvents) {
+        match item {
+            OutputItemPayload::FunctionCall(call) => self.handle_function_call_done(call, index, events),
+            OutputItemPayload::Reasoning(reasoning) => {
+                self.active_summary_part = None;
+                if let Some(block) = reasoning.into_replayable_block() {
+                    events.push(Ok(ModelStreamEvent::ReasoningBlock(block)));
+                }
+            }
+            OutputItemPayload::Other => self.active_summary_part = None,
+        }
+    }
+
     fn handle_completed(usage_payload: Option<ResponsesUsagePayload>, reason: FinishReason, events: &mut SseEvents) {
         let usage = usage_payload
             .map(|u| {
@@ -397,11 +442,7 @@ impl SseParser {
                 self.handle_function_call_args_delta(delta, item_id, output_index, events);
             }
             ResponsesWireEvent::OutputItemDone { item, output_index } => {
-                if let OutputItemPayload::FunctionCall(call) = item {
-                    self.handle_function_call_done(call, output_index, events);
-                } else {
-                    self.active_summary_part = None;
-                }
+                self.handle_output_item_done(item, output_index, events);
             }
             ResponsesWireEvent::ResponseCompleted { response } => {
                 Self::handle_completed(response.and_then(|r| r.usage), FinishReason::Stop, events);

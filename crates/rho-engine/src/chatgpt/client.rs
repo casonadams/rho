@@ -8,7 +8,7 @@ use crate::provider::adapter::{ModelAdapter, ModelCompletionRequest, ModelEventS
 use crate::provider::error::{HttpFailure, HttpResult, retry_once_after_unauthorized};
 use crate::provider::sse::open_sse_stream;
 use rho_harness_core::error::AppError;
-use rho_harness_core::model::ChatMessage;
+use rho_harness_core::model::{ChatMessage, Reasoning, ReasoningContent};
 use serde_json::{Value, json};
 
 pub const DEFAULT_ENDPOINT: &str = "https://chatgpt.com/backend-api/codex";
@@ -131,6 +131,8 @@ impl ChatGptClient {
             "model": self.model,
             "input": input,
             "stream": true,
+            "store": false,
+            "include": ["reasoning.encrypted_content"],
         });
         if !tools.is_empty() {
             body["tools"] = json!(tools);
@@ -204,10 +206,35 @@ fn convert_chatgpt_user(content: &[rho_harness_core::model::UserContent]) -> Vec
     items
 }
 
+/// With `store: false` only `encrypted_content` carries reasoning to later turns:
+/// <https://developers.openai.com/api/docs/guides/reasoning#keeping-reasoning-items-in-context>
+fn encrypted_reasoning_item(reasoning: &Reasoning) -> Option<Value> {
+    let encrypted = reasoning.content.iter().find_map(|c| match c {
+        ReasoningContent::Encrypted(e) => Some(e),
+        _ => None,
+    })?;
+    let summary = reasoning
+        .content
+        .iter()
+        .filter_map(|c| match c {
+            ReasoningContent::Summary(text) => Some(json!({"type": "summary_text", "text": text})),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    let mut item = json!({"type": "reasoning", "summary": summary, "encrypted_content": encrypted});
+    if let Some(id) = &reasoning.id {
+        item["id"] = json!(id);
+    }
+    Some(item)
+}
+
 fn convert_chatgpt_assistant(content: &[rho_harness_core::model::AssistantContent]) -> Vec<Value> {
     let mut items = Vec::new();
     for part in content {
         match part {
+            rho_harness_core::model::AssistantContent::Reasoning(reasoning) => {
+                items.extend(encrypted_reasoning_item(reasoning));
+            }
             rho_harness_core::model::AssistantContent::Text(t) => {
                 items.push(json!({
                     "type": "message",
@@ -292,6 +319,45 @@ mod tests {
 
         assert_eq!(json_body["model"], "gpt-5.4");
         assert_eq!(json_body["stream"], true);
+    }
+
+    #[test]
+    fn build_request_is_stateless_and_asks_for_encrypted_reasoning() {
+        let client = ChatGptClient::new("test-token", "gpt-5.4");
+        let json_body = client.build_request(&sample_completion_request());
+
+        assert_eq!(json_body["store"], false);
+        assert_eq!(json_body["include"], json!(["reasoning.encrypted_content"]));
+    }
+
+    #[test]
+    fn encrypted_reasoning_is_replayed_before_the_call_it_preceded() {
+        use rho_harness_core::model::{AssistantContent, Reasoning, ReasoningContent, ToolCall, ToolFunction};
+        let encrypted = Reasoning {
+            id: Some("rs_1".to_string()),
+            content: vec![
+                ReasoningContent::Summary("Plan the fix".to_string()),
+                ReasoningContent::Encrypted("ENC".to_string()),
+            ],
+        };
+        let items = convert_chatgpt_assistant(&[
+            AssistantContent::Reasoning(Reasoning::new("plain text from another provider")),
+            AssistantContent::Reasoning(encrypted),
+            AssistantContent::ToolCall(ToolCall::new("call-1", ToolFunction::new("read", json!({})))),
+        ]);
+
+        assert_eq!(
+            items,
+            vec![
+                json!({
+                    "type": "reasoning",
+                    "id": "rs_1",
+                    "summary": [{"type": "summary_text", "text": "Plan the fix"}],
+                    "encrypted_content": "ENC",
+                }),
+                json!({"type": "function_call", "call_id": "call-1", "name": "read", "arguments": "{}"}),
+            ]
+        );
     }
 
     #[test]
