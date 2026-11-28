@@ -1235,7 +1235,7 @@ async fn a_message_waiting_at_the_final_answer_keeps_the_agent_working_except_on
         let requests = model.requests();
         assert_eq!(requests.len(), expected_requests, "budget {budget}");
         if budget > 1 {
-            let sent = serde_json::to_string(&requests[1].messages).unwrap();
+            let sent = serde_json::to_string(&*requests[1].messages).unwrap();
             assert!(
                 sent.contains("first answer") && sent.contains("also check the tests"),
                 "{sent}"

@@ -33,7 +33,7 @@ async fn the_model_sees_plain_bash_output_while_the_ui_keeps_its_colors() {
         .await
         .unwrap();
 
-    let sent_to_model = serde_json::to_string(&model.requests()[1].messages).unwrap();
+    let sent_to_model = serde_json::to_string(&*model.requests()[1].messages).unwrap();
     assert!(sent_to_model.contains("red\\ngreen"), "{sent_to_model}");
     assert!(
         !sent_to_model.contains("\\u001b"),
@@ -67,7 +67,7 @@ async fn a_turn_ends_while_another_sessions_background_job_runs_and_never_receiv
     .expect("the turn must not wait for a job that belongs to another session")
     .unwrap();
 
-    let sent_to_model = serde_json::to_string(&model.requests()[0].messages).unwrap();
+    let sent_to_model = serde_json::to_string(&*model.requests()[0].messages).unwrap();
     assert!(!sent_to_model.contains("e2e-other-secret-result"), "{sent_to_model}");
     assert!(other.has_running_jobs(), "another session's work is left alone");
     assert_eq!(other.take()[0].body, "e2e-other-secret-result");

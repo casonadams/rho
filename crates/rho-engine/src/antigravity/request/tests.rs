@@ -11,7 +11,7 @@ fn minimal_request(history: Vec<ChatMessage>) -> ModelCompletionRequest {
     ModelCompletionRequest {
         preamble: Some("system prompt".to_string()),
         prompt: String::new(),
-        messages: history,
+        messages: history.into(),
         tools: Vec::new(),
         max_tokens: None,
         temperature: None,

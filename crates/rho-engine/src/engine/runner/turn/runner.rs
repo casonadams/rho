@@ -310,13 +310,13 @@ fn build_assistant_message(outcome: &TurnStreamOutcome) -> ChatMessage {
 
 fn completion_request(
     runner: &AgentRunner,
-    messages: &[ChatMessage],
+    messages: Arc<[ChatMessage]>,
     tools_def: &[ModelToolDefinition],
 ) -> ModelCompletionRequest {
     ModelCompletionRequest {
         preamble: (!runner.preamble.is_empty()).then(|| runner.preamble.clone()),
         prompt: String::new(),
-        messages: messages.to_vec(),
+        messages,
         tools: tools_def.to_vec(),
         max_tokens: None,
         temperature: None,
@@ -344,8 +344,13 @@ async fn execute_agent_step(
 ) -> Result<StepExecutionResult, AppError> {
     emitter.ensure_live()?;
     *ctx.request_count += 1;
-    let messages: &[ChatMessage] = ctx.current_messages;
-    let outcome = call_model(runner, || completion_request(runner, messages, tools_def), emitter).await?;
+    let messages: Arc<[ChatMessage]> = ctx.current_messages.as_slice().into();
+    let outcome = call_model(
+        runner,
+        || completion_request(runner, messages.clone(), tools_def),
+        emitter,
+    )
+    .await?;
     *ctx.total_usage = ctx.total_usage.merge(&outcome.usage);
 
     let completion_call = CompletionCall {

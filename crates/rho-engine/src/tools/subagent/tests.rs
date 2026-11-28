@@ -458,7 +458,7 @@ async fn a_message_waiting_at_the_final_answer_keeps_the_subagent_working() {
     assert!(result.content.starts_with("revised answer"), "{}", result.content);
     let requests = adapter.requests();
     assert_eq!(requests.len(), 2);
-    let sent = serde_json::to_string(&requests[1].messages).unwrap();
+    let sent = serde_json::to_string(&*requests[1].messages).unwrap();
     assert!(sent.contains("first answer"), "{sent}");
     assert!(
         sent.contains("Message from the delegating agent:\\nalso cover the error path"),
@@ -545,7 +545,7 @@ async fn a_message_waiting_when_the_task_is_completed_is_read_before_the_report_
         "{}",
         result.content
     );
-    let sent = serde_json::to_string(&adapter.requests()[1].messages).unwrap();
+    let sent = serde_json::to_string(&*adapter.requests()[1].messages).unwrap();
     assert!(sent.contains("Not completed: a new message arrived"), "{sent}");
     assert!(sent.contains("also cover the error path"), "{sent}");
     assert!(inbox.take().is_empty());
@@ -560,7 +560,7 @@ async fn a_message_from_the_user_reaches_the_round_labelled_as_from_the_user() {
 
     runner.run("review", None).await;
 
-    let sent = serde_json::to_string(&adapter.requests()[1].messages).unwrap();
+    let sent = serde_json::to_string(&*adapter.requests()[1].messages).unwrap();
     assert!(sent.contains("Message from the user:\\ncheck the tests too"), "{sent}");
     assert!(!sent.contains("delegating agent"), "{sent}");
 }

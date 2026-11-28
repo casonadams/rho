@@ -553,7 +553,8 @@ mod tests {
                     UserContent::ToolResult(ToolResult::new("call-2", "bash", "output")),
                     UserContent::Image(image("userjpg", "image/jpeg")),
                 ],
-            }],
+            }]
+            .into(),
             ..Default::default()
         };
 

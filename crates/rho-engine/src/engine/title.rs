@@ -205,7 +205,7 @@ async fn generate_title_text(
     let request = ModelCompletionRequest {
         preamble: Some(TITLE_SYSTEM_PROMPT.to_string()),
         prompt: prompt.to_string(),
-        messages: Vec::new(),
+        messages: Default::default(),
         tools: Vec::new(),
         max_tokens: Some(TITLE_MAX_TOKENS),
         temperature: None,

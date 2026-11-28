@@ -188,7 +188,7 @@ fn test_completion_request() -> ModelCompletionRequest {
     ModelCompletionRequest {
         preamble: Some("system prompt".to_string()),
         prompt: "hello".to_string(),
-        messages: Vec::new(),
+        messages: Default::default(),
         tools: Vec::new(),
         max_tokens: None,
         temperature: None,

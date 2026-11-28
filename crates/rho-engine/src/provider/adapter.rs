@@ -31,7 +31,7 @@ pub struct ModelToolDefinition {
 pub struct ModelCompletionRequest {
     pub preamble: Option<String>,
     pub prompt: String,
-    pub messages: Vec<ChatMessage>,
+    pub messages: Arc<[ChatMessage]>,
     pub tools: Vec<ModelToolDefinition>,
     pub max_tokens: Option<u64>,
     pub temperature: Option<f64>,

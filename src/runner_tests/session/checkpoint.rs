@@ -111,7 +111,7 @@ async fn setup_single_turn_checkpoint(probe: &str) -> (Vec<ChatMessage>, String,
 
 fn assert_requests_contain_probe(requests: &[ModelCompletionRequest], probe: &str) {
     for req in requests {
-        let history = serde_json::to_string(&req.messages).unwrap();
+        let history = serde_json::to_string(&*req.messages).unwrap();
         assert_eq!(history.matches(probe).count(), 2);
     }
 }

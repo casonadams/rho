@@ -13,7 +13,7 @@ fn sample_request() -> ModelCompletionRequest {
     ModelCompletionRequest {
         preamble: Some("system instructions".to_string()),
         prompt: "hello world".to_string(),
-        messages: Vec::new(),
+        messages: Default::default(),
         tools: Vec::new(),
         max_tokens: None,
         temperature: Some(0.7),
@@ -128,7 +128,8 @@ fn request_with_tool_and_history() -> ModelCompletionRequest {
                     rho_harness_core::model::ToolResult::new("tool_call_1", "test_tool", "tool output"),
                 )],
             },
-        ],
+        ]
+        .into(),
         tools: vec![ModelToolDefinition {
             name: "test_tool".to_string(),
             description: "A test tool".to_string(),
@@ -194,7 +195,8 @@ fn test_build_request_body_marks_penultimate_turn_and_tail_in_multi_turn() {
         ChatMessage::user("first"),
         ChatMessage::assistant("second"),
         ChatMessage::user("third"),
-    ];
+    ]
+    .into();
     assert_eq!(message_marks(&login_body("default", None, &req)), [false, true, true]);
 }
 

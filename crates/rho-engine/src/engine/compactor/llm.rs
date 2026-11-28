@@ -43,7 +43,7 @@ async fn run_agent_completion(model: ModelHandle, prompt: &str) -> Result<(Strin
     let req = crate::provider::adapter::ModelCompletionRequest {
         preamble: Some(SUMMARIZATION_SYSTEM_PROMPT.to_string()),
         prompt: prompt.to_string(),
-        messages: Vec::new(),
+        messages: Default::default(),
         tools: Vec::new(),
         max_tokens: None,
         temperature: Some(0.0),

@@ -67,7 +67,7 @@ fn convert_claude_assistant(content: &[AssistantContent]) -> Vec<Value> {
 pub fn convert_messages(request: &ModelCompletionRequest) -> Vec<Value> {
     let mut turns: Vec<(String, Vec<Value>)> = Vec::new();
 
-    for message in &request.messages {
+    for message in request.messages.iter() {
         match message {
             ChatMessage::System { content } => {
                 append_turn(&mut turns, "user", vec![json!({ "type": "text", "text": content })])

@@ -693,7 +693,7 @@ async fn resume_continues_a_stopped_agent_in_the_same_task_and_takes_its_structu
 
     assert!(run.ok, "{}", run.report);
     assert!(run.report.contains("\"approved\": true"), "{}", run.report);
-    let sent = serde_json::to_string(&adapter.requests().last().unwrap().messages).unwrap();
+    let sent = serde_json::to_string(&*adapter.requests().last().unwrap().messages).unwrap();
     assert!(sent.contains("You stopped before finishing"), "{sent}");
     assert!(
         sent.contains("REVIEW the diff"),

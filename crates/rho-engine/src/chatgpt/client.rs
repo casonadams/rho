@@ -103,7 +103,7 @@ impl ChatGptClient {
                 "content": [{"type": "input_text", "text": preamble.trim()}]
             }));
         }
-        for m in &request.messages {
+        for m in request.messages.iter() {
             input.extend(convert_chatgpt_message(m));
         }
         if !request.prompt.trim().is_empty() {
@@ -318,7 +318,7 @@ mod tests {
         ModelCompletionRequest {
             prompt: "hi".to_string(),
             preamble: None,
-            messages: Vec::new(),
+            messages: Default::default(),
             tools: Vec::new(),
             max_tokens: None,
             temperature: None,

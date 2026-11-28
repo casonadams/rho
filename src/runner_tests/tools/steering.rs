@@ -50,7 +50,7 @@ async fn queued_steering_is_delivered_after_the_active_tool_run_completes() {
         .unwrap();
 
     assert_steering_event_order(&engine.session_manager).await;
-    let encoded = serde_json::to_string(&model.requests()[2].messages).unwrap();
+    let encoded = serde_json::to_string(&*model.requests()[2].messages).unwrap();
     assert!(encoded.contains("active run complete") && encoded.contains("queued steering"));
 }
 
@@ -120,7 +120,7 @@ async fn multiple_tool_calls_have_one_correlated_result_each() {
     assert_eq!(output.tool_calls_count, 2);
     assert_eq!(output.tool_failures_count, 2);
     let req = &model.requests()[1];
-    let serialized = serde_json::to_value(&req.messages).unwrap();
+    let serialized = serde_json::to_value(&*req.messages).unwrap();
     let calls = serialized.to_string().matches("toolcall").count();
     let results = serialized.to_string().matches("toolresult").count();
     assert_eq!((calls, results), (2, 2));

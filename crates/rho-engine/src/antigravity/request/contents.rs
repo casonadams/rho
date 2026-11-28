@@ -243,7 +243,7 @@ pub fn convert_contents(request: &ModelCompletionRequest, runtime_model: &str) -
     let call_ids = needs_function_call_id(runtime_model);
     let ctx = ConversionContext { requires_sig, call_ids };
 
-    for message in &request.messages {
+    for message in request.messages.iter() {
         match message {
             ChatMessage::System { content } => append_turn(&mut contents, "user", vec![part_text(content)]),
             ChatMessage::User { content } => {

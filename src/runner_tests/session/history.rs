@@ -22,7 +22,7 @@ async fn two_prompts_receive_prior_canonical_history_exactly_once() {
         .unwrap();
 
     let second = &model.requests()[1].messages;
-    let encoded = serde_json::to_string(second).unwrap();
+    let encoded = serde_json::to_string(&second[..]).unwrap();
     assert_eq!(encoded.matches("first prompt").count(), 1);
     assert_eq!(encoded.matches("first answer").count(), 1);
 }
@@ -48,7 +48,7 @@ async fn process_style_reopen_resumes_canonical_history_once() {
         .unwrap();
 
     let history = &resumed_model.requests()[0].messages;
-    let encoded = serde_json::to_string(history).unwrap();
+    let encoded = serde_json::to_string(&history[..]).unwrap();
     assert_eq!(encoded.matches("persisted prompt").count(), 1);
     assert_eq!(encoded.matches("persisted answer").count(), 1);
 }

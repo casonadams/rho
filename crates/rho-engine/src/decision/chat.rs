@@ -137,7 +137,7 @@ impl DecisionModel for ChatDecisionAdapter {
             .complete(ModelCompletionRequest {
                 preamble: Some(CHAT_DECISION_PREAMBLE.to_string()),
                 prompt: render_prompt(&request),
-                messages: Vec::new(),
+                messages: Default::default(),
                 tools: Vec::new(),
                 max_tokens: Some(256),
                 temperature: Some(0.0),

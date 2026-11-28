@@ -144,7 +144,7 @@ impl AgentEngine {
         let completion_req = ModelCompletionRequest {
             preamble: (!preamble.is_empty()).then_some(preamble),
             prompt: String::new(),
-            messages,
+            messages: messages.into(),
             tools,
             max_tokens: request.max_tokens,
             temperature: None,

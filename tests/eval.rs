@@ -78,7 +78,8 @@ fn sample_sensitive_request() -> rho_engine::provider::adapter::ModelCompletionR
                 "random-id",
                 ToolFunction::new("read", json!({"path":"secret"})),
             ))],
-        }],
+        }]
+        .into(),
         tools: Vec::new(),
         max_tokens: None,
         temperature: None,
@@ -193,7 +194,7 @@ async fn agent_eval_core_budget_exhaustion() {
 }
 
 fn text_occurrences(req: &rho_engine::provider::adapter::ModelCompletionRequest, needle: &str) -> usize {
-    let encoded = serde_json::to_string(&req.messages).unwrap();
+    let encoded = serde_json::to_string(&*req.messages).unwrap();
     encoded.matches(needle).count()
 }
 

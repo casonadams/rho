@@ -18,7 +18,7 @@ fn sample_request_with_tools(tools: Vec<ModelToolDefinition>) -> ModelCompletion
     ModelCompletionRequest {
         preamble: Some("system preamble".to_string()),
         prompt: "hello".to_string(),
-        messages: Vec::new(),
+        messages: Default::default(),
         tools,
         max_tokens: None,
         temperature: None,
@@ -100,7 +100,8 @@ fn cache_breakpoints_capped_at_four_in_deep_conversation() {
                 "call_1", "bash", "/tmp",
             ))],
         },
-    ];
+    ]
+    .into();
     let body = login_body("claude-sonnet-4-6", None, &req);
 
     assert_eq!(count_cache_breakpoints(&body), 4);
@@ -115,7 +116,8 @@ fn empty_tools_assigns_three_breakpoints_in_multi_turn() {
         ChatMessage::user("Turn 1 prompt"),
         ChatMessage::assistant("Turn 1 response"),
         ChatMessage::user("Turn 2 prompt"),
-    ];
+    ]
+    .into();
     let body = login_body("claude-sonnet-4-6", None, &req);
 
     assert!(body.get("tools").is_none());
@@ -173,7 +175,8 @@ fn cache_retention_sets_the_ttl_of_every_breakpoint() {
         ChatMessage::user("Turn 1 prompt"),
         ChatMessage::assistant("Turn 1 response"),
         ChatMessage::user("Turn 2 prompt"),
-    ];
+    ]
+    .into();
     let cases = [
         (CacheRetention::Short, ClaudeAuth::Login, None),
         (CacheRetention::Long, ClaudeAuth::ApiKey, Some("1h")),
@@ -245,7 +248,7 @@ fn convert_messages_converts_user_and_assistant_images() {
     let req = ModelCompletionRequest {
         prompt: String::new(),
         preamble: None,
-        messages: vec![user_msg],
+        messages: vec![user_msg].into(),
         tools: Vec::new(),
         max_tokens: None,
         temperature: None,
@@ -272,7 +275,8 @@ fn a_compaction_summary_in_the_history_reaches_the_model_as_user_text() {
                 content: "Summary of earlier work".into(),
             },
             ChatMessage::user("continue"),
-        ],
+        ]
+        .into(),
         ..ModelCompletionRequest::default()
     };
 
@@ -311,7 +315,7 @@ fn convert_messages_replays_signed_and_redacted_thinking_and_drops_unsigned() {
     let req = ModelCompletionRequest {
         prompt: String::new(),
         preamble: None,
-        messages: vec![asst_msg],
+        messages: vec![asst_msg].into(),
         tools: Vec::new(),
         max_tokens: None,
         temperature: None,
@@ -365,7 +369,8 @@ fn convert_messages_handles_tool_results() {
                 "bash",
                 "result text",
             ))],
-        }],
+        }]
+        .into(),
         tools: Vec::new(),
         max_tokens: None,
         temperature: None,

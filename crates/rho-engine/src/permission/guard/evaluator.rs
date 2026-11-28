@@ -312,7 +312,7 @@ impl GuardEvaluator {
         let req = crate::provider::adapter::ModelCompletionRequest {
             preamble: Some(GUARD_SYSTEM_PROMPT.to_string()),
             prompt: eval_prompt,
-            messages: Vec::new(),
+            messages: Default::default(),
             tools: Vec::new(),
             max_tokens: Some(256),
             temperature: Some(0.0),

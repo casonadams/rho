@@ -268,7 +268,7 @@ fn convert_assistant_part(part: &AssistantContent, caps: ReplayCaps) -> Option<P
 pub fn convert_contents(request: &ModelCompletionRequest, model: &str) -> Vec<Content> {
     let caps = ReplayCaps::for_model(model);
     let mut contents = Vec::new();
-    for message in &request.messages {
+    for message in request.messages.iter() {
         match message {
             ChatMessage::System { content } if !content.trim().is_empty() => {
                 append_turn(&mut contents, "user", vec![part_text(content)]);
@@ -381,7 +381,8 @@ mod tests {
                         AssistantContent::ToolCall(call_foreign),
                     ],
                 },
-            ],
+            ]
+            .into(),
             tools: vec![ModelToolDefinition {
                 name: "read".to_string(),
                 description: "Read file".to_string(),
@@ -429,7 +430,8 @@ mod tests {
         let req = ModelCompletionRequest {
             messages: vec![ChatMessage::User {
                 content: vec![UserContent::ToolResult(result)],
-            }],
+            }]
+            .into(),
             ..Default::default()
         };
 

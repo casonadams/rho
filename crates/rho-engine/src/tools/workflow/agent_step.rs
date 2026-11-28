@@ -348,7 +348,7 @@ impl Executor<'_> {
         let request = ModelCompletionRequest {
             preamble: Some(REPAIR_PREAMBLE.to_string()),
             prompt: text.to_string(),
-            messages: Vec::new(),
+            messages: Default::default(),
             tools: Vec::new(),
             max_tokens: None,
             temperature: Some(0.0),
