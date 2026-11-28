@@ -1,3 +1,4 @@
+use crate::engine::metrics::TerminalStatus;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -10,7 +11,7 @@ pub enum HookEvent {
         session_id: String,
     },
     TurnEnd {
-        status: String,
+        status: TerminalStatus,
         tool_calls_count: usize,
         turn: usize,
         session_id: String,

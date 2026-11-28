@@ -109,6 +109,6 @@ async fn headless_run_turn_sends_its_prompt_after_proactive_compaction() {
         .await
         .unwrap();
 
-    assert_eq!(output.status, rho_engine::engine::runner::RunStatus::Completed);
+    assert_eq!(output.status, rho_engine::engine::metrics::TerminalStatus::Completed);
     assert_eq!(output.final_text, "answered after compacting");
 }

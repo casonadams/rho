@@ -1,8 +1,8 @@
 use super::super::helpers::{presenter, request, test_engine};
 use crate::auth::AuthStore;
 use crate::config::Config;
-use crate::engine::runner::RunStatus;
 use crate::ui::TerminalRenderer;
+use rho_engine::engine::metrics::TerminalStatus;
 use rho_engine::provider::adapter::{FinishReason, MockAdapter, ModelStreamEvent};
 use std::sync::Arc;
 
@@ -48,7 +48,7 @@ async fn content_filter_finish_is_distinct() {
         .await
         .unwrap();
 
-    assert_eq!(output.status, RunStatus::ContentFiltered);
+    assert_eq!(output.status, TerminalStatus::ContentFiltered);
 }
 
 #[tokio::test]
@@ -61,11 +61,8 @@ async fn a_content_filter_error_is_recorded_as_filtered_not_completed() {
         .await
         .unwrap();
 
-    assert_eq!(output.status, RunStatus::ContentFiltered);
-    assert_eq!(
-        output.metrics.terminal_status,
-        rho_engine::engine::metrics::TerminalStatus::ContentFiltered
-    );
+    assert_eq!(output.status, TerminalStatus::ContentFiltered);
+    assert_eq!(output.metrics.terminal_status, TerminalStatus::ContentFiltered);
 }
 
 #[test]

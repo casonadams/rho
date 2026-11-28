@@ -13,7 +13,7 @@ pub(crate) mod wakeups;
 
 pub use prune::{DEFAULT_PRUNE_LINE_THRESHOLD, PruneMemory, PrunePolicy, prune_historical_tool_outputs_with_policy};
 pub use store::{MemoryStore, TurnStore};
-pub use types::{CancellationSignal, RunStatus, SteeringQueueProvider, TurnOutput, TurnRequest};
+pub use types::{CancellationSignal, SteeringQueueProvider, TurnOutput, TurnRequest};
 
 use std::sync::Arc;
 use std::time::Instant;

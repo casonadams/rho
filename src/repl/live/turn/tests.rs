@@ -605,7 +605,7 @@ async fn test_turn_finish_active_turn_invalidates_and_refreshes_quota() {
         tool_failures_count: 0,
         requests: 0,
         usage: None,
-        status: crate::engine::runner::RunStatus::Completed,
+        status: rho_engine::engine::metrics::TerminalStatus::Completed,
         metrics: rho_engine::engine::metrics::RunMetrics::default(),
     };
     let steering = std::sync::Arc::new(crate::repl::coordinator::SharedSteeringQueue::new(

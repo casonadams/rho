@@ -164,8 +164,8 @@ async fn agent_eval_core_finish_metadata_usage() {
         .await
         .unwrap();
     assert_eq!(
-        output.metrics.completion_calls[0].finish_status.as_deref(),
-        Some("length")
+        output.metrics.completion_calls[0].finish_status,
+        Some(FinishReason::Length)
     );
     let u = output.metrics.usage.unwrap();
     assert_eq!((u.cached_input_tokens, u.reasoning_tokens), (Some(2), Some(4)));

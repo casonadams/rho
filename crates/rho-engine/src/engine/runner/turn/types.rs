@@ -1,13 +1,6 @@
-use crate::engine::metrics::{RunMetrics, StructuralUsage};
+use crate::engine::metrics::{RunMetrics, StructuralUsage, TerminalStatus};
 use async_trait::async_trait;
-use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicBool, Ordering};
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum RunStatus {
-    Completed,
-    ContentFiltered,
-}
 
 #[derive(Clone, Default, Debug)]
 pub struct CancellationSignal {
@@ -102,7 +95,7 @@ pub struct TurnOutput {
     pub tool_failures_count: usize,
     pub requests: usize,
     pub usage: Option<StructuralUsage>,
-    pub status: RunStatus,
+    pub status: TerminalStatus,
     pub metrics: RunMetrics,
 }
 

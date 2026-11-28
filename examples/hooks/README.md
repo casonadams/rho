@@ -20,7 +20,7 @@ Place an executable matching the event name in `.agents/hooks/`:
 | `on_completion_call` / `completion_call`     | Intercept LLM prompt submissions or halt execution.                                                  |
 | `on_invalid_tool_call` / `invalid_tool_call` | Handle invalid tool calls (retry with feedback or halt).                                             |
 | `turn_start`                                 | Observe turn start with initial user prompt and session metadata.                                    |
-| `turn_end`                                   | Observe turn end with tool counts and completion status.                                             |
+| `turn_end`                                   | Observe turn end with tool counts and terminal `status` (`completed` or `content_filtered`).         |
 
 ## Hook Decisions (`stdout`)
 

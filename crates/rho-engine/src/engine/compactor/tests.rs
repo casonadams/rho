@@ -944,7 +944,7 @@ mod recovery {
             )
             .await
             .unwrap();
-        assert_eq!(output.status, crate::engine::runner::RunStatus::Completed);
+        assert_eq!(output.status, crate::engine::metrics::TerminalStatus::Completed);
         assert_eq!(output.final_text, "answered after compacting");
         assert_recovery_presenter(&presenter);
         let last = model.requests().pop().unwrap();
@@ -1320,7 +1320,7 @@ mod auto_compact {
             .run_turn(TurnRequest::new("Turn 3 request"), presenter.clone())
             .await
             .unwrap();
-        assert_eq!(output.status, crate::engine::runner::RunStatus::Completed);
+        assert_eq!(output.status, crate::engine::metrics::TerminalStatus::Completed);
         assert_eq!(output.final_text, "turn response");
         assert_eq!(output.requests, 1);
         assert_compaction_presenter(&presenter);
@@ -1421,7 +1421,7 @@ mod auto_compact {
             .run_turn(TurnRequest::new("next"), presenter.clone())
             .await
             .unwrap();
-        assert_eq!(output.status, crate::engine::runner::RunStatus::Completed);
+        assert_eq!(output.status, crate::engine::metrics::TerminalStatus::Completed);
         assert!(presenter.notices.lock().unwrap().is_empty());
     }
 

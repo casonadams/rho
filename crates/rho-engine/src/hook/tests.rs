@@ -17,6 +17,28 @@ fn test_hook_event_serde() {
 }
 
 #[test]
+fn turn_end_payload_status_is_the_terminal_status_serde_name() {
+    use crate::engine::metrics::TerminalStatus;
+    let cases = [
+        (TerminalStatus::Completed, "completed"),
+        (TerminalStatus::ContentFiltered, "content_filtered"),
+        (TerminalStatus::BudgetExhausted, "budget_exhausted"),
+        (TerminalStatus::Cancelled, "cancelled"),
+        (TerminalStatus::Failed, "failed"),
+    ];
+    for (status, expected) in cases {
+        let event = HookEvent::TurnEnd {
+            status,
+            tool_calls_count: 0,
+            turn: 1,
+            session_id: "s1".to_string(),
+        };
+        let json = serde_json::to_value(&event).unwrap();
+        assert_eq!(json["status"], expected, "{status:?}");
+    }
+}
+
+#[test]
 fn test_hook_action_serde() {
     let actions = [
         (r#"{"action":"continue"}"#, HookAction::Continue),

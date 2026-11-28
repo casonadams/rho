@@ -233,7 +233,7 @@ workspace is trusted with `RHO_TRUST_PROJECT=1`:
 | `on_completion_call`   | Runs before prompt submission to the LLM provider.                                         |
 | `on_invalid_tool_call` | Runs when an LLM requests a non-existent tool. Can retry with feedback or halt.            |
 | `turn_start`           | Notifies turn start with the user's prompt.                                                |
-| `turn_end`             | Notifies turn completion.                                                                  |
+| `turn_end`             | Notifies turn completion; `status` is `completed` or `content_filtered`.                   |
 
 ### How Hooks Work
 

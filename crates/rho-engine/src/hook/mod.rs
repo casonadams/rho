@@ -7,6 +7,7 @@ mod tests;
 pub use runner::{DEFAULT_HOOK_TIMEOUT, parse_hook_output, run_hook};
 pub use types::{HookAction, HookEvent};
 
+use crate::engine::metrics::TerminalStatus;
 use rho_harness_core::presentation::presenter::Presenter;
 use rho_harness_core::presentation::types::{InteractionOption, InteractionPrompt, InteractionResponse, OptionLayout};
 use std::path::{Path, PathBuf};
@@ -84,9 +85,9 @@ impl LifecycleHook {
         self.run_hooks_for_event("turn_start", &event).await;
     }
 
-    pub async fn notify_turn_end(&self, status: &str, tool_calls_count: usize) {
+    pub async fn notify_turn_end(&self, status: TerminalStatus, tool_calls_count: usize) {
         let event = HookEvent::TurnEnd {
-            status: status.to_string(),
+            status,
             tool_calls_count,
             turn: self.turn.fetch_add(1, Ordering::SeqCst),
             session_id: self.session_id.clone(),

@@ -87,7 +87,7 @@ async fn run_plant_antigravity_turn(
         )
         .await
         .unwrap();
-    assert_eq!(first.status, rho::engine::runner::RunStatus::Completed);
+    assert_eq!(first.status, rho::engine::metrics::TerminalStatus::Completed);
     assert!(first.final_text.contains("OK-CHARTREUSE-RECEIVED"));
 }
 
@@ -102,7 +102,7 @@ async fn run_recall_antigravity_turn(
         )
         .await
         .unwrap();
-    assert_eq!(second.status, rho::engine::runner::RunStatus::Completed);
+    assert_eq!(second.status, rho::engine::metrics::TerminalStatus::Completed);
     assert!(second.final_text.to_lowercase().contains("chartreuse"));
 }
 

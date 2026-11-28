@@ -3,7 +3,7 @@ use crate::engine::metrics::types::PromptResponse;
 use crate::engine::metrics::{RunMetrics, StructuralUsage, TerminalStatus, ToolOutcome};
 use crate::engine::runner::helpers::redact_text;
 use crate::engine::runner::sink::TurnArtifacts;
-use crate::engine::runner::turn::types::{RunStatus, TurnOutput};
+use crate::engine::runner::turn::types::TurnOutput;
 use crate::provider::adapter::FinishReason;
 use rho_harness_core::error::{AppError, Result};
 use rho_harness_core::presentation::TurnTelemetry;
@@ -125,13 +125,11 @@ impl AgentEngine {
         let usage = self
             .record_turn_usage(&artifacts.response, artifacts.generation_elapsed_ms)
             .await?;
-        let (status, terminal_status) = determine_turn_status(&artifacts);
-        let metrics = self.finalize_turn_summary(&artifacts.response, terminal_status).await?;
+        let status = determine_turn_status(&artifacts);
+        let metrics = self.finalize_turn_summary(&artifacts.response, status).await?;
         self.spawn_local_context_probe();
 
-        lifecycle_hook
-            .notify_turn_end(&format!("{terminal_status:?}"), artifacts.tool_calls_count)
-            .await;
+        lifecycle_hook.notify_turn_end(status, artifacts.tool_calls_count).await;
 
         if let Some(reported) = usage {
             let telemetry = self.build_turn_telemetry(&artifacts, reported);
@@ -159,7 +157,7 @@ impl AgentEngine {
     }
 }
 
-fn determine_turn_status(artifacts: &TurnArtifacts) -> (RunStatus, TerminalStatus) {
+fn determine_turn_status(artifacts: &TurnArtifacts) -> TerminalStatus {
     let finished_filtered = artifacts
         .response
         .completion_calls
@@ -167,9 +165,9 @@ fn determine_turn_status(artifacts: &TurnArtifacts) -> (RunStatus, TerminalStatu
         .and_then(|call| call.finish_reason.as_ref())
         == Some(&FinishReason::ContentFilter);
     if artifacts.content_filtered || finished_filtered {
-        (RunStatus::ContentFiltered, TerminalStatus::ContentFiltered)
+        TerminalStatus::ContentFiltered
     } else {
-        (RunStatus::Completed, TerminalStatus::Completed)
+        TerminalStatus::Completed
     }
 }
 
@@ -237,6 +235,53 @@ mod tests {
             cache_creation_input_tokens: cw,
             tool_use_prompt_tokens: None,
             reasoning_tokens: None,
+        }
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn turn_end_hook_receives_the_snake_case_terminal_status() {
+        let cases = [
+            ("completed", false, None),
+            ("content_filtered", true, None),
+            ("content_filtered", false, Some(FinishReason::ContentFilter)),
+        ];
+        for (expected, content_filtered, finish_reason) in cases {
+            let dir = rho_test_support::TestDir::new();
+            let hook = dir.join("turn_end");
+            crate::test_support::write_file(&hook, "#!/bin/sh\ncat > \"$(dirname \"$0\")/payload.json\"\n");
+            std::fs::set_permissions(&hook, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
+            let engine = mock_engine(
+                Arc::new(MockAdapter::default()),
+                MockEngineConfig::new(&dir, rho_harness_core::config::Config::default()),
+            );
+            let lifecycle = crate::hook::LifecycleHook::new(
+                dir.to_path_buf(),
+                "s1",
+                Arc::new(crate::engine::eval::presenter::NoopPresenter),
+            )
+            .with_hook_dirs(vec![dir.to_path_buf()]);
+            let usage = usage_with(10, 5, None, None);
+            let call = CompletionCall::new(0, usage).with_finish_reason(finish_reason);
+            let _ = engine
+                .finish_turn(
+                    TurnArtifacts {
+                        response: PromptResponse::new("ok", usage).with_completion_calls(vec![call]),
+                        tool_calls_count: 0,
+                        completed_tools: Vec::new(),
+                        generation_elapsed_ms: 10,
+                        turn_started_at: std::time::Instant::now(),
+                        ttft_ms: None,
+                        cache_miss_tokens: None,
+                        content_filtered,
+                    },
+                    &lifecycle,
+                )
+                .await
+                .unwrap();
+            let payload: serde_json::Value =
+                serde_json::from_str(&std::fs::read_to_string(dir.join("payload.json")).unwrap()).unwrap();
+            assert_eq!(payload["status"], expected);
         }
     }
 
