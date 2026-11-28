@@ -48,6 +48,11 @@ pub trait EngineTool: Send + Sync {
     fn concurrency_safe(&self, _args: &serde_json::Value) -> bool {
         false
     }
+
+    #[cfg(test)]
+    fn direnv_options(&self) -> Option<crate::tools::bash::DirenvOptions> {
+        None
+    }
 }
 
 /// A built-in tool whose arguments are one typed struct. The blanket `EngineTool` impl supplies the
@@ -60,6 +65,11 @@ pub(crate) trait TypedTool: Send + Sync {
     const CONCURRENCY_SAFE: bool = false;
 
     async fn run(&self, args: Self::Args) -> Result<ToolResult, AppError>;
+
+    #[cfg(test)]
+    fn direnv_options(&self) -> Option<crate::tools::bash::DirenvOptions> {
+        None
+    }
 
     /// Returns a copy of this tool bound to the current turn, or `None` if the tool is turn-independent.
     fn bind_to_turn(&self, _ctx: &TurnToolContext) -> Option<Arc<dyn EngineTool>> {
@@ -95,6 +105,11 @@ impl<T: TypedTool> EngineTool for T {
     fn concurrency_safe(&self, _args: &serde_json::Value) -> bool {
         T::CONCURRENCY_SAFE
     }
+
+    #[cfg(test)]
+    fn direnv_options(&self) -> Option<crate::tools::bash::DirenvOptions> {
+        TypedTool::direnv_options(self)
+    }
 }
 
 #[async_trait::async_trait]
@@ -121,6 +136,11 @@ impl<T: ?Sized + EngineTool> EngineTool for Arc<T> {
 
     fn concurrency_safe(&self, args: &serde_json::Value) -> bool {
         (**self).concurrency_safe(args)
+    }
+
+    #[cfg(test)]
+    fn direnv_options(&self) -> Option<crate::tools::bash::DirenvOptions> {
+        (**self).direnv_options()
     }
 }
 

@@ -33,6 +33,11 @@ struct EngineAssembly {
     tools: Arc<tokio::sync::RwLock<Vec<Arc<dyn EngineTool>>>>,
     tool_names: Vec<String>,
     model: Option<ModelHandle>,
+    workflows: Option<crate::tools::workflow::WorkflowRunner>,
+    subagent_models: Option<crate::tools::subagent::SubagentModels>,
+    worktrees: Option<crate::worktree::WorktreeStore>,
+    pending_relocation: Arc<std::sync::Mutex<Option<PathBuf>>>,
+    mcp: super::EngineMcp,
 }
 
 impl AgentEngineBuilder {
@@ -276,6 +281,11 @@ impl AgentEngineBuilder {
             tools,
             tool_names,
             model,
+            workflows,
+            subagent_models,
+            worktrees,
+            pending_relocation,
+            mcp,
         } = assembly;
         let context = super::tracking::ContextTracker::new();
         let demotion_hook = self.demotion_hook.or_else(|| {
@@ -304,11 +314,11 @@ impl AgentEngineBuilder {
             subagent_runtime: self.subagent_runtime,
             turn_notes: self.turn_notes,
             prune_memory: std::sync::Mutex::default(),
-            workflows: None,
-            subagent_models: None,
-            worktrees: None,
-            pending_relocation: Arc::default(),
-            mcp: super::EngineMcp::default(),
+            workflows,
+            subagent_models,
+            worktrees,
+            pending_relocation,
+            mcp,
             ollama_host: crate::ollama::local::local_host(),
             presenter: self.presenter,
         }
@@ -382,20 +392,20 @@ impl AgentEngineBuilder {
             tools: tools_lock,
             tool_names,
             model,
+            workflows,
+            subagent_models,
+            worktrees,
+            pending_relocation,
+            mcp: super::EngineMcp {
+                diagnostics: mcp.diagnostics,
+                instructions: mcp.instructions,
+                runtime: mcp.runtime,
+            },
         };
-        let mut engine = self.into_engine(base_dir, session_manager, router, assembly);
-        engine.workflows = workflows;
-        if let Some(models) = &subagent_models {
+        let engine = self.into_engine(base_dir, session_manager, router, assembly);
+        if let Some(models) = &engine.subagent_models {
             models.set_context_policy(engine.context_policy());
         }
-        engine.subagent_models = subagent_models;
-        engine.worktrees = worktrees;
-        engine.pending_relocation = pending_relocation;
-        engine.mcp = super::EngineMcp {
-            diagnostics: mcp.diagnostics,
-            instructions: mcp.instructions,
-            runtime: mcp.runtime,
-        };
         Ok(engine)
     }
 }
@@ -463,6 +473,41 @@ mod tests {
                 "enabled={enabled}"
             );
         }
+    }
+
+    #[tokio::test]
+    async fn an_unbuildable_decision_model_is_reported_and_the_engine_still_builds() {
+        use crate::test_support::CapturingPresenter;
+        let dir = rho_test_support::TestDir::new();
+        let (_auth_dir, store) = temp_auth_store();
+        let mut config = Config {
+            config_dir: dir.to_path_buf(),
+            sessions_dir: dir.join("sessions"),
+            ..Config::default()
+        };
+        config.ui.a2ui.decision_assist = true;
+        config
+            .model_roles
+            .insert("guard".to_string(), "no-such-provider/guard-model".to_string());
+        let presenter = Arc::new(CapturingPresenter {
+            interactive: true,
+            ..Default::default()
+        });
+        AgentEngineBuilder::new(config, store)
+            .base_dir(dir.to_path_buf())
+            .lsp(None)
+            .presenter(presenter.clone())
+            .build()
+            .await
+            .unwrap();
+
+        let notices = presenter.notices.lock().unwrap();
+        assert!(
+            notices
+                .iter()
+                .any(|n| n.starts_with("[Decision assist unavailable, running without it: ")),
+            "{notices:?}"
+        );
     }
 
     #[tokio::test]

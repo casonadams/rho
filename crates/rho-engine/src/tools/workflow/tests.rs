@@ -27,6 +27,7 @@ fn as_stream(response: ModelCompletionResponse) -> crate::provider::adapter::Mod
 struct ScriptedModel {
     validate_replies: Mutex<Vec<String>>,
     requests: Mutex<Vec<(String, String)>>,
+    wipe_store: Mutex<Option<std::path::PathBuf>>,
 }
 
 impl ScriptedModel {
@@ -34,6 +35,7 @@ impl ScriptedModel {
         Arc::new(Self {
             validate_replies: Mutex::new(replies.iter().map(|r| (*r).to_string()).collect()),
             requests: Mutex::new(Vec::new()),
+            wipe_store: Mutex::new(None),
         })
     }
 
@@ -59,7 +61,7 @@ impl ScriptedModel {
         if prompt.starts_with("SCAN") {
             return format!("report: {}", prompt.lines().next().unwrap_or_default());
         }
-        if prompt.starts_with("FIX") || prompt.starts_with("HELLO") {
+        if prompt.starts_with("FIX") || prompt.starts_with("HELLO") || prompt.starts_with("WIPE") {
             return "done".to_string();
         }
         let mut replies = self.validate_replies.lock().unwrap();
@@ -85,6 +87,11 @@ impl ModelAdapter for ScriptedModel {
         let preamble = request.preamble.clone().unwrap_or_default();
         let prompt = request.asked();
         self.requests.lock().unwrap().push((preamble, prompt.clone()));
+        if prompt.starts_with("WIPE")
+            && let Some(store) = self.wipe_store.lock().unwrap().take()
+        {
+            std::fs::remove_dir_all(store).unwrap();
+        }
         if prompt.starts_with("STRUCT") {
             let finish = rho_harness_core::model::ToolFunction::new(
                 "complete_task",
@@ -214,6 +221,33 @@ const EACH_RESULT: &str = r#"
   <output name="count" value="{{picked | count}}"/>
 </workflow>
 "#;
+
+const WIPE: &str = r#"
+<workflow name="wipe">
+  <agent id="fix" use="general">WIPE the checkout</agent>
+  <output name="answer" value="{{fix}}"/>
+</workflow>
+"#;
+
+#[tokio::test]
+async fn a_worktree_that_cannot_be_committed_keeps_the_answer_and_warns_in_the_report() {
+    let fx = Fixture::new(&[], &[("wipe.xml", WIPE)]);
+    let root = fx.dir.path();
+    crate::worktree::git::test_repo::git(root, &["init", "--quiet", "-b", "main"]);
+    crate::worktree::git::test_repo::git(root, &["add", "."]);
+    crate::worktree::git::test_repo::git(root, &["commit", "--quiet", "--allow-empty", "-m", "init"]);
+    let scratch = rho_test_support::TestDir::new();
+    let store = scratch.join("store");
+    *fx.model.wipe_store.lock().unwrap() = Some(store.clone());
+    let subagents = SubagentTool::new(Some(fx.model.clone()), Vec::new())
+        .with_worktrees(crate::worktree::WorktreeStore::new(store));
+
+    let run = fx.runner_with(subagents, None).run("wipe", BTreeMap::new()).await;
+
+    assert!(run.ok, "{}", run.report);
+    assert!(run.report.contains("done"), "{}", run.report);
+    assert!(run.report.contains("worktree could not be committed"), "{}", run.report);
+}
 
 #[tokio::test]
 async fn each_result_sets_what_each_item_yields_and_text_outputs_print_as_paragraphs() {

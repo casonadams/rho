@@ -15,7 +15,7 @@ const ENVRC_CACHE_TTL: Duration = Duration::from_secs(5);
 const ENVRC_CACHE_MAX_ENTRIES: usize = 512;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct DirenvOptions {
+pub struct DirenvOptions {
     pub enabled: bool,
     pub timeout_ms: u64,
 }

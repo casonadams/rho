@@ -116,6 +116,11 @@ impl TypedTool for BashTool {
             .await
     }
 
+    #[cfg(test)]
+    fn direnv_options(&self) -> Option<DirenvOptions> {
+        Some(self.direnv)
+    }
+
     fn bind_to_turn(&self, ctx: &TurnToolContext) -> Option<Arc<dyn EngineTool>> {
         Some(Arc::new(Self {
             base_dir: self.base_dir.clone(),
