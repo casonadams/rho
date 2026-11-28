@@ -130,7 +130,10 @@ struct PreparedChoice {
 
 #[derive(Debug, Clone)]
 struct PreparedQuestion {
+    /// The id the model gave or was assigned, echoed back in the answers.
     id: String,
+    /// The question's own name in the modal and its data model, safe in a JSON pointer.
+    key: String,
     raw_question: String,
     redacted_question: String,
     redacted_header: Option<String>,
@@ -177,9 +180,13 @@ impl AskTool {
             )));
         }
 
-        let mut prepared = Vec::with_capacity(args.questions.len());
+        let mut prepared: Vec<PreparedQuestion> = Vec::with_capacity(args.questions.len());
         for (idx, q) in args.questions.into_iter().enumerate() {
-            prepared.push(self.prepare_question(idx, q).await?);
+            let question = self.prepare_question(idx, q).await?;
+            if prepared.iter().any(|earlier| earlier.id == question.id) {
+                return Err(AppError::Tool(format!("question id '{}' is used twice", question.id)));
+            }
+            prepared.push(question);
         }
         Ok(prepared)
     }
@@ -236,6 +243,7 @@ impl AskTool {
 
         Ok(PreparedQuestion {
             id,
+            key: format!("q{}", idx + 1),
             raw_question,
             redacted_question,
             redacted_header,
@@ -390,12 +398,12 @@ fn build_modal_request(questions: &[PreparedQuestion]) -> A2uiModalRequest {
     let mut initial_answers = Map::new();
 
     for q in questions {
-        let field_id = format!("q_{}", q.id);
+        let field_id = format!("q_{}", q.key);
         components.push(build_question_component(&field_id, q));
 
         if let Some(header) = &q.redacted_header {
-            let header_id = format!("header_{}", q.id);
-            let group_id = format!("group_{}", q.id);
+            let header_id = format!("header_{}", q.key);
+            let group_id = format!("group_{}", q.key);
             components.push(A2uiComponent::new(
                 header_id.clone(),
                 A2uiComponentKind::Text {
@@ -416,7 +424,7 @@ fn build_modal_request(questions: &[PreparedQuestion]) -> A2uiModalRequest {
             root_children.push(field_id);
         }
 
-        initial_answers.insert(q.id.clone(), initial_answer_value(q));
+        initial_answers.insert(q.key.clone(), initial_answer_value(q));
     }
 
     append_action_buttons(&mut components, &mut root_children);
@@ -472,7 +480,7 @@ fn build_question_component(field_id: &str, q: &PreparedQuestion) -> A2uiCompone
             A2uiComponentKind::TextField {
                 label: Some(BoundString::literal(q.redacted_question.clone())),
                 placeholder: Some("Type your answer...".to_string()),
-                value_path: format!("/answers/{}", q.id),
+                value_path: format!("/answers/{}", q.key),
                 multiline: false,
                 masked: false,
             },
@@ -495,10 +503,10 @@ fn build_question_component(field_id: &str, q: &PreparedQuestion) -> A2uiCompone
         A2uiComponentKind::ChoicePicker {
             label: Some(BoundString::literal(q.redacted_question.clone())),
             options,
-            selection_path: format!("/answers/{}", q.id),
+            selection_path: format!("/answers/{}", q.key),
             multi_select: q.multi_select,
             allow_other: q.allow_other,
-            other_path: q.allow_other.then(|| format!("/answers/{}_other", q.id)),
+            other_path: q.allow_other.then(|| format!("/answers/{}_other", q.key)),
         },
     )
 }
@@ -573,9 +581,9 @@ fn unanswered_output(outcome: AskOutcome, questions: &[PreparedQuestion]) -> Ask
 }
 
 fn extract_question_answer(q: &PreparedQuestion, data_model: &Value) -> AskAnswerOutput {
-    let answer_val = data_model.pointer(&format!("/answers/{}", q.id));
+    let answer_val = data_model.pointer(&format!("/answers/{}", q.key));
     let other_text = data_model
-        .pointer(&format!("/answers/{}_other", q.id))
+        .pointer(&format!("/answers/{}_other", q.key))
         .and_then(Value::as_str)
         .map(str::trim)
         .map(strip_recommended_suffix)
@@ -861,6 +869,42 @@ mod tests {
             .await
             .unwrap_err();
         assert!(err.to_string().contains("out of range"), "{err}");
+
+        let err = tool
+            .execute(json!({
+                "questions": [{ "id": "db", "question": "A?" }, { "id": " db ", "question": "B?" }]
+            }))
+            .await
+            .unwrap_err();
+        assert!(err.to_string().contains("'db' is used twice"), "{err}");
+    }
+
+    #[tokio::test]
+    async fn answers_reach_questions_whatever_ids_the_model_chose() {
+        let presenter = MockPresenter::returning(Some(submitted(json!({
+            "answers": { "q1": "first", "q2": "second", "q3": "third" }
+        }))));
+        let tool = AskTool::new(presenter);
+
+        let result = tool
+            .execute(json!({
+                "questions": [
+                    { "id": "path/to~x", "question": "Where?" },
+                    { "id": "x", "question": "What?" },
+                    { "id": "x_other", "question": "Else?" }
+                ]
+            }))
+            .await
+            .unwrap();
+
+        let output: Value = serde_json::from_str(&result.content).unwrap();
+        let answers: Vec<(&str, &str)> = output["answers"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|a| (a["id"].as_str().unwrap(), a["user_response"].as_str().unwrap()))
+            .collect();
+        assert_eq!(answers, [("path/to~x", "first"), ("x", "second"), ("x_other", "third")]);
     }
 
     #[tokio::test]
@@ -1074,7 +1118,8 @@ mod tests {
     fn build_modal_request_groups_headers_with_zero_gap() {
         let questions = vec![
             PreparedQuestion {
-                id: "q1".to_string(),
+                id: "auth".to_string(),
+                key: "q1".to_string(),
                 raw_question: "Pick auth method".to_string(),
                 redacted_question: "Pick auth method".to_string(),
                 redacted_header: Some("Auth".to_string()),
@@ -1085,7 +1130,8 @@ mod tests {
                 recommended_index: None,
             },
             PreparedQuestion {
-                id: "q2".to_string(),
+                id: "region".to_string(),
+                key: "q2".to_string(),
                 raw_question: "Enter region".to_string(),
                 redacted_question: "Enter region".to_string(),
                 redacted_header: None,
