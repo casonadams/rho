@@ -53,11 +53,21 @@ fn cached_hostname() -> Option<String> {
     HOSTNAME.clone()
 }
 
-pub fn update_footer(state: &mut InteractiveState, session: &ReplSession, engine: &AgentEngine) {
+pub fn reset_idle_footer(state: &mut InteractiveState) {
     state.set_active_tool(None);
     let footer = state.footer_mut();
     footer.activity = Activity::Idle;
     footer.running_tool = None;
+}
+
+pub fn update_footer(state: &mut InteractiveState, session: &ReplSession, engine: &AgentEngine) {
+    reset_idle_footer(state);
+    refresh_footer(state, session, engine);
+}
+
+/// Refreshes footer info without touching activity or the running tool, so it is safe mid-turn.
+pub fn refresh_footer(state: &mut InteractiveState, session: &ReplSession, engine: &AgentEngine) {
+    let footer = state.footer_mut();
     footer.provider = session.config.provider.clone();
     footer.model = session.config.model.clone();
     footer.thinking_level = session.config.thinking_level.clone();

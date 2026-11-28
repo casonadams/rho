@@ -5,7 +5,8 @@ use crate::ui::interactive::footer::truncate_to_width;
 use crate::ui::interactive::layout::editor::{render_editor_lines, window_editor, wrap_editor};
 use crate::ui::interactive::layout::text::wrap_to_width;
 use crate::ui::interactive::{CursorPosition, ModalMode, ModalState, OptionLayout};
-use crate::ui::theme::SGR_RESET;
+use crate::ui::theme::{CursorMode, Theme};
+use anstyle::Style;
 
 fn input_prompt_width(modal: &ModalState) -> usize {
     let ModalMode::Input { prompt_label } = &modal.mode else {
@@ -101,7 +102,7 @@ pub(crate) fn push_search_row(
     modal: &ModalState,
     width: usize,
     focused: bool,
-    cursor_mode: crate::ui::theme::CursorMode,
+    theme: &Theme,
     lines: &mut Vec<String>,
 ) -> (CursorPosition, bool) {
     let query = truncate_to_width(&modal.filter_query, width.saturating_sub(6));
@@ -109,10 +110,12 @@ pub(crate) fn push_search_row(
         row: lines.len(),
         column: (visible_width("  > ") + visible_width(&query)).min(width),
     };
-    if focused && cursor_mode == crate::ui::theme::CursorMode::Software {
-        lines.push(format!("  \x1b[1m>{SGR_RESET} {query}\x1b[7m \x1b[27m"));
+    let prompt = theme.prompt;
+    if focused && theme.cursor_mode == CursorMode::Software {
+        let invert = Style::new().invert();
+        lines.push(format!("  {prompt}>{prompt:#} {query}{invert} {invert:#}"));
     } else {
-        lines.push(format!("  \x1b[1m>{SGR_RESET} {query}"));
+        lines.push(format!("  {prompt}>{prompt:#} {query}"));
     }
     (cursor, focused)
 }
@@ -181,7 +184,7 @@ pub(crate) fn collect_modal_content(
     opt_space: usize,
     has_draft: bool,
 ) -> Vec<String> {
-    let mut lines = render_in_input_body(input.modal, inner_width, body_space);
+    let mut lines = render_in_input_body(input.modal, input.theme, inner_width, body_space);
     if opt_space > 0 {
         lines.extend(render_modal_options(
             input.modal,
@@ -235,7 +238,7 @@ pub fn render_in_input_modal(input: InInputModalInput<'_>) -> (Vec<String>, Curs
     let mut lines = Vec::new();
     let mut cursor = (CursorPosition { row: 0, column: 0 }, false);
     if input.modal.is_searchable && !matches!(input.modal.mode, ModalMode::Input { .. }) {
-        cursor = push_search_row(input.modal, width, input.focused, input.theme.cursor_mode, &mut lines);
+        cursor = push_search_row(input.modal, width, input.focused, input.theme, &mut lines);
     }
     lines.extend(collect_modal_content(
         &input,
@@ -250,14 +253,14 @@ pub fn render_in_input_modal(input: InInputModalInput<'_>) -> (Vec<String>, Curs
     (lines, cursor.0, cursor.1)
 }
 
-fn format_scroll_indicator(current_line: usize, total_lines: usize) -> String {
-    format!("  \x1b[2m↑/↓ scroll (line {current_line}/{total_lines}){SGR_RESET}")
+fn format_scroll_indicator(dimmed: Style, current_line: usize, total_lines: usize) -> String {
+    format!("  {dimmed}↑/↓ scroll (line {current_line}/{total_lines}){dimmed:#}")
 }
 
-fn render_scrollable_body_lines(wrapped: Vec<String>, body_scroll: usize, space: usize) -> Vec<String> {
+fn render_scrollable_body_lines(wrapped: Vec<String>, body_scroll: usize, space: usize, theme: &Theme) -> Vec<String> {
     let total = wrapped.len();
     if space == 1 {
-        return vec![format_scroll_indicator(1, total)];
+        return vec![format_scroll_indicator(theme.dimmed, 1, total)];
     }
     let visible_count = space - 1;
     let max_scroll = total.saturating_sub(visible_count);
@@ -268,24 +271,24 @@ fn render_scrollable_body_lines(wrapped: Vec<String>, body_scroll: usize, space:
         .take(visible_count)
         .map(|l| format!("  {l}"))
         .collect();
-    lines.push(format_scroll_indicator(scroll + 1, total));
+    lines.push(format_scroll_indicator(theme.dimmed, scroll + 1, total));
     lines
 }
 
-fn render_vertical_omission_lines(wrapped: Vec<String>, space: usize) -> Vec<String> {
+fn render_vertical_omission_lines(wrapped: Vec<String>, space: usize, theme: &Theme) -> Vec<String> {
     let total = wrapped.len();
     if space == 1 {
-        vec![format_omission_line(total)]
+        vec![format_omission_line(theme.dimmed, total)]
     } else {
         let visible = space - 1;
         let omitted = total - visible;
         let mut lines: Vec<String> = wrapped.into_iter().take(visible).map(|l| format!("  {l}")).collect();
-        lines.push(format_omission_line(omitted));
+        lines.push(format_omission_line(theme.dimmed, omitted));
         lines
     }
 }
 
-fn render_in_input_body(modal: &ModalState, inner_width: usize, space: usize) -> Vec<String> {
+fn render_in_input_body(modal: &ModalState, theme: &Theme, inner_width: usize, space: usize) -> Vec<String> {
     if modal.body.trim().is_empty() || space == 0 {
         return Vec::new();
     }
@@ -299,12 +302,12 @@ fn render_in_input_body(modal: &ModalState, inner_width: usize, space: usize) ->
     } else if modal.option_layout == OptionLayout::Horizontal
         || (matches!(modal.mode, ModalMode::Input { .. }) && modal.options.is_empty())
     {
-        render_scrollable_body_lines(wrapped, modal.body_scroll, space)
+        render_scrollable_body_lines(wrapped, modal.body_scroll, space, theme)
     } else {
-        render_vertical_omission_lines(wrapped, space)
+        render_vertical_omission_lines(wrapped, space, theme)
     }
 }
 
-fn format_omission_line(omitted: usize) -> String {
-    format!("  \x1b[2m[... {omitted} lines omitted ...]{SGR_RESET}")
+fn format_omission_line(dimmed: Style, omitted: usize) -> String {
+    format!("  {dimmed}[... {omitted} lines omitted ...]{dimmed:#}")
 }

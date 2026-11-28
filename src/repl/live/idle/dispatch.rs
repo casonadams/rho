@@ -148,9 +148,22 @@ fn resolve_editor_command() -> String {
         .unwrap_or_else(|_| "nano".to_string())
 }
 
-async fn apply_edited_text<B: TerminalBackend>(controller: &mut TerminalController<B>, temp_file: &std::path::Path) {
-    if let Ok(edited_text) = tokio::fs::read_to_string(temp_file).await {
-        controller.state_mut().editor_mut().set_text(edited_text.trim_end());
+/// Applies the draft only after a successful editor exit; every other outcome leaves the input untouched.
+async fn finish_external_edit<B: TerminalBackend>(
+    controller: &mut TerminalController<B>,
+    editor: &str,
+    status: std::io::Result<std::process::ExitStatus>,
+    draft: &std::path::Path,
+) {
+    match status {
+        Ok(status) if status.success() => match tokio::fs::read_to_string(draft).await {
+            Ok(edited_text) => controller.state_mut().editor_mut().set_text(edited_text.trim_end()),
+            Err(err) => controller.set_system_message(format!("Could not read edited draft: {err}")),
+        },
+        Ok(status) => {
+            controller.set_system_message(format!("Editor '{editor}' exited with {status}; edits not applied"))
+        }
+        Err(err) => controller.set_system_message(format!("Could not start editor '{editor}': {err}")),
     }
 }
 
@@ -189,13 +202,8 @@ async fn open_external_editor<B: TerminalBackend>(
     controller.suspend()?;
     let status = command.status().await;
     resume_terminal(controller, paused)?;
-    match status {
-        Ok(_) => apply_edited_text(controller, &draft.0).await,
-        Err(err) => {
-            controller.set_system_message(format!("Could not start editor '{editor}': {err}"));
-            controller.redraw()?;
-        }
-    }
+    finish_external_edit(controller, &editor, status, &draft.0).await;
+    controller.redraw()?;
     Ok(())
 }
 
@@ -424,10 +432,12 @@ pub(crate) async fn process_raw_input<B: TerminalBackend>(
 mod tests {
     use super::*;
     use crate::repl::input_reader::TerminalInputReader;
+    use crate::repl::test_controller;
     use crate::ui::interactive::InteractiveState;
     use crate::ui::interactive::controller::tests::fake::FakeTerminal;
     use rho_test_support::EnvVarGuard;
     use std::os::unix::fs::PermissionsExt;
+    use std::os::unix::process::ExitStatusExt;
 
     #[test]
     fn test_classify_event_focus_events() {
@@ -491,6 +501,73 @@ mod tests {
                 .state()
                 .system_message()
                 .is_some_and(|message| message.contains("Could not start editor 'rho-missing-editor'"))
+        );
+    }
+
+    fn exit_status(code: i32) -> std::process::ExitStatus {
+        std::process::ExitStatus::from_raw(code << 8)
+    }
+
+    #[tokio::test]
+    async fn successful_edit_applies_the_draft_text() {
+        let dir = rho_test_support::TestDir::new();
+        let draft = dir.join("draft.md");
+        std::fs::write(&draft, "edited\n").unwrap();
+        let mut controller = test_controller();
+        controller.state_mut().editor_mut().set_text("original");
+
+        finish_external_edit(&mut controller, "vim", Ok(exit_status(0)), &draft).await;
+
+        assert_eq!(controller.state().editor().text(), "edited");
+        assert_eq!(controller.state().system_message(), None);
+    }
+
+    #[tokio::test]
+    async fn non_zero_editor_exit_keeps_the_draft_and_reports_it() {
+        let dir = rho_test_support::TestDir::new();
+        let draft = dir.join("draft.md");
+        std::fs::write(&draft, "abandoned\n").unwrap();
+        let mut controller = test_controller();
+        controller.state_mut().editor_mut().set_text("original");
+
+        finish_external_edit(&mut controller, "vim", Ok(exit_status(1)), &draft).await;
+
+        assert_eq!(controller.state().editor().text(), "original");
+        assert!(controller.state().system_message().is_some_and(|m| m.contains("vim")));
+    }
+
+    #[tokio::test]
+    async fn unreadable_draft_keeps_the_text_and_reports_the_error() {
+        let dir = rho_test_support::TestDir::new();
+        let draft = dir.join("missing.md");
+        let mut controller = test_controller();
+        controller.state_mut().editor_mut().set_text("original");
+
+        finish_external_edit(&mut controller, "vim", Ok(exit_status(0)), &draft).await;
+
+        assert_eq!(controller.state().editor().text(), "original");
+        assert!(
+            controller
+                .state()
+                .system_message()
+                .is_some_and(|m| m.contains("Could not read"))
+        );
+    }
+
+    #[tokio::test]
+    async fn editor_that_fails_to_start_is_reported() {
+        let dir = rho_test_support::TestDir::new();
+        let draft = dir.join("draft.md");
+        let mut controller = test_controller();
+        let err = std::io::Error::new(std::io::ErrorKind::NotFound, "no such file");
+
+        finish_external_edit(&mut controller, "nope", Err(err), &draft).await;
+
+        assert!(
+            controller
+                .state()
+                .system_message()
+                .is_some_and(|m| m.contains("Could not start"))
         );
     }
 }

@@ -132,7 +132,7 @@ async fn apply_turn_modal_result<B: TerminalBackend>(lp: &mut TurnLoop<'_, B>, r
         ModalKeyResult::ThinkingLevelSelected { level, save_as_default } => {
             lp.session.config.thinking_level = level.clone();
             save_or_print_thinking(lp.session, level.as_deref(), save_as_default).await;
-            crate::repl::live::navigation::update_footer(lp.controller.state_mut(), lp.session, lp.engine);
+            crate::repl::live::navigation::refresh_footer(lp.controller.state_mut(), lp.session, lp.engine);
         }
         ModalKeyResult::HelpCommandSelected { command } => {
             if !open_shared_help_modal(&command, lp.session, lp.engine, lp.controller)? {

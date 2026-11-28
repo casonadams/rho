@@ -1,6 +1,6 @@
 use crate::engine::builder::AgentEngineBuilder;
 use crate::repl::live::modal::selectors::test_support::test_config;
-use crate::repl::live::navigation::update_footer;
+use crate::repl::live::navigation::{refresh_footer, update_footer};
 use crate::repl::live::turn::sync_turn_footer;
 use crate::ui::interactive::{Activity, InteractiveState, RunningTool};
 use rho_engine::auth::AuthStore;
@@ -52,6 +52,37 @@ async fn sync_turn_footer_updates_in_flight_tokens_and_detects_changes() {
         (f.total_input_tokens, f.total_output_tokens, f.total_cache_read_tokens),
         (520, 30, 100)
     );
+}
+
+#[tokio::test]
+async fn refresh_footer_keeps_activity_running_tool_and_active_tool() {
+    let temp = tempfile::tempdir().unwrap();
+    let config = Config {
+        provider: "local".to_string(),
+        model: "llama3.2".to_string(),
+        sessions_dir: temp.path().join("sessions"),
+        ..Default::default()
+    };
+    let auth_store = AuthStore::default();
+    let engine = AgentEngineBuilder::new(config.clone(), auth_store.clone())
+        .build()
+        .await
+        .unwrap();
+    let session = crate::repl::ReplSession::new(config, auth_store, None);
+
+    let mut state = InteractiveState::default();
+    state.footer_mut().activity = Activity::Working;
+    state.footer_mut().running_tool = Some("bash".to_string());
+    state.set_active_tool(Some(RunningTool::new(
+        "bash".to_string(),
+        serde_json::json!({"command": "sleep 30"}),
+    )));
+
+    refresh_footer(&mut state, &session, &engine);
+
+    assert_eq!(state.footer().activity, Activity::Working);
+    assert_eq!(state.footer().running_tool.as_deref(), Some("bash"));
+    assert!(state.active_tool().is_some());
 }
 
 #[tokio::test]

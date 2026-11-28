@@ -86,15 +86,19 @@ fn picker_action(modal: &mut ModalState, key: &KeyEvent) -> PickerAction {
             modal.select_next();
             PickerAction::Repaint
         }
-        KeyCode::Enter => {
-            let session_id = modal
-                .selected_option()
-                .and_then(|o| o.value.clone())
-                .unwrap_or_default();
-            PickerAction::Select(session_id)
-        }
+        KeyCode::Enter => match modal.selected_option().and_then(|o| o.value.clone()) {
+            Some(session_id) => PickerAction::Select(session_id),
+            None => PickerAction::Repaint,
+        },
         KeyCode::Esc => PickerAction::Cancel,
-        _ if is_ctrl_c(key) => PickerAction::Cancel,
+        _ if is_ctrl_c(key) => {
+            if modal.filter_query.is_empty() {
+                PickerAction::Cancel
+            } else {
+                modal.set_filter("");
+                PickerAction::Repaint
+            }
+        }
         KeyCode::Backspace => {
             modal.pop_filter_char();
             PickerAction::Repaint
@@ -293,6 +297,30 @@ mod tests {
             picker_action(&mut state, &key(KeyCode::Char('c'), KeyModifiers::CONTROL)),
             PickerAction::Cancel
         ));
+    }
+
+    #[test]
+    fn picker_action_enter_without_a_highlighted_session_repaints() {
+        let mut modal = modal();
+        for c in "zzz".chars() {
+            picker_action(&mut modal, &key(KeyCode::Char(c), KeyModifiers::NONE));
+        }
+        assert!(matches!(
+            picker_action(&mut modal, &key(KeyCode::Enter, KeyModifiers::NONE)),
+            PickerAction::Repaint
+        ));
+    }
+
+    #[test]
+    fn picker_action_ctrl_c_clears_filter_before_cancelling() {
+        let mut modal = modal();
+        for c in "sec".chars() {
+            picker_action(&mut modal, &key(KeyCode::Char(c), KeyModifiers::NONE));
+        }
+        let ctrl_c = key(KeyCode::Char('c'), KeyModifiers::CONTROL);
+        assert!(matches!(picker_action(&mut modal, &ctrl_c), PickerAction::Repaint));
+        assert_eq!(modal.filter_query, "");
+        assert!(matches!(picker_action(&mut modal, &ctrl_c), PickerAction::Cancel));
     }
 
     #[test]

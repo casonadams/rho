@@ -142,7 +142,7 @@ async fn apply_mid_turn_command<B: TerminalBackend>(
         CommandResult::ThinkingChanged { level } => {
             ctx.session.config.thinking_level = level;
             if let Some(engine) = ctx.engine {
-                crate::repl::live::navigation::update_footer(ctx.controller.state_mut(), ctx.session, engine);
+                crate::repl::live::navigation::refresh_footer(ctx.controller.state_mut(), ctx.session, engine);
             }
         }
         CommandResult::ForkSession {

@@ -18,7 +18,7 @@ fn truncate_to_visual_lines_skips_earlier_lines_when_exceeding_limit() {
 
 #[test]
 fn wrap_to_width_breaks_lines_at_the_column_width() {
-    let cases: [(&str, &str, usize, &[&str]); 8] = [
+    let cases: [(&str, &str, usize, &[&str]); 9] = [
         (
             "word boundaries",
             "alpha beta gamma delta epsilon",
@@ -49,6 +49,7 @@ fn wrap_to_width_breaks_lines_at_the_column_width() {
             10,
             &["  alpha", "beta gamma"],
         ),
+        ("source line indentation kept", "a\n  b", 10, &["a", "  b"]),
         ("inner spaces kept", "alpha   beta", 20, &["alpha   beta"]),
         (
             "carriage returns stripped",

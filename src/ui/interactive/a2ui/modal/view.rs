@@ -119,6 +119,119 @@ mod tests {
         assert!(plain[0].contains(&"*".repeat(20)), "got: {plain:?}");
     }
 
+    fn text_field_request(root: A2uiComponent) -> A2uiModalRequest {
+        A2uiModalRequest {
+            surface_id: "f".to_string(),
+            title: None,
+            messages: vec![
+                create_surface("f", "root", None),
+                A2uiMessage::UpdateComponents(UpdateComponents {
+                    surface_id: "f".to_string(),
+                    components: vec![
+                        root,
+                        A2uiComponent::new(
+                            "field",
+                            A2uiComponentKind::TextField {
+                                label: None,
+                                placeholder: None,
+                                value_path: "/v".to_string(),
+                                multiline: false,
+                                masked: false,
+                            },
+                        ),
+                    ],
+                }),
+            ],
+            timeout_ms: None,
+        }
+    }
+
+    fn type_into(state: &mut A2uiModalState, text: &str) {
+        for c in text.chars() {
+            state.handle_key(key(KeyCode::Char(c)));
+        }
+    }
+
+    #[test]
+    fn long_text_field_value_keeps_the_typed_tail_visible() {
+        let root = A2uiComponent::new(
+            "root",
+            A2uiComponentKind::Column {
+                children: vec!["field".to_string()],
+                gap: None,
+            },
+        );
+        let mut state = A2uiModalState::from_request(text_field_request(root)).unwrap();
+        type_into(&mut state, "abcdefghijklmnopqrstuvwxyz0123456789");
+        let (lines, cursor, _) = state.render(22, 10, &Theme::default(), true);
+        let plain = strip_ansi(&lines[0]);
+        let typed_end = plain.find("0123456789").expect("tail visible") + 10;
+        assert!(visible_width(&plain) <= 24, "got: {plain:?}");
+        assert_eq!(cursor.column, visible_width(&plain[..typed_end]));
+    }
+
+    #[test]
+    fn row_child_cursor_is_placed_at_its_column_in_the_row() {
+        let root = A2uiComponent::new(
+            "root",
+            A2uiComponentKind::Row {
+                children: vec!["label".to_string(), "field".to_string()],
+                gap: Some(1),
+                justify: None,
+            },
+        );
+        let mut components = text_field_request(root);
+        let A2uiMessage::UpdateComponents(update) = &mut components.messages[1] else {
+            unreachable!()
+        };
+        update.components.push(A2uiComponent::new(
+            "label",
+            A2uiComponentKind::Text {
+                text: BoundString::literal("Name:"),
+                usage_hint: rho_harness_core::a2ui::TextUsageHint::Body,
+                tone: None,
+            },
+        ));
+        let mut state = A2uiModalState::from_request(components).unwrap();
+        type_into(&mut state, "hello");
+        let (lines, cursor, _) = state.render(60, 10, &Theme::default(), true);
+        let plain = strip_ansi(&lines[0]);
+        let typed_end = plain.find("hello").expect("typed text visible") + 5;
+        assert_eq!((cursor.row, cursor.column), (0, visible_width(&plain[..typed_end])));
+    }
+
+    #[test]
+    fn row_cursor_follows_a_multi_line_child_onto_the_joined_row() {
+        let root = A2uiComponent::new(
+            "root",
+            A2uiComponentKind::Row {
+                children: vec!["field".to_string()],
+                gap: None,
+                justify: None,
+            },
+        );
+        let mut components = text_field_request(root);
+        let A2uiMessage::UpdateComponents(update) = &mut components.messages[1] else {
+            unreachable!()
+        };
+        update.components[1] = A2uiComponent::new(
+            "field",
+            A2uiComponentKind::TextField {
+                label: Some(BoundString::literal("Name")),
+                placeholder: None,
+                value_path: "/v".to_string(),
+                multiline: false,
+                masked: false,
+            },
+        );
+        let mut state = A2uiModalState::from_request(components).unwrap();
+        type_into(&mut state, "hello");
+        let (lines, cursor, _) = state.render(60, 10, &Theme::default(), true);
+        let plain = strip_ansi(&lines[0]);
+        let typed_end = plain.find("hello").expect("typed text visible") + 5;
+        assert_eq!((cursor.row, cursor.column), (0, visible_width(&plain[..typed_end])));
+    }
+
     #[test]
     fn other_option_renders_ellipsis_when_idle_and_box_when_active() {
         let mut state = A2uiModalState::from_request(single_select_request(true)).unwrap();

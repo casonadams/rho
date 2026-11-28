@@ -1,7 +1,7 @@
 use crate::engine::AgentEngine;
 use crate::error::Result;
 use crate::repl::ReplSession;
-use crate::repl::live::navigation::update_footer;
+use crate::repl::live::navigation::refresh_footer;
 use crate::ui::TerminalRenderer;
 use crate::ui::interactive::{TerminalBackend, TerminalController};
 use rho_harness_core::config::ModelRole;
@@ -138,7 +138,7 @@ pub(crate) async fn handle_ui_setting_toggled<B: TerminalBackend>(
             session.config.show_label = *shown;
             let saved = rho_harness_core::config::Config::save_show_label_async(&dir, *shown).await;
             report_save(&session.renderer, "label display", &saved);
-            update_footer(controller.state_mut(), session, engine);
+            refresh_footer(controller.state_mut(), session, engine);
             controller.redraw()?;
             Ok(true)
         }

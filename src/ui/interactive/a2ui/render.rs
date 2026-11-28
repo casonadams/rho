@@ -15,6 +15,7 @@ use crate::ui::block::visible_width;
 use crate::ui::interactive::CursorPosition;
 use crate::ui::interactive::footer::truncate_to_width;
 use crate::ui::interactive::layout::wrap_to_width;
+use crate::ui::render::diff::replace_tabs;
 use crate::ui::theme::SGR_RESET;
 use crate::ui::theme::Theme;
 
@@ -29,7 +30,7 @@ pub(super) struct ModalFocus<'a> {
 pub(super) struct RenderCtx<'a, 'b> {
     pub(super) surface: &'a A2uiSurface,
     depth: usize,
-    visited: &'b mut HashSet<&'a str>,
+    active: &'b mut HashSet<&'a str>,
     pub(super) width: usize,
     pub(super) theme: &'a Theme,
     pub(super) modal: Option<ModalFocus<'a>>,
@@ -42,7 +43,7 @@ impl<'a> RenderCtx<'a, '_> {
         RenderCtx {
             surface: self.surface,
             depth: self.depth + 1,
-            visited: self.visited,
+            active: self.active,
             width,
             theme: self.theme,
             modal: self.modal,
@@ -64,11 +65,11 @@ pub(super) fn walk_tree<'a>(
     theme: &'a Theme,
     modal: Option<ModalFocus<'a>>,
 ) -> RenderedTree {
-    let mut visited = HashSet::new();
+    let mut active = HashSet::new();
     let mut ctx = RenderCtx {
         surface,
         depth: 0,
-        visited: &mut visited,
+        active: &mut active,
         width,
         theme,
         modal,
@@ -159,14 +160,17 @@ pub(super) fn card_border_style(tone: Option<SemanticTone>, theme: &Theme) -> St
     }
 }
 
+/// `active` holds the ids on the current path, so a cycle is cut while a shared child still renders per parent.
 fn render_node<'a>(ctx: &mut RenderCtx<'a, '_>, id: &'a str) -> Vec<String> {
-    if ctx.depth >= MAX_DEPTH || ctx.width == 0 || !ctx.visited.insert(id) {
+    if ctx.depth >= MAX_DEPTH || ctx.width == 0 || !ctx.active.insert(id) {
         return Vec::new();
     }
-    let Some(component) = ctx.surface.component(id) else {
-        return Vec::new();
+    let lines = match ctx.surface.component(id) {
+        Some(component) => render_component(ctx, component),
+        None => Vec::new(),
     };
-    render_component(ctx, component)
+    ctx.active.remove(id);
+    lines
 }
 
 fn render_component<'a>(ctx: &mut RenderCtx<'a, '_>, component: &'a A2uiComponent) -> Vec<String> {
@@ -279,15 +283,20 @@ fn render_column<'a>(ctx: &mut RenderCtx<'a, '_>, children: &'a [String], gap: u
 
 fn render_row<'a>(ctx: &mut RenderCtx<'a, '_>, children: &'a [String], gap: usize, justify: RowJustify) -> Vec<String> {
     let mut segments = Vec::new();
+    let mut cursor = None;
     let width = ctx.width;
     let mut has_focus = false;
     for child_id in children {
         let mut child_ctx = ctx.child(width);
         let lines = render_node(&mut child_ctx, child_id);
-        if !lines.is_empty() {
-            has_focus |= child_ctx.focus_range.is_some();
-            segments.push(lines.join(" "));
+        if lines.is_empty() {
+            continue;
         }
+        has_focus |= child_ctx.focus_range.is_some();
+        if let Some(c) = child_ctx.cursor {
+            cursor = Some((segments.len(), joined_column(&lines, c)));
+        }
+        segments.push(lines.join(" "));
     }
     if segments.is_empty() {
         return Vec::new();
@@ -295,51 +304,62 @@ fn render_row<'a>(ctx: &mut RenderCtx<'a, '_>, children: &'a [String], gap: usiz
     if has_focus {
         ctx.focus_range = Some((0, 1));
     }
-    vec![layout_row_segments(&segments, gap, justify, width)]
+    let (line, starts) = layout_row_segments(&segments, gap, justify, width);
+    if let Some((idx, column)) = cursor {
+        ctx.cursor = Some(CursorPosition {
+            row: 0,
+            column: starts[idx] + column,
+        });
+    }
+    vec![line]
 }
 
-pub(super) fn layout_row_segments(segments: &[String], gap: usize, justify: RowJustify, width: usize) -> String {
-    if segments.len() == 1 {
-        return align_single_segment(&segments[0], justify, width);
-    }
-    if justify == RowJustify::SpaceBetween {
-        let total_seg_width: usize = segments.iter().map(|s| visible_width(s)).sum();
-        let gaps = segments.len() - 1;
-        if total_seg_width + gaps <= width {
-            return join_space_between(segments, width - total_seg_width);
-        }
-    }
-    let sep = " ".repeat(gap);
-    let joined = segments.join(&sep);
-    align_single_segment(&joined, justify, width)
+fn joined_column(lines: &[String], cursor: CursorPosition) -> usize {
+    let before: usize = lines.iter().take(cursor.row).map(|l| visible_width(l) + 1).sum();
+    before + cursor.column
 }
 
-fn align_single_segment(text: &str, justify: RowJustify, width: usize) -> String {
-    let w = visible_width(text);
-    if w >= width {
-        return clamp_line(text, width);
-    }
-    let pad = width - w;
-    match justify {
-        RowJustify::Start | RowJustify::SpaceBetween => text.to_string(),
-        RowJustify::Center => format!("{}{text}", " ".repeat(pad / 2)),
-        RowJustify::End => format!("{}{text}", " ".repeat(pad)),
-    }
-}
-
-fn join_space_between(segments: &[String], total_space: usize) -> String {
-    let gaps = segments.len() - 1;
-    let base = total_space / gaps;
-    let extra = total_space % gaps;
-    let mut out = String::new();
-    for (idx, seg) in segments.iter().enumerate() {
+pub(super) fn layout_row_segments(
+    segments: &[String],
+    gap: usize,
+    justify: RowJustify,
+    width: usize,
+) -> (String, Vec<usize>) {
+    let widths: Vec<usize> = segments.iter().map(|s| visible_width(s)).collect();
+    let (lead, between) = row_spacing(&widths, gap, justify, width);
+    let mut out = " ".repeat(lead);
+    let mut starts = Vec::with_capacity(segments.len());
+    let mut col = lead;
+    for (idx, segment) in segments.iter().enumerate() {
         if idx > 0 {
-            let spaces = base + usize::from(idx - 1 < extra);
+            let spaces = between[idx - 1];
             out.push_str(&" ".repeat(spaces));
+            col += spaces;
         }
-        out.push_str(seg);
+        starts.push(col);
+        out.push_str(segment);
+        col += widths[idx];
     }
-    out
+    (clamp_line(&out, width), starts)
+}
+
+fn row_spacing(widths: &[usize], gap: usize, justify: RowJustify, width: usize) -> (usize, Vec<usize>) {
+    let total: usize = widths.iter().sum();
+    let gaps = widths.len().saturating_sub(1);
+    if justify == RowJustify::SpaceBetween && gaps > 0 && total + gaps <= width {
+        let free = width - total;
+        return (
+            0,
+            (0..gaps).map(|i| free / gaps + usize::from(i < free % gaps)).collect(),
+        );
+    }
+    let free = width.saturating_sub(total + gap * gaps);
+    let lead = match justify {
+        RowJustify::Center => free / 2,
+        RowJustify::End => free,
+        RowJustify::Start | RowJustify::SpaceBetween => 0,
+    };
+    (lead, vec![gap; gaps])
 }
 
 fn render_card<'a>(
@@ -483,7 +503,7 @@ pub(super) fn render_code(
     width: usize,
     theme: &Theme,
 ) -> Vec<String> {
-    let resolved = surface.resolve_string(code);
+    let resolved = replace_tabs(&surface.resolve_string(code));
     if resolved.is_empty() {
         return Vec::new();
     }
@@ -840,6 +860,52 @@ mod tests {
         );
         let lines = render_surface(&surface, 60, &Theme::default());
         assert_eq!(strip_ansi(&lines[0]), format!("[{}]", "*".repeat(12)));
+    }
+
+    #[test]
+    fn code_blocks_replace_tabs_before_rendering() {
+        let surface = build_surface(
+            vec![A2uiComponent::new(
+                "root",
+                A2uiComponentKind::Code {
+                    code: BoundString::literal("a\tb"),
+                    language: None,
+                },
+            )],
+            json!({}),
+        );
+        let lines = render_surface(&surface, 40, &Theme::default());
+        assert!(
+            !strip_ansi(&lines[0]).contains('\t'),
+            "got: {:?}",
+            strip_ansi(&lines[0])
+        );
+    }
+
+    #[test]
+    fn component_shared_by_two_parents_renders_under_each() {
+        let surface = build_surface(
+            vec![
+                A2uiComponent::new(
+                    "root",
+                    A2uiComponentKind::Column {
+                        children: vec!["shared".to_string(), "shared".to_string()],
+                        gap: None,
+                    },
+                ),
+                A2uiComponent::new(
+                    "shared",
+                    A2uiComponentKind::Text {
+                        text: BoundString::literal("hi"),
+                        usage_hint: TextUsageHint::Body,
+                        tone: None,
+                    },
+                ),
+            ],
+            json!({}),
+        );
+        let lines = render_surface(&surface, 40, &Theme::default());
+        assert_eq!(lines.len(), 2);
     }
 
     #[test]

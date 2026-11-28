@@ -96,8 +96,7 @@ impl A2uiModalState {
             Some(ControlKind::ChoicePicker(_)) => "↑/↓ select • 1-9 jump • Tab next • Enter confirm • Esc cancel",
             Some(ControlKind::CheckBox { .. }) => "Space/Enter toggle • Tab next • Esc cancel",
             Some(ControlKind::Button { .. }) => "Enter activate • Tab next • Esc cancel",
-            Some(ControlKind::TextField { .. }) => "Type answer • Tab next • Enter confirm • Ctrl+C clear • Esc cancel",
-            None => "Esc cancel",
+            _ => "Esc cancel",
         }
     }
 

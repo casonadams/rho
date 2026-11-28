@@ -4,7 +4,7 @@ use crate::error::Result;
 use crate::repl::branch_summary::{has_assistant_turn, summarize_abandoned};
 use crate::repl::commands::{CommandResult, ForkTarget};
 use crate::repl::live::modal::branch_summary::open_branch_summary_modal;
-use crate::repl::live::navigation::{show_resumed_transcript, update_footer};
+use crate::repl::live::navigation::{refresh_footer, show_resumed_transcript};
 use crate::repl::session_ops;
 use crate::ui::interactive::TerminalBackend;
 
@@ -52,7 +52,7 @@ pub(crate) async fn handle_resume_session<B: TerminalBackend>(
     };
     ctx.session.sync_engine_model(ctx.engine).await;
     show_resumed_transcript(io.controller, ctx.session, &resumed.tree);
-    update_footer(io.controller.state_mut(), ctx.session, ctx.engine);
+    refresh_footer(io.controller.state_mut(), ctx.session, ctx.engine);
     ctx.session
         .renderer
         .print_status(&session_ops::resumed_message(&resumed));

@@ -146,6 +146,7 @@ struct LineWrapper<'a> {
     offset: usize,
     current_line: String,
     ansi: AnsiWordWrap,
+    first_visual: usize,
 }
 
 impl<'a> LineWrapper<'a> {
@@ -155,11 +156,12 @@ impl<'a> LineWrapper<'a> {
             offset: 0,
             current_line: String::new(),
             ansi: AnsiWordWrap::new(max_width),
+            first_visual: 0,
         }
     }
 
     fn commit_pending_word(&mut self, output: &mut Vec<String>) {
-        let keep_leading = output.is_empty();
+        let keep_leading = output.len() == self.first_visual;
         self.ansi
             .commit(&mut self.current_line, keep_leading, push_line_into(output));
     }
@@ -175,6 +177,7 @@ impl<'a> LineWrapper<'a> {
     }
 
     fn wrap(mut self, output: &mut Vec<String>) {
+        self.first_visual = output.len();
         while self.offset < self.line.len() {
             if let Some(len) = self.ansi.consume_ansi(&self.line[self.offset..]) {
                 self.offset += len;
@@ -203,7 +206,7 @@ impl<'a> LineWrapper<'a> {
 }
 
 /// Word-wraps one source line (no `\n`) to `width` columns, appending the
-/// visual lines to `output`. Leading spaces survive only while `output` is empty.
+/// visual lines to `output`. Leading spaces survive on its first visual line only.
 pub(crate) fn wrap_line_into(line: &str, width: usize, output: &mut Vec<String>) {
     LineWrapper::new(line, width).wrap(output);
 }

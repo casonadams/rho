@@ -1,6 +1,5 @@
 use super::super::{GitPrInfo, GitStatusCounts};
 use super::segments::status_bar_uses_segment;
-use crate::ui::best_effort;
 use rho_harness_core::config::{StatusBarConfig, StatusBarSegmentId};
 use rho_harness_core::locking::lock;
 use std::path::{Path, PathBuf};
@@ -24,6 +23,7 @@ pub fn abbreviate_home(cwd: &Path, home: Option<&Path>) -> String {
     cwd.display().to_string()
 }
 
+use crate::platform::git::run_command_with_timeout;
 pub use crate::platform::git::{get_git_branch, get_git_branch_async};
 
 pub fn parse_git_status_porcelain(stdout: &str) -> GitStatusCounts {
@@ -55,56 +55,6 @@ pub fn parse_git_status_porcelain(stdout: &str) -> GitStatusCounts {
 const GIT_STATUS_TIMEOUT: Duration = Duration::from_secs(3);
 #[cfg(not(test))]
 const GH_TIMEOUT: Duration = Duration::from_secs(5);
-
-fn read_pipe(pipe: Option<impl std::io::Read>) -> std::io::Result<Vec<u8>> {
-    let mut buf = Vec::new();
-    if let Some(mut reader) = pipe {
-        reader.read_to_end(&mut buf)?;
-    }
-    Ok(buf)
-}
-
-fn wait_for_child(child: &mut std::process::Child, timeout: Duration) -> Option<std::process::ExitStatus> {
-    let deadline = Instant::now() + timeout;
-    loop {
-        match child.try_wait() {
-            Ok(Some(status)) => return Some(status),
-            Ok(None) => {
-                if Instant::now() >= deadline {
-                    kill_and_reap(child);
-                    return None;
-                }
-                std::thread::sleep(Duration::from_millis(20));
-            }
-            Err(_) => {
-                kill_and_reap(child);
-                return None;
-            }
-        }
-    }
-}
-
-fn kill_and_reap(child: &mut std::process::Child) {
-    best_effort(child.kill());
-    best_effort(child.wait());
-}
-
-pub fn run_command_with_timeout(mut cmd: std::process::Command, timeout: Duration) -> Option<std::process::Output> {
-    cmd.stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped());
-    let mut child = cmd.spawn().ok()?;
-    let stdout_pipe = child.stdout.take();
-    let stderr_pipe = child.stderr.take();
-    std::thread::scope(|s| {
-        let out_handle = s.spawn(|| read_pipe(stdout_pipe));
-        let err_handle = s.spawn(|| read_pipe(stderr_pipe));
-        let status = wait_for_child(&mut child, timeout)?;
-        let stdout = out_handle.join().ok()?.ok()?;
-        let stderr = err_handle.join().ok()?.ok()?;
-        Some(std::process::Output { status, stdout, stderr })
-    })
-}
 
 pub fn get_git_status_counts(cwd: &Path) -> Option<GitStatusCounts> {
     let mut cmd = std::process::Command::new("git");
@@ -265,11 +215,16 @@ pub fn cached_git_pr(cwd: &Path, branch: Option<&str>) -> Option<GitPrInfo> {
     if cache_entry_is_fresh(&guard, &key, now) {
         return guard.pr.clone();
     }
+    let stale = if guard.key.as_ref() == Some(&key) {
+        guard.pr.clone()
+    } else {
+        None
+    };
     if guard.in_flight {
-        return None;
+        return stale;
     }
     guard.key = Some(key.clone());
-    guard.pr = None;
+    guard.pr = stale.clone();
     guard.fetched_at = Some(now);
     #[cfg(not(test))]
     {
@@ -294,7 +249,7 @@ pub fn cached_git_pr(cwd: &Path, branch: Option<&str>) -> Option<GitPrInfo> {
             }
         });
     }
-    None
+    stale
 }
 
 /// PR and git status for the enabled footer segments, read through the cached lookups above.
@@ -428,6 +383,22 @@ mod tests {
                 untracked: 1,
             }
         );
+    }
+
+    #[test]
+    fn cached_git_pr_keeps_previous_value_while_refetching() {
+        let cwd = PathBuf::from("/rho-test/pr-refetch");
+        let pr = GitPrInfo { number: 7, url: None };
+        {
+            let cache = PR_CACHE.get_or_init(|| Mutex::new(PrCacheEntry::default()));
+            *lock(cache) = PrCacheEntry {
+                key: Some((cwd.clone(), "feat/pr".to_string())),
+                pr: Some(pr.clone()),
+                fetched_at: Some(Instant::now() - Duration::from_secs(301)),
+                in_flight: false,
+            };
+        }
+        assert_eq!(cached_git_pr(&cwd, Some("feat/pr")), Some(pr));
     }
 
     #[test]

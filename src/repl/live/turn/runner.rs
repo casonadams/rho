@@ -6,12 +6,11 @@ use crate::engine::AgentEngine;
 use crate::error::Result;
 use crate::repl::coordinator::SharedSteeringQueue;
 use crate::repl::live::batch::{LiveBatch, SPINNER_FRAME_INTERVAL};
+use crate::repl::live::navigation::reset_idle_footer;
 use crate::ui::interactive::{Activity, TerminalBackend, TerminalController, UiEvent};
 
 pub(super) fn reset_controller_idle<B: TerminalBackend>(controller: &mut TerminalController<B>) {
-    controller.clear_active_tool();
-    controller.state_mut().footer_mut().activity = Activity::Idle;
-    controller.state_mut().footer_mut().running_tool = None;
+    reset_idle_footer(controller.state_mut());
 }
 
 pub(super) struct TurnLoop<'a, B: TerminalBackend> {

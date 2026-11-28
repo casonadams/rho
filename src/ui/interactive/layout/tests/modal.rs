@@ -141,13 +141,17 @@ fn modal_region_rows_fit_terminal_width_with_long_draft() {
 #[test]
 fn modal_search_row_truncates_long_filter_query() {
     let query: String = "g".repeat(120);
+    let prompt = crate::ui::theme::Theme::default().prompt;
     for width in [80, 60, 45] {
         let mut modal = ModalState::new("Select Model", "", vec![ModalOption::from("model-a")]).with_search(true);
         modal.set_filter(&query);
         let rendered = modal_test_layout(&modal, width, 24);
         assert_region_lines_fit_terminal_width(&rendered.lines, width);
         assert!(
-            rendered.lines.iter().any(|l| l.contains("\x1b[1m>\x1b[0m g")),
+            rendered
+                .lines
+                .iter()
+                .any(|l| l.contains(&format!("{prompt}>{prompt:#} g"))),
             "truncated search row should keep its query prefix at width {width}"
         );
     }
@@ -729,4 +733,45 @@ fn a2ui_modal_uses_inner_width_and_two_space_indent() {
     assert_eq!(desired, 2);
     assert_eq!(lines.len(), desired);
     assert!(lines.iter().all(|l| l.starts_with("  ")), "lines: {lines:?}");
+}
+
+#[test]
+fn in_input_modal_notices_use_the_theme_styles() {
+    use crate::ui::interactive::layout::modal::{InInputModalInput, render_in_input_modal};
+    use anstyle::{AnsiColor, Style};
+
+    let dimmed = Style::new().fg_color(Some(AnsiColor::Red.into()));
+    let prompt = Style::new().fg_color(Some(AnsiColor::Green.into()));
+    let theme = crate::ui::theme::Theme {
+        dimmed,
+        prompt,
+        ..crate::ui::theme::Theme::default()
+    };
+    let body = (1..=12).map(|i| format!("line {i}")).collect::<Vec<_>>().join("\n");
+    let options = vec![ModalOption::new("ok", None::<String>)];
+
+    let long = ModalState::new("Long", body.as_str(), options.clone());
+    let (lines, _, _) = render_in_input_modal(InInputModalInput {
+        modal: &long,
+        draft_text: "",
+        bounds: (40, 6),
+        theme: &theme,
+        focused: true,
+    });
+    let notice = lines
+        .iter()
+        .find(|l| l.contains("lines omitted"))
+        .expect("omission notice");
+    assert!(notice.contains(&format!("{dimmed}")), "got: {notice:?}");
+
+    let searchable = ModalState::new("Search", "", options).with_search(true);
+    let (lines, _, _) = render_in_input_modal(InInputModalInput {
+        modal: &searchable,
+        draft_text: "",
+        bounds: (40, 6),
+        theme: &theme,
+        focused: true,
+    });
+    let row = lines.iter().find(|l| l.contains('>')).expect("search row");
+    assert!(row.contains(&format!("{prompt}")), "got: {row:?}");
 }
