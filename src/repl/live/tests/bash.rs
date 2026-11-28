@@ -180,7 +180,9 @@ async fn test_user_bash_runner_handles_ui_events_and_toggles() {
             modifiers: crossterm::event::KeyModifiers::empty(),
         }),
     ];
-    let mut input_reader = crate::repl::input_reader::TerminalInputReader::spawn_with_events(events);
+    let (mut input_reader, all_delivered) =
+        crate::repl::input_reader::TerminalInputReader::spawn_with_events_delivered(events);
+    all_delivered.await.unwrap();
 
     let renderer = crate::ui::TerminalRenderer::with_ui(ui);
     let mut live_io = super::super::LiveIo {

@@ -66,17 +66,31 @@ impl TerminalInputReader {
 
     #[cfg(test)]
     pub(crate) fn spawn_with_events(events: Vec<crossterm::event::Event>) -> Self {
+        Self::spawn_with_events_delivered(events).0
+    }
+
+    /// A reader that replays `events`, and a signal that fires once every one of them is queued.
+    #[cfg(test)]
+    pub(crate) fn spawn_with_events_delivered(
+        events: Vec<crossterm::event::Event>,
+    ) -> (Self, tokio::sync::oneshot::Receiver<()>) {
         let events = std::sync::Mutex::new(events.into_iter());
-        Self::spawn_with(Box::new(move |timeout| {
+        let (delivered, all_delivered) = tokio::sync::oneshot::channel();
+        let delivered = std::sync::Mutex::new(Some(delivered));
+        let reader = Self::spawn_with(Box::new(move |timeout| {
             if let Ok(mut iter) = events.lock()
                 && let Some(evt) = iter.next()
             {
                 return Ok(Some(evt));
             }
+            if let Some(delivered) = delivered.lock().ok().and_then(|mut slot| slot.take()) {
+                crate::ui::best_effort(delivered.send(()));
+            }
             std::thread::sleep(timeout);
             Ok(None)
         }))
-        .expect("spawn mock reader")
+        .expect("spawn mock reader");
+        (reader, all_delivered)
     }
 
     fn spawn_with(read_next: ReadNext) -> io::Result<Self> {
