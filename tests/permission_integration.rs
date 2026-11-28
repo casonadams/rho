@@ -41,36 +41,13 @@ fn make_perm_model(cmd: &str, final_text: &'static str) -> Arc<MockAdapter> {
     model
 }
 
-struct EnvGuard {
-    _lock: std::sync::MutexGuard<'static, ()>,
-    prev: Option<std::ffi::OsString>,
-    _dir: rho_test_support::TestDir,
-}
-
-impl Drop for EnvGuard {
-    fn drop(&mut self) {
-        unsafe {
-            if let Some(ref p) = self.prev {
-                std::env::set_var("RHO_HOME", p);
-            } else {
-                std::env::remove_var("RHO_HOME");
-            }
-        }
-    }
-}
-
-fn isolate_perm_env() -> EnvGuard {
-    let lock = crate::ENV_LOCK.lock().unwrap();
-    let prev = std::env::var_os("RHO_HOME");
+/// RHO_HOME pointed at a scratch dir, so permission rules come only from the test.
+fn isolate_perm_env() -> (rho_test_support::EnvVarGuard, rho_test_support::TestDir) {
     let dir = rho_test_support::TestDir::with_prefix("perm_global_");
-    unsafe {
-        std::env::set_var("RHO_HOME", &*dir);
-    }
-    EnvGuard {
-        _lock: lock,
-        prev,
-        _dir: dir,
-    }
+    (
+        rho_test_support::EnvVarGuard::set("RHO_HOME", dir.to_str().unwrap()),
+        dir,
+    )
 }
 
 struct HeadlessRun {

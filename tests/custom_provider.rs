@@ -2,29 +2,15 @@ use rho_engine::auth::AuthStore;
 use rho_engine::provider::{ModelCatalog, ModelHandle, ModelRouter};
 use rho_harness_core::config::Config;
 
-fn with_test_env<T, F: FnOnce(&std::path::Path) -> T>(toml: &str, env_pair: (&str, &str), f: F) -> T {
+fn with_test_env<T, F: FnOnce(&std::path::Path) -> T>(toml: &str, env_pair: (&'static str, &str), f: F) -> T {
     let (key_var, key_val) = env_pair;
-    let prev_rho_home = std::env::var_os("RHO_HOME");
     let home = rho_test_support::TestDir::with_prefix("rho_e2e_");
     std::fs::write(home.join("config.toml"), toml).unwrap();
-    unsafe {
-        std::env::set_var("RHO_HOME", &*home);
-        std::env::set_var(key_var, key_val);
-    }
-    let result = f(&home);
-    unsafe {
-        std::env::remove_var(key_var);
-        if let Some(prev) = prev_rho_home {
-            std::env::set_var("RHO_HOME", prev);
-        } else {
-            std::env::remove_var("RHO_HOME");
-        }
-    }
-    result
+    let _env = rho_test_support::EnvVarGuard::set_all(&[("RHO_HOME", home.to_str()), (key_var, Some(key_val))]);
+    f(&home)
 }
 
-fn create_model(toml: &str, env_pair: (&str, &str)) -> (Config, rho_harness_core::error::Result<ModelHandle>) {
-    let _guard = crate::ENV_LOCK.lock().unwrap();
+fn create_model(toml: &str, env_pair: (&'static str, &str)) -> (Config, rho_harness_core::error::Result<ModelHandle>) {
     with_test_env(toml, env_pair, |home| {
         let config = Config::load(None).unwrap();
         let auth_store = AuthStore::load(home.join("auth.json")).unwrap();

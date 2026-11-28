@@ -1,5 +1,3 @@
-pub(crate) static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
 pub(crate) use rho_test_support::TestDir;
 
 pub(crate) fn temp_dir(name: &str) -> TestDir {

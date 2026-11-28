@@ -2,9 +2,7 @@ use super::*;
 
 #[test]
 fn test_resolve_env_with_indirection() {
-    unsafe {
-        std::env::set_var("TEST_MCP_SECRET_KEY", "secret_value_123");
-    }
+    let _secret = rho_test_support::EnvVarGuard::set("TEST_MCP_SECRET_KEY", "secret_value_123");
     let mut env = BTreeMap::new();
     env.insert("DIRECT".to_string(), "normal_val".to_string());
     env.insert("INDIRECT".to_string(), "env:TEST_MCP_SECRET_KEY".to_string());
@@ -14,9 +12,6 @@ fn test_resolve_env_with_indirection() {
     assert_eq!(resolved.get("DIRECT").map(|s| s.as_str()), Some("normal_val"));
     assert_eq!(resolved.get("INDIRECT").map(|s| s.as_str()), Some("secret_value_123"));
     assert!(!resolved.contains_key("MISSING"));
-    unsafe {
-        std::env::remove_var("TEST_MCP_SECRET_KEY");
-    }
 }
 
 #[cfg(unix)]
