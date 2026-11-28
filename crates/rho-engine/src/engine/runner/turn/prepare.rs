@@ -68,7 +68,7 @@ impl AgentEngine {
         let anchor = if !history.is_empty() && !outdates_usage {
             self.usage
                 .latest()
-                .filter(|u| u.has_values())
+                .filter(|u| u.is_reported())
                 .map(|u| (history.len() - 1, self.consumed_context(&u) as usize))
                 .filter(|&(_, tokens)| tokens > 0)
         } else {
@@ -83,11 +83,9 @@ impl AgentEngine {
     }
 
     pub fn create_approval_sink(&self, presenter: &Arc<dyn Presenter>) -> Arc<TerminalApprovalSink> {
-        let model_label = format!("{}:{}", self.config.model, self.context_usage_display());
         TerminalApprovalSink::new(
             presenter,
             TerminalSinkConfig {
-                model_label,
                 run_tracker: self.run_tracker.clone(),
             },
             self.session_manager.clone(),

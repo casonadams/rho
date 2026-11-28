@@ -19,7 +19,6 @@ fn thinking_trailing_newlines_collapse_to_single_blank_line_before_text() {
     let sink = TerminalApprovalSink::new(
         &presenter(&renderer),
         TerminalSinkConfig {
-            model_label: "model".to_string(),
             run_tracker: crate::engine::metrics::RunTracker::default(),
         },
         session,
@@ -45,7 +44,6 @@ fn token_by_token_reasoning_with_trailing_newlines_collapses_cleanly() {
     let sink = TerminalApprovalSink::new(
         &presenter(&renderer),
         TerminalSinkConfig {
-            model_label: "model".to_string(),
             run_tracker: crate::engine::metrics::RunTracker::default(),
         },
         session,
@@ -72,7 +70,6 @@ fn internal_reasoning_paragraphs_preserve_single_blank_line() {
     let sink = TerminalApprovalSink::new(
         &presenter(&renderer),
         TerminalSinkConfig {
-            model_label: "model".to_string(),
             run_tracker: crate::engine::metrics::RunTracker::default(),
         },
         session,
@@ -101,7 +98,6 @@ fn thinking_followed_by_tool_closes_line_cleanly() {
     let sink = TerminalApprovalSink::new(
         &presenter(&renderer),
         TerminalSinkConfig {
-            model_label: "model".to_string(),
             run_tracker: crate::engine::metrics::RunTracker::default(),
         },
         session,
@@ -126,7 +122,6 @@ fn thinking_followed_by_skipped_tool_flushes_reasoning_and_closes_line() {
     let sink = TerminalApprovalSink::new(
         &presenter(&renderer),
         TerminalSinkConfig {
-            model_label: "model".to_string(),
             run_tracker: crate::engine::metrics::RunTracker::default(),
         },
         session,

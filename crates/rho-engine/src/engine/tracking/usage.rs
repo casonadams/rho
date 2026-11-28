@@ -61,22 +61,16 @@ impl UsageTracker {
         *lock(&self.in_flight) = InFlightUsage::default();
     }
 
-    pub fn end_response(&self, output_tokens: u64) {
-        lock(&self.speed).response_end(output_tokens);
-    }
-
     pub fn record_generation(&self, output_tokens: u64, elapsed_ms: u64) {
         lock(&self.speed).record_generation(output_tokens, elapsed_ms);
     }
 
     pub fn record_turn(&self, usage: TurnUsage, elapsed_ms: u64) {
         self.clear_in_flight();
-        *lock(&self.latest) = usage.active_context.has_values().then_some(usage.active_context);
+        *lock(&self.latest) = usage.active_context.is_reported().then_some(usage.active_context);
         lock(&self.totals).add_usage(&usage.totals);
         if elapsed_ms > 0 {
             self.record_generation(usage.totals.output_tokens, elapsed_ms);
-        } else {
-            self.end_response(usage.totals.output_tokens);
         }
     }
 
@@ -86,7 +80,7 @@ impl UsageTracker {
 
     pub fn update_active_context(&self, usage: StructuralUsage) {
         self.clear_in_flight();
-        *lock(&self.latest) = usage.has_values().then_some(usage);
+        *lock(&self.latest) = usage.is_reported().then_some(usage);
     }
 
     pub fn record_compaction_usage(&self, usage: StructuralUsage) {

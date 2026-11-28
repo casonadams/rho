@@ -40,7 +40,6 @@ fn test_agent_env_with(
     let temp = TestDir::new();
     let sm = rho_harness_core::session::SessionManager::new(&temp, None).unwrap();
     let cfg = crate::engine::runner::sink::TerminalSinkConfig {
-        model_label: "test".into(),
         run_tracker: Default::default(),
     };
     let sink = TerminalApprovalSink::new(&pres, cfg, sm.clone());
@@ -1309,7 +1308,6 @@ async fn todo_turn(dir: &std::path::Path, resume: Option<&str>, model: Arc<MockA
     let pres: Arc<dyn rho_harness_core::presentation::Presenter> =
         Arc::new(crate::engine::eval::presenter::NoopPresenter);
     let cfg = crate::engine::runner::sink::TerminalSinkConfig {
-        model_label: "test".into(),
         run_tracker: Default::default(),
     };
     let sink = TerminalApprovalSink::new(&pres, cfg, sm.clone());

@@ -92,9 +92,6 @@ impl AgentEngine {
     }
 
     fn build_turn_telemetry(&self, artifacts: &TurnArtifacts, usage: UsageDetails) -> TurnTelemetry {
-        let cache_miss_tokens = artifacts
-            .cache_miss_tokens
-            .unwrap_or_else(|| self.detect_turn_cache_miss(&artifacts.response));
         let timestamp_unix_ms = u64::try_from(crate::clock::unix_now_ms()).unwrap_or(0);
         TurnTelemetry {
             timestamp_unix_ms,
@@ -109,27 +106,8 @@ impl AgentEngine {
                 usage.output_tokens,
                 artifacts.generation_elapsed_ms,
             ),
-            cache_miss_tokens,
+            cache_miss_tokens: artifacts.cache_miss_tokens,
         }
-    }
-
-    fn detect_turn_cache_miss(&self, response: &PromptResponse) -> Option<u64> {
-        if response.completion_calls.is_empty() {
-            return response
-                .usage
-                .is_reported()
-                .then(|| self.usage.check_and_update_cache_miss(&response.usage))
-                .flatten();
-        }
-        let mut total_miss: Option<u64> = None;
-        for call in &response.completion_calls {
-            if call.usage.is_reported()
-                && let Some(miss) = self.usage.check_and_update_cache_miss(&call.usage)
-            {
-                total_miss = Some(total_miss.unwrap_or(0).saturating_add(miss));
-            }
-        }
-        total_miss
     }
 
     pub(super) async fn finish_turn(
@@ -263,7 +241,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn finish_turn_emits_telemetry_only_when_usage_reported_and_detects_cache_miss() {
+    async fn finish_turn_emits_telemetry_only_when_usage_reported_and_forwards_cache_miss() {
         let dir = rho_test_support::TestDir::new();
         let engine = mock_engine(
             Arc::new(MockAdapter::default()),
@@ -329,7 +307,7 @@ mod tests {
                     generation_elapsed_ms: 50,
                     turn_started_at: std::time::Instant::now(),
                     ttft_ms: Some(20),
-                    cache_miss_tokens: None,
+                    cache_miss_tokens: Some(3500),
                     content_filtered: false,
                 },
                 &lifecycle,

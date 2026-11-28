@@ -353,7 +353,6 @@ async fn execute_agent_step(
         call_index: turn,
         usage: outcome.usage,
         finish_reason: outcome.finish_reason,
-        provider_request_id: None,
     };
     ctx.all_completion_calls.push(completion_call.clone());
     emitter

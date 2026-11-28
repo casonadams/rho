@@ -14,7 +14,6 @@ use std::time::Instant;
 
 pub struct TerminalApprovalSink {
     pub presenter: std::sync::Arc<dyn Presenter>,
-    pub model_label: String,
     /// Supplies the secrets to redact and the log tool events go to; absent for an agent without a session.
     pub session_manager: Option<SessionManager>,
     pub run_tracker: RunTracker,
@@ -38,7 +37,6 @@ impl TerminalApprovalSink {
         let spinner = presenter.start_spinner("thinking...");
         std::sync::Arc::new(Self {
             presenter: std::sync::Arc::clone(presenter),
-            model_label: config.model_label,
             session_manager,
             run_tracker: config.run_tracker,
             state: Mutex::new(TerminalSinkState {
@@ -235,11 +233,7 @@ impl TerminalApprovalSink {
                 .pending
                 .entry(name.to_string())
                 .or_default()
-                .push_back(PendingToolCall {
-                    name: name.to_string(),
-                    arguments: arguments.clone(),
-                    started: Some(started),
-                });
+                .push_back(PendingToolCall { started });
             state.spinner = Some(self.presenter.start_tool_spinner(name, &arguments));
             if previewing {
                 self.presenter.preview_tool_run(name, &arguments);
@@ -278,8 +272,7 @@ impl TerminalApprovalSink {
             .pending
             .get_mut(details.name)
             .and_then(std::collections::VecDeque::pop_front)
-            .and_then(|p| p.started)
-            .map(|s| s.elapsed().as_millis() as u64);
+            .map(|p| p.started.elapsed().as_millis() as u64);
         let arguments = redact(
             self.session_manager.as_ref(),
             |session| redact_value(session, details.arguments),
@@ -492,7 +485,6 @@ mod tests {
         TerminalApprovalSink::new(
             presenter,
             TerminalSinkConfig {
-                model_label: "test".to_string(),
                 run_tracker: crate::engine::metrics::RunTracker::default(),
             },
             session,
@@ -600,7 +592,6 @@ mod tests {
         let sink = TerminalApprovalSink::new(
             &presenter,
             TerminalSinkConfig {
-                model_label: "test".to_string(),
                 run_tracker: tracker.clone(),
             },
             session,
@@ -653,7 +644,6 @@ mod tests {
         let sink = TerminalApprovalSink::new(
             &presenter,
             TerminalSinkConfig {
-                model_label: "test".to_string(),
                 run_tracker: crate::engine::metrics::RunTracker::default(),
             },
             session,
@@ -695,7 +685,6 @@ mod tests {
         let sink = TerminalApprovalSink::new(
             &presenter,
             TerminalSinkConfig {
-                model_label: "test".to_string(),
                 run_tracker: crate::engine::metrics::RunTracker::default(),
             },
             session,

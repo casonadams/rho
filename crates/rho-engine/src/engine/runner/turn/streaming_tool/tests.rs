@@ -84,7 +84,6 @@ fn sink_for(presenter: Arc<dyn Presenter>) -> (Arc<TerminalApprovalSink>, crate:
     let sink = TerminalApprovalSink::new(
         &presenter,
         TerminalSinkConfig {
-            model_label: "test-model".to_string(),
             run_tracker: crate::engine::metrics::RunTracker::default(),
         },
         session,

@@ -1,3 +1,4 @@
+use super::speed::SpeedTracker;
 use super::*;
 use crate::engine::metrics::StructuralUsage;
 
@@ -67,15 +68,11 @@ fn usage_tracker_update_active_context_does_not_inflate_totals() {
 }
 
 #[test]
-fn speed_tracker_computes_rate_and_resets() {
+fn speed_tracker_computes_rate_from_recorded_generation() {
     let mut speed = SpeedTracker::default();
     speed.record_generation(100, 2000);
 
-    let tps = speed.tokens_per_second();
-    assert_eq!(tps, Some(50.0));
-
-    speed.reset();
-    assert_eq!(speed.tokens_per_second(), None);
+    assert_eq!(speed.tokens_per_second(), Some(50.0));
 }
 
 #[test]

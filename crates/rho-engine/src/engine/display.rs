@@ -16,7 +16,7 @@ impl AgentEngine {
 
     pub fn context_percent_f64(&self) -> Option<f64> {
         let usage = self.usage.latest()?;
-        if !usage.has_values() {
+        if !usage.is_reported() {
             return None;
         }
         let limit = self.context_limit();
@@ -38,7 +38,7 @@ impl AgentEngine {
 
     pub fn context_remaining_display(&self) -> String {
         let limit = self.context_limit();
-        let percent = match self.usage.latest().filter(|usage| usage.has_values()) {
+        let percent = match self.usage.latest().filter(|usage| usage.is_reported()) {
             Some(usage) => {
                 let remaining = limit.saturating_sub(self.consumed_context(&usage) as usize);
                 (remaining as f64 / limit as f64) * 100.0
@@ -51,23 +51,6 @@ impl AgentEngine {
             format!("{percent:.1}%")
         };
         format!("{percent_str} ({})", format_tokens(limit as u64))
-    }
-
-    pub fn context_usage_display(&self) -> String {
-        let Some(usage) = self.usage.latest() else {
-            return "usage unavailable".to_string();
-        };
-        if !usage.has_values() {
-            return "usage unavailable".to_string();
-        }
-        let consumed = self.consumed_context(&usage);
-        let limit = self.context_limit();
-        let percent = ((consumed as usize * 100) / limit).min(100);
-        format!(
-            "{}/{} ({percent}%)",
-            format_tokens(consumed),
-            format_tokens(limit as u64)
-        )
     }
 
     pub fn cache_hit_display(&self) -> Option<String> {

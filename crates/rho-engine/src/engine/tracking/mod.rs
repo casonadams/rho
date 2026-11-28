@@ -11,6 +11,5 @@ pub(crate) use context::{CompactionTiming, ContextBudget, ContextPolicy};
 pub use context::{ContextLimitSource, ContextTracker};
 pub use in_flight::{InFlightGuard, InFlightUsage};
 pub use quota::{QuotaKey, QuotaTracker};
-pub use speed::SpeedTracker;
 pub use types::{SessionUsageTotals, TurnUsage};
 pub use usage::UsageTracker;

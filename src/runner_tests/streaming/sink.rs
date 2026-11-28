@@ -8,7 +8,6 @@ fn sample_test_sink(renderer: &TerminalRenderer) -> (std::sync::Arc<TerminalAppr
     let sink = TerminalApprovalSink::new(
         &presenter(renderer),
         TerminalSinkConfig {
-            model_label: "model".to_string(),
             run_tracker: crate::engine::metrics::RunTracker::default(),
         },
         session,
@@ -84,7 +83,6 @@ fn reasoning_flushes_before_tool_classification() {
     let sink = TerminalApprovalSink::new(
         &presenter(&renderer),
         TerminalSinkConfig {
-            model_label: "model".to_string(),
             run_tracker: crate::engine::metrics::RunTracker::default(),
         },
         session,

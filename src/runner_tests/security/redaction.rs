@@ -65,7 +65,6 @@ fn terminal_sink_redacts_secret_tool_arguments_and_results() {
     let sink = TerminalApprovalSink::new(
         &presenter(&renderer),
         TerminalSinkConfig {
-            model_label: "model".to_string(),
             run_tracker: crate::engine::metrics::RunTracker::default(),
         },
         session,

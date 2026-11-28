@@ -51,7 +51,7 @@ impl AgentEngine {
             generation_elapsed_ms,
             turn_started_at,
             ttft_ms,
-            cache_miss_tokens: Some(state.cache_miss_tokens),
+            cache_miss_tokens: state.cache_miss_tokens,
             content_filtered,
         };
         self.finish_turn(artifacts, lifecycle).await

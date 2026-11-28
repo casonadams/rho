@@ -157,7 +157,6 @@ mod tests {
         let dir = crate::test_support::TestDir::new();
         let session = rho_harness_core::session::SessionManager::new(&dir, None).unwrap();
         let config = crate::engine::runner::sink::TerminalSinkConfig {
-            model_label: "test-model".to_string(),
             run_tracker: crate::engine::metrics::RunTracker::default(),
         };
         let sink = crate::engine::runner::sink::TerminalApprovalSink::new(&presenter, config, session);

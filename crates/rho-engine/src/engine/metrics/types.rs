@@ -6,8 +6,6 @@ pub struct CompletionCall {
     pub call_index: usize,
     pub usage: StructuralUsage,
     pub finish_reason: Option<FinishReason>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub provider_request_id: Option<String>,
 }
 
 impl CompletionCall {
@@ -16,7 +14,6 @@ impl CompletionCall {
             call_index,
             usage: usage.into(),
             finish_reason: None,
-            provider_request_id: None,
         }
     }
 
@@ -128,10 +125,6 @@ impl StructuralUsage {
     }
 
     pub fn is_reported(self) -> bool {
-        self.has_values()
-    }
-
-    pub fn has_values(self) -> bool {
         self.input_tokens != 0 || self.output_tokens != 0 || self.total_tokens != 0
     }
 

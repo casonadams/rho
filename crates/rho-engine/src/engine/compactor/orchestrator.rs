@@ -291,7 +291,7 @@ impl SessionCompactor {
         let compactor = LlmCompactor::new(self.model.clone());
         let (summary, usage) = compactor.summarize_with_usage(msgs, options).await;
         if let Some(u) = usage
-            && u.has_values()
+            && u.is_reported()
         {
             self.usage.record_compaction_usage(u);
         }

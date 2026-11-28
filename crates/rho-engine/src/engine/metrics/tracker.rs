@@ -54,7 +54,6 @@ pub(crate) struct RunObservation {
     pub(crate) tool_denials: usize,
     pub(crate) completion_calls: Vec<CompletionCall>,
     pub(crate) call_offsets_ms: Vec<u64>,
-    pub(crate) last_request_id: Option<String>,
     pub(crate) prune: Option<PruneDecision>,
 }
 
@@ -69,7 +68,6 @@ impl RunTracker {
             tool_denials: 0,
             completion_calls: Vec::new(),
             call_offsets_ms: Vec::new(),
-            last_request_id: None,
             prune: None,
         });
     }
@@ -113,9 +111,6 @@ impl RunTracker {
             reset_noted: false,
         });
         if let Some(state) = state.as_mut() {
-            if let Some(ref req_id) = call.provider_request_id {
-                state.last_request_id = Some(req_id.clone());
-            }
             let offset = started.saturating_duration_since(state.started).as_millis();
             state.call_offsets_ms.push(u64::try_from(offset).unwrap_or(u64::MAX));
             state.completion_calls.push(call);

@@ -51,7 +51,7 @@ impl InFlightUsage {
         self.turn_step_elapsed_ms = self.turn_step_elapsed_ms.saturating_add(elapsed_ms);
         self.step_start = None;
         self.estimated_input_tokens = None;
-        if usage.has_values() {
+        if usage.is_reported() {
             self.streaming_output_tokens = 0;
             self.turn_step_totals.add_usage(&usage);
             self.latest_context = Some(usage);

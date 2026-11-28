@@ -609,7 +609,6 @@ impl SubagentRunner {
         let sink = TerminalApprovalSink::with_session(
             &round.presenter,
             TerminalSinkConfig {
-                model_label: self.model_label(),
                 run_tracker: RunTracker::default(),
             },
             self.ctx.session.clone(),

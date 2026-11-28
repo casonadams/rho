@@ -20,7 +20,7 @@ pub struct TurnArtifacts {
     pub generation_elapsed_ms: u64,
     pub turn_started_at: Instant,
     pub ttft_ms: Option<u64>,
-    pub cache_miss_tokens: Option<Option<u64>>,
+    pub cache_miss_tokens: Option<u64>,
     /// The provider refused the turn's content with an error rather than a finish reason.
     pub content_filtered: bool,
 }
@@ -35,13 +35,10 @@ pub enum DisplayKind {
 }
 
 pub struct PendingToolCall {
-    pub name: String,
-    pub arguments: Value,
-    pub started: Option<Instant>,
+    pub started: Instant,
 }
 
 pub struct TerminalSinkConfig {
-    pub model_label: String,
     pub run_tracker: RunTracker,
 }
 

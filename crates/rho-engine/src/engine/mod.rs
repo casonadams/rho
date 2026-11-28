@@ -8,7 +8,7 @@ use crate::mailbox::{AgentId, Delivery, Mailbox, SendError};
 pub use crate::repeat;
 pub use crate::repeat::REPEATED_CALL_MESSAGE;
 use std::path::Path;
-pub use tracking::{SessionUsageTotals, SpeedTracker};
+pub use tracking::SessionUsageTotals;
 pub mod builder;
 pub use builder::AgentEngineBuilder;
 pub mod compactor;

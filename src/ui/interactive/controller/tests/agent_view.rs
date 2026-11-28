@@ -34,7 +34,6 @@ fn transcript_rows(controller: &TerminalController<ScreenBackend>) -> Vec<String
 
 fn sink(presenter: &Arc<dyn Presenter>) -> Arc<TerminalApprovalSink> {
     let config = TerminalSinkConfig {
-        model_label: "acme/smol".into(),
         run_tracker: rho_engine::engine::metrics::RunTracker::default(),
     };
     TerminalApprovalSink::with_session(presenter, config, None)
