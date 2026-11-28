@@ -3,30 +3,13 @@ use crate::config::Config;
 use crate::repl::ReplSession;
 use crate::repl::commands::{CommandResult, SlashCommandContext, SlashCommandHandler};
 use crate::repl::line_mode::dispatch::compact_context;
+use crate::repl::{collected_output, collecting_renderer};
 use crate::ui::TerminalRenderer;
-use crate::ui::interactive::{InteractiveUi, OutputEvent, UiEvent};
 use rho_engine::auth::AuthStore;
 use rho_engine::engine::eval::mock::{MockEngineConfig, mock_engine};
 use rho_engine::provider::adapter::MockAdapter;
 use rho_harness_core::session::SessionManager;
 use std::sync::Arc;
-use tokio::sync::mpsc;
-
-fn collecting_renderer() -> (TerminalRenderer, mpsc::UnboundedReceiver<UiEvent>) {
-    let (ui, events) = InteractiveUi::channel();
-    (TerminalRenderer::with_ui(ui), events)
-}
-
-fn collected_output(events: &mut mpsc::UnboundedReceiver<UiEvent>) -> String {
-    std::iter::from_fn(|| events.try_recv().ok())
-        .filter_map(|event| match event {
-            UiEvent::Output(OutputEvent::Text(text) | OutputEvent::StreamText(text)) => Some(text),
-            UiEvent::Transcript(crate::ui::interactive::TranscriptItem::Notice(text)) => Some(text),
-            UiEvent::SystemMessage(Some(text)) => Some(text),
-            _ => None,
-        })
-        .collect()
-}
 
 fn test_context<'a>(
     config: &'a mut Config,

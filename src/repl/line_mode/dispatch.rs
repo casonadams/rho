@@ -213,42 +213,14 @@ pub(crate) async fn rebuild_engine_on_auth(session: &mut ReplSession, engine: &m
     Ok(())
 }
 
-pub(crate) async fn try_login(
-    provider: Option<&str>,
-    session: &mut ReplSession,
-    engine: &mut AgentEngine,
-) -> Result<bool> {
-    let ok = crate::cli::login_provider(provider, false, &session.config, &mut session.auth_store)
-        .await
-        .is_ok();
-    if ok {
-        rebuild_engine_on_auth(session, engine).await?;
-    }
-    Ok(ok)
+async fn login(provider: Option<&str>, session: &mut ReplSession, engine: &mut AgentEngine) -> Result<()> {
+    crate::cli::login_provider(provider, false, &session.config, &mut session.auth_store).await?;
+    rebuild_engine_on_auth(session, engine).await
 }
 
-pub(crate) async fn try_logout(
-    provider: Option<&str>,
-    session: &mut ReplSession,
-    engine: &mut AgentEngine,
-) -> Result<bool> {
-    let ok = crate::cli::logout_provider(provider, &session.config, &mut session.auth_store).is_ok();
-    if ok {
-        rebuild_engine_on_auth(session, engine).await?;
-    }
-    Ok(ok)
-}
-
-pub(crate) async fn try_login_action(
-    cmd_res: &CommandResult,
-    session: &mut ReplSession,
-    engine: &mut AgentEngine,
-) -> Result<Option<bool>> {
-    match cmd_res {
-        CommandResult::Login { provider } => Ok(Some(try_login(provider.as_deref(), session, engine).await?)),
-        CommandResult::OpenLoginSelector => Ok(Some(try_login(None, session, engine).await?)),
-        _ => Ok(None),
-    }
+async fn logout(provider: Option<&str>, session: &mut ReplSession, engine: &mut AgentEngine) -> Result<()> {
+    crate::cli::logout_provider(provider, &session.config, &mut session.auth_store)?;
+    rebuild_engine_on_auth(session, engine).await
 }
 
 pub(crate) async fn handle_auth_actions(
@@ -256,24 +228,18 @@ pub(crate) async fn handle_auth_actions(
     session: &mut ReplSession,
     engine: &mut AgentEngine,
 ) -> Result<bool> {
-    if let Some(handled) = try_login_action(cmd_res, session, engine).await? {
-        return Ok(handled);
-    }
     match cmd_res {
-        CommandResult::Logout { provider } => try_logout(provider.as_deref(), session, engine).await,
-        CommandResult::Reload => {
-            *engine = session.reload_engine(engine).await?;
-            Ok(true)
-        }
-        CommandResult::EnterWorktree { branch } => {
-            match engine.enter_session_worktree(branch.as_deref()).await {
-                Ok(created) => session.renderer.print_notice(&format!("  {}\n", created.summary())),
-                Err(err) => session.renderer.print_notice(&format!("  Worktree failed: {err}\n")),
-            }
-            Ok(true)
-        }
-        _ => Ok(false),
+        CommandResult::Login { provider } => login(provider.as_deref(), session, engine).await?,
+        CommandResult::OpenLoginSelector => login(None, session, engine).await?,
+        CommandResult::Logout { provider } => logout(provider.as_deref(), session, engine).await?,
+        CommandResult::Reload => *engine = session.reload_engine(engine).await?,
+        CommandResult::EnterWorktree { branch } => match engine.enter_session_worktree(branch.as_deref()).await {
+            Ok(created) => session.renderer.print_notice(&format!("  {}\n", created.summary())),
+            Err(err) => session.renderer.print_notice(&format!("  Worktree failed: {err}\n")),
+        },
+        _ => return Ok(false),
     }
+    Ok(true)
 }
 
 /// Switches the engine to `new_model` and records it in the session config only if that worked;
@@ -356,20 +322,15 @@ fn handle_expanded_prompt(session: &ReplSession, text: String) -> DispatchOutcom
     DispatchOutcome::RunTurn(text)
 }
 
+/// Runs `cmd_res` when it changes the session, branch, engine or auth; false when it is none of those.
 pub(crate) async fn handle_command_group(
     cmd_res: &CommandResult,
     session: &mut ReplSession,
     engine: &mut AgentEngine,
-) -> bool {
-    handle_session_branching_result(cmd_res, session, engine)
-        .await
-        .unwrap_or(false)
-        || handle_session_manage_result(cmd_res, session, engine)
-            .await
-            .unwrap_or(false)
-        || handle_config_auth_result(cmd_res, session, engine)
-            .await
-            .unwrap_or(false)
+) -> Result<bool> {
+    Ok(handle_session_branching_result(cmd_res, session, engine).await?
+        || handle_session_manage_result(cmd_res, session, engine).await?
+        || handle_config_auth_result(cmd_res, session, engine).await?)
 }
 
 pub(crate) async fn handle_terminal_result(
@@ -457,8 +418,12 @@ pub async fn handle_command_result(
     session: &mut ReplSession,
     engine: &mut AgentEngine,
 ) -> Result<DispatchOutcome> {
-    if handle_command_group(&cmd_res, session, engine).await {
-        return Ok(DispatchOutcome::Continue);
+    match handle_command_group(&cmd_res, session, engine).await {
+        Ok(true) => Ok(DispatchOutcome::Continue),
+        Ok(false) => handle_terminal_result(cmd_res, session, engine).await,
+        Err(error) => {
+            session.renderer.write_output(&format!("\nError: {error}\n"));
+            Ok(DispatchOutcome::Continue)
+        }
     }
-    handle_terminal_result(cmd_res, session, engine).await
 }

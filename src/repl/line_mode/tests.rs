@@ -254,8 +254,16 @@ async fn test_terminal_and_command_result_dispatch() {
     .await;
     assert!(matches!(term_res, Ok(DispatchOutcome::RunTurn(text)) if text == "expanded test"));
 
-    assert!(handle_command_group(&CommandResult::Tree, &mut session, &mut engine).await);
-    assert!(!handle_command_group(&CommandResult::Exit, &mut session, &mut engine).await);
+    assert!(
+        handle_command_group(&CommandResult::Tree, &mut session, &mut engine)
+            .await
+            .unwrap()
+    );
+    assert!(
+        !handle_command_group(&CommandResult::Exit, &mut session, &mut engine)
+            .await
+            .unwrap()
+    );
 
     let outcome = handle_command_result(CommandResult::Tree, &mut session, &mut engine).await;
     assert!(matches!(outcome, Ok(DispatchOutcome::Continue)));
@@ -313,25 +321,20 @@ async fn test_maybe_summarize_abandoned_and_branch_switch() {
 }
 
 #[tokio::test]
-async fn test_try_login_action_variants() {
-    let temp = tempfile::tempdir().unwrap();
-    let (mut session, mut engine) = setup_test_session(temp.path()).await;
+async fn a_failed_command_reports_its_error_and_keeps_the_session_going() {
+    let temp = rho_test_support::TestDir::new();
+    let (mut session, mut engine) = setup_test_session(&temp).await;
+    let (renderer, mut events) = crate::repl::collecting_renderer();
+    session.renderer = renderer;
 
-    let res = super::dispatch::try_login_action(&CommandResult::OpenLoginSelector, &mut session, &mut engine).await;
-    assert!(matches!(res, Ok(Some(_))));
+    let logout = CommandResult::Logout {
+        provider: Some("claude".to_string()),
+    };
+    let outcome = handle_command_result(logout, &mut session, &mut engine).await;
 
-    let res = super::dispatch::try_login_action(
-        &CommandResult::Login {
-            provider: Some("local".to_string()),
-        },
-        &mut session,
-        &mut engine,
-    )
-    .await;
-    assert!(matches!(res, Ok(Some(_))));
-
-    let res = super::dispatch::try_login_action(&CommandResult::Exit, &mut session, &mut engine).await;
-    assert!(matches!(res, Ok(None)));
+    assert!(matches!(outcome, Ok(DispatchOutcome::Continue)));
+    let printed = crate::repl::collected_output(&mut events);
+    assert!(printed.contains("No stored credentials for claude"), "{printed}");
 }
 
 #[test]

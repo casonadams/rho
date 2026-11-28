@@ -28,6 +28,32 @@ pub(crate) fn test_controller() -> crate::ui::interactive::TerminalController<cr
     .unwrap()
 }
 
+/// A renderer whose output arrives on the returned channel.
+#[cfg(test)]
+pub(crate) fn collecting_renderer() -> (
+    crate::ui::TerminalRenderer,
+    tokio::sync::mpsc::UnboundedReceiver<crate::ui::interactive::UiEvent>,
+) {
+    let (ui, events) = crate::ui::interactive::InteractiveUi::channel();
+    (crate::ui::TerminalRenderer::with_ui(ui), events)
+}
+
+/// The text, notices and system messages a [`collecting_renderer`] has shown so far.
+#[cfg(test)]
+pub(crate) fn collected_output(
+    events: &mut tokio::sync::mpsc::UnboundedReceiver<crate::ui::interactive::UiEvent>,
+) -> String {
+    use crate::ui::interactive::{OutputEvent, TranscriptItem, UiEvent};
+    std::iter::from_fn(|| events.try_recv().ok())
+        .filter_map(|event| match event {
+            UiEvent::Output(OutputEvent::Text(text) | OutputEvent::StreamText(text)) => Some(text),
+            UiEvent::Transcript(TranscriptItem::Notice(text)) => Some(text),
+            UiEvent::SystemMessage(Some(text)) => Some(text),
+            _ => None,
+        })
+        .collect()
+}
+
 use crate::auth::AuthStore;
 use crate::config::Config;
 use crate::engine::AgentEngine;
