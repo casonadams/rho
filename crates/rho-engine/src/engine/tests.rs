@@ -684,12 +684,7 @@ async fn each_turn_request_carries_the_session_id_as_its_conversation_id() {
             .unwrap();
     }
 
-    let ids: Vec<Option<String>> = model
-        .requests()
-        .into_iter()
-        .map(|r| r.conversation_id)
-        .take(2)
-        .collect();
+    let ids: Vec<Option<String>> = model.requests().into_iter().map(|r| r.conversation_id).collect();
     assert_eq!(ids, vec![Some(engine.session_manager.session_id.clone()); 2]);
 }
 

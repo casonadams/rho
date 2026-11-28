@@ -290,7 +290,7 @@ pub struct CompletionOutcome<'a> {
 }
 
 pub(crate) struct ObservationMetricsInput<'a> {
-    pub(crate) observation: Option<super::tracker::RunObservation>,
+    pub(crate) observation: super::tracker::RunObservation,
     pub(crate) session_id: &'a str,
     pub(crate) status: TerminalStatus,
     pub(crate) usage: Option<StructuralUsage>,
@@ -299,32 +299,22 @@ pub(crate) struct ObservationMetricsInput<'a> {
 }
 
 pub(crate) fn metrics_from_observation(input: ObservationMetricsInput<'_>) -> RunMetrics {
-    let prune = input.observation.as_ref().and_then(|state| state.prune);
-    let (elapsed_ms, model, tool_calls, tool_errors, tool_denials) =
-        input.observation.map_or((0, String::new(), 0, 0, 0), |state| {
-            (
-                state.started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64,
-                state.model,
-                state.tool_calls,
-                state.tool_errors,
-                state.tool_denials,
-            )
-        });
+    let state = input.observation;
     RunMetrics {
         session_id: input.session_id.to_string(),
-        model,
+        model: state.model,
         success: input.status.is_success(),
         terminal_status: input.status,
-        elapsed_ms,
+        elapsed_ms: state.started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64,
         model_turns: input.requests,
         requests: input.requests,
-        tool_calls,
-        tool_errors,
-        tool_denials,
+        tool_calls: state.tool_calls,
+        tool_errors: state.tool_errors,
+        tool_denials: state.tool_denials,
         usage_available: input.usage.is_some(),
         usage: input.usage,
         completion_calls: input.completion_calls,
-        prune,
+        prune: state.prune,
     }
 }
 

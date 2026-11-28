@@ -1,7 +1,10 @@
 use std::sync::Arc;
+use tokio::sync::RwLock;
 
 use super::super::types::RpcDaemonContext;
 use crate::error::Result;
+use rho_engine::engine::AgentEngine;
+use rho_engine::engine::runner::TurnOutput;
 use rho_harness_core::presentation::types::InteractionResponse;
 use rho_harness_core::rpc::protocol::{RpcEvent, RpcResponse};
 
@@ -36,16 +39,28 @@ pub(crate) async fn handle_steer_command<W: tokio::io::AsyncWrite + Unpin>(
     ctx.writer.write_message(&response).await
 }
 
+/// Aborts the turn in progress, if any, and records it as cancelled so it ends exactly once.
+pub(crate) async fn abort_active_turn(
+    active_turn: &mut Option<tokio::task::JoinHandle<Result<TurnOutput>>>,
+    engine: &RwLock<AgentEngine>,
+    reason: &str,
+) {
+    let Some(handle) = active_turn.take() else {
+        return;
+    };
+    handle.abort();
+    if let Err(error) = engine.read().await.record_cancellation(reason).await {
+        eprintln!("Error: could not record the aborted turn: {error}");
+    }
+}
+
 pub(crate) async fn handle_abort_cmd<W: tokio::io::AsyncWrite + Unpin>(
     req_id: Option<String>,
     ctx: &mut RpcDaemonContext<'_, W>,
 ) -> Result<()> {
-    if let Some(handle) = ctx.active_turn.take() {
-        handle.abort();
-    }
+    abort_active_turn(ctx.active_turn, &ctx.engine, "rpc abort").await;
     ctx.steering.clear();
-    let eng = ctx.engine.read().await;
-    let _ = eng.record_cancellation("rpc abort").await;
+    ctx.engine.read().await.inbox().cancel_jobs();
     ctx.writer
         .write_message(&RpcEvent::StatusChanged {
             status: "idle".to_string(),

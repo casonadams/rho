@@ -1,5 +1,5 @@
 use super::handlers::{
-    handle_abort_cmd, handle_config_update_cmd, handle_node_session_auth_cmd, handle_prompt_cmd,
+    abort_active_turn, handle_abort_cmd, handle_config_update_cmd, handle_node_session_auth_cmd, handle_prompt_cmd,
     handle_resume_or_fork_cmd, handle_session_lifecycle_cmd, handle_state_command, handle_steer_command,
     handle_tool_response_cmd,
 };
@@ -44,9 +44,7 @@ async fn handle_exit_cmd<W: tokio::io::AsyncWrite + Unpin>(
     req_id: Option<String>,
     ctx: &mut RpcDaemonContext<'_, W>,
 ) -> Result<RpcLoopAction> {
-    if let Some(handle) = ctx.active_turn.take() {
-        handle.abort();
-    }
+    abort_active_turn(ctx.active_turn, &ctx.engine, "rpc exit").await;
     ctx.writer
         .write_message(&RpcResponse::success(req_id, "exit", None))
         .await?;
@@ -157,7 +155,6 @@ where
     W: tokio::io::AsyncWrite + Unpin,
 {
     let writer = &mut *ctx.writer;
-    let active_turn = &*ctx.active_turn;
     let write = async {
         for event in events {
             writer.write_message(event).await?;
@@ -173,11 +170,13 @@ where
                 return Ok(read);
             }
             req = reader.read_message::<RpcRequest>(), if read.is_none() => {
-                if let Ok(Some(request)) = &req
-                    && matches!(request.command, RpcCommand::Abort | RpcCommand::Exit)
-                    && let Some(turn) = active_turn
-                {
-                    turn.abort();
+                let stop_reason = match &req {
+                    Ok(Some(RpcRequest { command: RpcCommand::Abort, .. })) => Some("rpc abort"),
+                    Ok(Some(RpcRequest { command: RpcCommand::Exit, .. })) => Some("rpc exit"),
+                    _ => None,
+                };
+                if let Some(reason) = stop_reason {
+                    abort_active_turn(ctx.active_turn, &ctx.engine, reason).await;
                 }
                 read = Some(req);
             }

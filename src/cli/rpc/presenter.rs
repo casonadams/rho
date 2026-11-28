@@ -16,7 +16,8 @@ pub type PendingApprovals = Arc<Mutex<HashMap<String, oneshot::Sender<Interactio
 const MAX_BUFFERED_TEXT_BYTES: usize = 8 * 1024 * 1024;
 
 /// Events waiting for the client. Text and reasoning chunks join the tail chunk of the same kind,
-/// and once buffered text passes the cap the oldest is dropped behind one `OutputTruncated` event.
+/// and once buffered text passes the cap the oldest is dropped behind an `OutputTruncated` event
+/// at the point it was dropped from.
 #[derive(Clone)]
 pub struct RpcEventQueue {
     shared: Arc<QueueShared>,
@@ -83,10 +84,11 @@ impl QueueState {
     }
 
     fn record_dropped(&mut self, index: usize, bytes: usize) {
-        let marker = self.events.iter_mut().find_map(|event| match event {
-            RpcEvent::OutputTruncated { dropped_bytes } => Some(dropped_bytes),
+        let preceding = index.checked_sub(1).and_then(|before| self.events.get_mut(before));
+        let marker = match preceding {
+            Some(RpcEvent::OutputTruncated { dropped_bytes }) => Some(dropped_bytes),
             _ => None,
-        });
+        };
         match marker {
             Some(dropped_bytes) => *dropped_bytes += bytes,
             None => self

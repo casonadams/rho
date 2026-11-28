@@ -54,6 +54,7 @@ fn track_sample_run(session_id: &str, response: &PromptResponse) -> RunMetrics {
             status: TerminalStatus::Completed,
             response,
         })
+        .unwrap()
         .normalized()
 }
 
@@ -78,11 +79,15 @@ fn structural_metrics_contain_no_response_or_identity_content() {
     ]);
     let tracker = RunTracker::default();
     tracker.start("model", PromptCacheKey::default());
-    let encoded = serde_json::to_string(&tracker.complete(CompletionOutcome {
-        session_id: "safe-session",
-        status: TerminalStatus::Completed,
-        response: &response,
-    }))
+    let encoded = serde_json::to_string(
+        &tracker
+            .complete(CompletionOutcome {
+                session_id: "safe-session",
+                status: TerminalStatus::Completed,
+                response: &response,
+            })
+            .unwrap(),
+    )
     .unwrap();
 
     assert!(!encoded.contains(sentinel));
@@ -122,6 +127,23 @@ fn a_run_terminates_only_once() {
 
     assert!(first.is_some());
     assert!(second.is_none());
+}
+
+#[test]
+fn a_terminated_run_cannot_also_complete() {
+    let tracker = RunTracker::default();
+    tracker.start("model", PromptCacheKey::default());
+    let response = PromptResponse::new("late", usage());
+
+    let terminated = tracker.terminate("session", TerminalStatus::Cancelled);
+    let completed = tracker.complete(CompletionOutcome {
+        session_id: "session",
+        status: TerminalStatus::Completed,
+        response: &response,
+    });
+
+    assert!(terminated.is_some());
+    assert!(completed.is_none());
 }
 
 #[test]

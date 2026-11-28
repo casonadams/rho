@@ -133,18 +133,19 @@ impl RunTracker {
             .is_some_and(|sent| !std::mem::replace(&mut sent.reset_noted, true))
     }
 
-    pub fn complete(&self, outcome: CompletionOutcome<'_>) -> RunMetrics {
-        let observation = self.take();
+    /// Ends the run in progress with `outcome`; `None` when no run is in progress, so a run ends once.
+    pub fn complete(&self, outcome: CompletionOutcome<'_>) -> Option<RunMetrics> {
+        let observation = self.take()?;
         let usage = outcome.response.usage.is_reported().then_some(outcome.response.usage);
-        let calls = call_metrics(&outcome.response.completion_calls, observation.as_ref());
-        metrics_from_observation(ObservationMetricsInput {
+        let calls = call_metrics(&outcome.response.completion_calls, &observation);
+        Some(metrics_from_observation(ObservationMetricsInput {
             observation,
             session_id: outcome.session_id,
             status: outcome.status,
             usage,
             completion_calls: calls,
             requests: outcome.response.requests,
-        })
+        }))
     }
 
     /// Ends the run in progress with `status`; `None` when no run is in progress, so a run ends once.
@@ -154,10 +155,10 @@ impl RunTracker {
             .completion_calls
             .iter()
             .fold(StructuralUsage::default(), |total, call| total.merge(&call.usage));
-        let calls = call_metrics(&observation.completion_calls, Some(&observation));
+        let calls = call_metrics(&observation.completion_calls, &observation);
         let requests = calls.len();
         Some(metrics_from_observation(ObservationMetricsInput {
-            observation: Some(observation),
+            observation,
             session_id,
             status,
             usage: usage.is_reported().then_some(usage),
@@ -175,12 +176,12 @@ impl RunTracker {
     }
 }
 
-fn call_metrics(calls: &[CompletionCall], observation: Option<&RunObservation>) -> Vec<ModelCallMetrics> {
+fn call_metrics(calls: &[CompletionCall], observation: &RunObservation) -> Vec<ModelCallMetrics> {
     calls
         .iter()
         .enumerate()
         .map(|(index, call)| ModelCallMetrics {
-            started_ms: observation.and_then(|state| state.call_offsets_ms.get(index).copied()),
+            started_ms: observation.call_offsets_ms.get(index).copied(),
             ..ModelCallMetrics::from(call)
         })
         .collect()

@@ -1029,6 +1029,30 @@ async fn text_past_the_cap_drops_the_oldest_behind_one_marker() {
 }
 
 #[tokio::test]
+async fn text_dropped_after_a_later_event_is_reported_where_it_was_dropped() {
+    let events = RpcEventQueue::with_text_byte_cap(8);
+    let tool_start = RpcEvent::ToolCallStart {
+        call_id: "call-1".to_string(),
+        tool: "bash".to_string(),
+        arguments: serde_json::json!({}),
+    };
+    events.push(text("aaaaaaaaaa"));
+    events.push(tool_start.clone());
+
+    events.push(text("bbbbbbb"));
+
+    assert_eq!(
+        events.next_batch().await,
+        Some(vec![
+            RpcEvent::OutputTruncated { dropped_bytes: 10 },
+            tool_start,
+            RpcEvent::OutputTruncated { dropped_bytes: 3 },
+            text("bbbb"),
+        ])
+    );
+}
+
+#[tokio::test]
 async fn a_closed_queue_refuses_events_after_yielding_the_queued_ones() {
     let events = RpcEventQueue::default();
     assert!(events.push(busy()));
@@ -1040,36 +1064,135 @@ async fn a_closed_queue_refuses_events_after_yielding_the_queued_ones() {
     assert_eq!(events.next_batch().await, None);
 }
 
-#[tokio::test(start_paused = true)]
-async fn an_abort_is_read_while_events_wait_on_a_slow_client() {
-    let (_unread_client, server_out) = duplex(64);
-    let mut writer = JsonLinesWriter::new(server_out);
-    let temp_dir = rho_test_support::TestDir::new();
-    let mut active_turn = Some(tokio::spawn(std::future::pending::<
-        crate::error::Result<rho_engine::engine::runner::TurnOutput>,
-    >()));
-    let mut ctx = setup_test_rpc_context(&mut writer, &temp_dir, &mut active_turn).await;
-    let (client_in, server_in) = duplex(4096);
-    let mut reader = JsonLinesReader::new(tokio::io::BufReader::new(server_in));
-    JsonLinesWriter::new(client_in)
-        .write_message(&rho_harness_core::rpc::protocol::RpcRequest {
-            id: Some("abort-1".to_string()),
-            command: RpcCommand::Abort,
-        })
+#[derive(Debug, Default)]
+struct StalledAdapter {
+    requested: tokio::sync::Notify,
+    stream_alive: std::sync::Mutex<Option<tokio::sync::oneshot::Sender<()>>>,
+}
+
+#[async_trait::async_trait]
+impl rho_engine::provider::adapter::ModelAdapter for StalledAdapter {
+    fn model_name(&self) -> &str {
+        "stalled"
+    }
+    fn provider_name(&self) -> &str {
+        "mock-provider"
+    }
+    async fn stream(
+        &self,
+        _request: rho_engine::provider::ModelCompletionRequest,
+    ) -> rho_harness_core::error::Result<rho_engine::provider::adapter::ModelEventStream> {
+        let alive = self.stream_alive.lock().unwrap().take();
+        self.requested.notify_one();
+        Ok(Box::pin(futures::stream::once(async move {
+            let _alive = alive;
+            std::future::pending().await
+        })))
+    }
+}
+
+/// Starts a turn whose model never answers; the receiver closes once the turn is dropped.
+async fn start_stalled_turn<W: tokio::io::AsyncWrite + Unpin>(
+    ctx: &mut RpcDaemonContext<'_, W>,
+    dir: &std::path::Path,
+) -> tokio::sync::oneshot::Receiver<()> {
+    let (alive, dropped) = tokio::sync::oneshot::channel();
+    let model = Arc::new(StalledAdapter {
+        stream_alive: std::sync::Mutex::new(Some(alive)),
+        ..StalledAdapter::default()
+    });
+    let config = Config {
+        auth_file: dir.join("auth.json"),
+        ..Config::default()
+    };
+    let engine = rho_engine::engine::eval::mock::mock_engine(
+        model.clone(),
+        rho_engine::engine::eval::mock::MockEngineConfig::new(dir, config),
+    );
+    ctx.engine = Arc::new(RwLock::new(engine));
+    super::handlers::handle_prompt_cmd("go".to_string(), None, ctx)
         .await
         .unwrap();
-    let events = [RpcEvent::TextChunk {
-        content: "x".repeat(1024),
-    }];
+    model.requested.notified().await;
+    dropped
+}
 
-    let write = super::loop_runner::write_events_while_reading(&mut reader, &mut ctx, &events);
-    let pending = tokio::time::timeout(std::time::Duration::from_secs(1), write).await;
-    assert!(pending.is_err(), "the client never reads, so the write stays pending");
-    drop(ctx);
-    tokio::task::yield_now().await;
+async fn turn_ended(dropped: tokio::sync::oneshot::Receiver<()>) -> bool {
+    matches!(
+        tokio::time::timeout(std::time::Duration::from_secs(1), dropped).await,
+        Ok(Err(_))
+    )
+}
 
-    assert!(
-        active_turn.as_ref().is_some_and(tokio::task::JoinHandle::is_finished),
-        "the turn is aborted without waiting for the write"
-    );
+async fn run_summary_statuses<W>(ctx: &RpcDaemonContext<'_, W>) -> Vec<serde_json::Value> {
+    ctx.engine
+        .read()
+        .await
+        .session_manager
+        .load_events()
+        .await
+        .unwrap()
+        .into_iter()
+        .filter(|event| event.kind == rho_harness_core::session::SessionEventKind::RunSummary)
+        .map(|event| event.payload["terminal_status"].clone())
+        .collect()
+}
+
+#[tokio::test]
+async fn exiting_during_a_turn_ends_it_as_cancelled_once() {
+    let (_client, server_out) = duplex(4096);
+    let mut writer = JsonLinesWriter::new(server_out);
+    let temp_dir = rho_test_support::TestDir::new();
+    let mut active_turn = None;
+    let mut ctx = setup_test_rpc_context(&mut writer, &temp_dir, &mut active_turn).await;
+    let turn_dropped = start_stalled_turn(&mut ctx, &temp_dir).await;
+
+    let action = super::loop_runner::dispatch_rpc(RpcCommand::Exit, Some("exit-1".to_string()), &mut ctx)
+        .await
+        .unwrap();
+
+    assert!(matches!(action, super::types::RpcLoopAction::Break));
+    assert!(turn_ended(turn_dropped).await, "the turn is aborted");
+    assert_eq!(run_summary_statuses(&ctx).await, vec![serde_json::json!("cancelled")]);
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_stop_is_read_while_events_wait_on_a_slow_client() {
+    for command in [RpcCommand::Abort, RpcCommand::Exit] {
+        let (_unread_client, server_out) = duplex(1024);
+        let mut writer = JsonLinesWriter::new(server_out);
+        let temp_dir = rho_test_support::TestDir::new();
+        let mut active_turn = None;
+        let mut ctx = setup_test_rpc_context(&mut writer, &temp_dir, &mut active_turn).await;
+        let turn_dropped = start_stalled_turn(&mut ctx, &temp_dir).await;
+        let (client_in, server_in) = duplex(4096);
+        let mut reader = JsonLinesReader::new(tokio::io::BufReader::new(server_in));
+        JsonLinesWriter::new(client_in)
+            .write_message(&rho_harness_core::rpc::protocol::RpcRequest {
+                id: Some("stop-1".to_string()),
+                command: command.clone(),
+            })
+            .await
+            .unwrap();
+        let events = [RpcEvent::TextChunk {
+            content: "x".repeat(4096),
+        }];
+
+        let write = super::loop_runner::write_events_while_reading(&mut reader, &mut ctx, &events);
+        let pending = tokio::time::timeout(std::time::Duration::from_secs(1), write).await;
+
+        assert!(
+            pending.is_err(),
+            "{command:?}: the client never reads, so the write stays pending"
+        );
+        assert!(
+            turn_ended(turn_dropped).await,
+            "{command:?}: the turn is aborted without waiting for the write"
+        );
+        assert_eq!(
+            run_summary_statuses(&ctx).await,
+            vec![serde_json::json!("cancelled")],
+            "{command:?}"
+        );
+    }
 }

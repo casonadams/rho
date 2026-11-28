@@ -97,11 +97,14 @@ impl AgentEngine {
         terminal_status: TerminalStatus,
         tool_calls_count: usize,
     ) -> Result<RunMetrics> {
-        let metrics = self.run_tracker.complete(crate::engine::metrics::CompletionOutcome {
-            session_id: &self.session_manager.session_id,
-            status: terminal_status,
-            response,
-        });
+        let metrics = self
+            .run_tracker
+            .complete(crate::engine::metrics::CompletionOutcome {
+                session_id: &self.session_manager.session_id,
+                status: terminal_status,
+                response,
+            })
+            .ok_or_else(|| AppError::Cancelled("the run already ended".to_string()))?;
         self.end_turn(&metrics, tool_calls_count, None).await?;
         Ok(metrics)
     }
@@ -279,6 +282,9 @@ mod tests {
                 .with_hook_dirs(vec![dir.to_path_buf()]),
             );
             *engine.active_turn_hook.lock().unwrap() = Some(lifecycle.clone());
+            engine
+                .run_tracker
+                .start("model", crate::engine::metrics::PromptCacheKey::default());
             let usage = usage_with(10, 5, None, None);
             let call = CompletionCall::new(0, usage).with_finish_reason(finish_reason);
             let _ = engine
@@ -446,6 +452,49 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn finishing_a_turn_whose_run_was_cancelled_writes_no_second_summary() {
+        let dir = rho_test_support::TestDir::new();
+        let engine = mock_engine(
+            Arc::new(MockAdapter::default()),
+            MockEngineConfig::new(&dir, rho_harness_core::config::Config::default()),
+        );
+        let lifecycle = engine.lifecycle_hook(Arc::new(crate::engine::eval::presenter::NoopPresenter));
+        engine
+            .run_tracker
+            .start("model", crate::engine::metrics::PromptCacheKey::default());
+        engine.record_cancellation("rpc abort").await.unwrap();
+
+        let usage = usage_with(10, 5, None, None);
+        let result = engine
+            .finish_turn(
+                TurnArtifacts {
+                    response: PromptResponse::new("late", usage),
+                    tool_calls_count: 0,
+                    completed_tools: Vec::new(),
+                    generation_elapsed_ms: 10,
+                    turn_started_at: std::time::Instant::now(),
+                    ttft_ms: None,
+                    cache_miss_tokens: None,
+                    content_filtered: false,
+                },
+                &lifecycle,
+            )
+            .await;
+
+        assert!(matches!(result, Err(AppError::Cancelled(_))), "{result:?}");
+        let summaries: Vec<_> = engine
+            .session_manager
+            .load_events()
+            .await
+            .unwrap()
+            .into_iter()
+            .filter(|event| event.kind == SessionEventKind::RunSummary)
+            .collect();
+        assert_eq!(summaries.len(), 1, "{summaries:?}");
+        assert_eq!(summaries[0].payload["terminal_status"], "cancelled");
+    }
+
+    #[tokio::test]
     async fn finish_turn_emits_telemetry_only_when_usage_reported_and_forwards_cache_miss() {
         let dir = rho_test_support::TestDir::new();
         let engine = mock_engine(
@@ -456,7 +505,14 @@ mod tests {
         let presenter_dyn: Arc<dyn Presenter> = presenter.clone();
         let lifecycle = engine.lifecycle_hook(presenter_dyn);
 
+        let start_run = || {
+            engine
+                .run_tracker
+                .start("model", crate::engine::metrics::PromptCacheKey::default());
+        };
+
         // Turn 0: unreported usage -> no telemetry emitted.
+        start_run();
         let _ = engine
             .finish_turn(
                 TurnArtifacts {
@@ -477,6 +533,7 @@ mod tests {
 
         // Turn 1: warm cache established (cache_read = 4096).
         let u1 = usage_with(100, 500, Some(4096), None);
+        start_run();
         let _ = engine
             .finish_turn(
                 TurnArtifacts {
@@ -503,6 +560,7 @@ mod tests {
 
         // Turn 2: warm cache invalidated (cache_read = 0, cache_write = 3000, input = 500).
         let u2 = usage_with(500, 10, Some(0), Some(3000));
+        start_run();
         let _ = engine
             .finish_turn(
                 TurnArtifacts {

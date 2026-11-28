@@ -22,13 +22,17 @@ fn handle_turn_result(res: rho_harness_core::error::Result<crate::engine::runner
     }
 }
 
-fn spawn_rpc_writer(events: crate::cli::rpc::RpcEventQueue) -> tokio::task::JoinHandle<()> {
+fn spawn_rpc_writer<W>(events: crate::cli::rpc::RpcEventQueue, out: W) -> tokio::task::JoinHandle<()>
+where
+    W: tokio::io::AsyncWrite + Unpin + Send + 'static,
+{
     tokio::spawn(async move {
-        let mut writer = rho_harness_core::rpc::transport::JsonLinesWriter::new(tokio::io::stdout());
+        let mut writer = rho_harness_core::rpc::transport::JsonLinesWriter::new(out);
         while let Some(batch) = events.next_batch().await {
             for event in batch {
                 if let Err(err) = writer.write_message(&event).await {
                     eprintln!("Error: failed to write RPC event: {err}");
+                    events.close();
                     return;
                 }
             }
@@ -72,7 +76,7 @@ impl CliRunner {
         let events = crate::cli::rpc::RpcEventQueue::default();
         let presenter: Arc<dyn rho_harness_core::presentation::Presenter> =
             Arc::new(crate::cli::rpc::RpcPresenter::new(events.clone()));
-        let writer_task = spawn_rpc_writer(events.clone());
+        let writer_task = spawn_rpc_writer(events.clone(), tokio::io::stdout());
 
         let engine = self.build_engine().await?;
         crate::cli::mcp::eprint_mcp_diagnostics(&engine);
@@ -101,5 +105,40 @@ impl CliRunner {
         println!();
 
         handle_turn_result(res)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::pin::Pin;
+    use std::task::{Context, Poll};
+
+    use rho_harness_core::rpc::protocol::RpcEvent;
+
+    struct FailingWriter;
+
+    impl tokio::io::AsyncWrite for FailingWriter {
+        fn poll_write(self: Pin<&mut Self>, _cx: &mut Context<'_>, _buf: &[u8]) -> Poll<std::io::Result<usize>> {
+            Poll::Ready(Err(std::io::ErrorKind::BrokenPipe.into()))
+        }
+        fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+            Poll::Ready(Ok(()))
+        }
+        fn poll_shutdown(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+            Poll::Ready(Ok(()))
+        }
+    }
+
+    #[tokio::test]
+    async fn a_failed_event_write_stops_the_queue_buffering() {
+        let events = crate::cli::rpc::RpcEventQueue::default();
+        let busy = || RpcEvent::StatusChanged {
+            status: "busy".to_string(),
+        };
+        assert!(events.push(busy()));
+
+        super::spawn_rpc_writer(events.clone(), FailingWriter).await.unwrap();
+
+        assert!(!events.push(busy()), "the queue refuses events no one will write");
     }
 }
