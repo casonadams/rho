@@ -1,13 +1,12 @@
 use super::SessionManager;
 use super::append::Planned;
-use super::format::{Durability, SessionEvent, SessionEventKind, SessionRecord};
+use super::format::{Durability, SessionEvent, SessionEventKind, SessionRecord, for_each_committed_record};
 use super::fs::{run_blocking, session_error};
 use crate::error::Result;
 use crate::model::ChatMessage;
 use chrono::Utc;
 use serde::Deserialize;
 use serde_json::Value;
-use std::io::BufRead;
 use std::path::Path;
 
 #[derive(Deserialize)]
@@ -15,28 +14,22 @@ struct RecordType {
     record_type: String,
 }
 
-/// Reads the audit events from the committed records after the header; a torn trailing line is ignored.
-fn scan_events(path: &Path) -> Result<Vec<SessionEvent>> {
+/// Reads the audit events from the committed records of the session file at `path`.
+fn scan_events(path: &Path, expected_id: &str) -> Result<Vec<SessionEvent>> {
     let malformed = || session_error("session contains a malformed committed record");
-    let mut reader = std::io::BufReader::new(std::fs::File::open(path)?);
-    let mut line = Vec::new();
-    reader.read_until(b'\n', &mut line)?;
     let mut events = Vec::new();
-    loop {
-        line.clear();
-        reader.read_until(b'\n', &mut line)?;
-        if line.pop() != Some(b'\n') {
-            return Ok(events);
-        }
-        let probe: RecordType = serde_json::from_slice(&line).map_err(|_| malformed())?;
+    for_each_committed_record(path, expected_id, |line| {
+        let probe: RecordType = serde_json::from_slice(line).map_err(|_| malformed())?;
         if probe.record_type != "audit_event" {
-            continue;
+            return Ok(());
         }
-        match serde_json::from_slice(&line).map_err(|_| malformed())? {
+        match serde_json::from_slice(line).map_err(|_| malformed())? {
             SessionRecord::AuditEvent { event, .. } => events.push(event),
             _ => return Err(malformed()),
         }
-    }
+        Ok(())
+    })?;
+    Ok(events)
 }
 
 impl SessionManager {
@@ -65,7 +58,8 @@ impl SessionManager {
     pub async fn load_events(&self) -> Result<Vec<SessionEvent>> {
         let _writers_held = self.state.lock().await;
         let path = self.file_path.clone();
-        run_blocking(move || scan_events(&path)).await
+        let session_id = self.session_id.clone();
+        run_blocking(move || scan_events(&path, &session_id)).await
     }
 
     pub async fn load_messages(&self) -> Result<Vec<ChatMessage>> {
@@ -114,5 +108,31 @@ mod tests {
         drop(session);
         let reopened = SessionManager::new(&dir, Some(&id)).unwrap();
         assert_eq!(reopened.load_events().await.unwrap(), live);
+    }
+
+    #[test]
+    fn scan_events_rejects_files_without_a_valid_header() {
+        let dir = crate::test_support::temp_dir();
+        let event = r#"{"record_type":"session_named","name":"x"}"#;
+        let header = |version: u32, id: &str| {
+            format!(
+                r#"{{"record_type":"header","version":{version},"session_id":"{id}","created_at":"2020-01-02T03:04:05Z"}}"#
+            )
+        };
+        let cases = [
+            (String::new(), "mandatory version header"),
+            (format!("not a header\n{event}\n"), "legacy session"),
+            (
+                format!("{}\n{event}\n", header(99, "bad")),
+                "unsupported session version 99",
+            ),
+            (format!("{}\n{event}\n", header(3, "other")), "identity does not match"),
+        ];
+        for (body, expected) in cases {
+            let path = dir.join("bad.jsonl");
+            std::fs::write(&path, &body).unwrap();
+            let error = scan_events(&path, "bad").unwrap_err().to_string();
+            assert!(error.contains(expected), "{body:?}: {error}");
+        }
     }
 }

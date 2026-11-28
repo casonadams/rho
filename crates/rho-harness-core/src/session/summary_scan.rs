@@ -2,14 +2,13 @@
 //! their type and tree links, and message payloads are parsed only for the first root node and
 //! the checkpoints before it.
 
-use super::format::{parse_header, validate_header};
+use super::format::for_each_committed_record;
 use super::fs::session_error;
 use super::tree::TitleSource;
 use crate::error::Result;
 use crate::model::{ChatMessage, UserContent};
 use chrono::{DateTime, Utc};
 use serde::Deserialize;
-use std::io::BufRead;
 use std::path::Path;
 
 #[derive(Deserialize)]
@@ -135,23 +134,12 @@ impl ScannedSession {
 
 /// Scans the committed records of the session file at `path`; a torn trailing line is ignored.
 pub(crate) fn scan_session(path: &Path, expected_id: &str) -> Result<(DateTime<Utc>, ScannedSession)> {
-    let mut reader = std::io::BufReader::new(std::fs::File::open(path)?);
-    let mut line = Vec::new();
-    if reader.read_until(b'\n', &mut line)? == 0 || line.pop() != Some(b'\n') {
-        return Err(session_error("session is missing the mandatory version header"));
-    }
-    let header = parse_header(&line)?;
-    validate_header(&header, expected_id)?;
     let mut scanned = ScannedSession::default();
-    loop {
-        line.clear();
-        reader.read_until(b'\n', &mut line)?;
-        if line.pop() != Some(b'\n') {
-            return Ok((header.created_at, scanned));
-        }
-        let probe: RecordProbe = serde_json::from_slice(&line).map_err(|_| malformed())?;
-        scanned.apply(probe, &line)?;
-    }
+    let header = for_each_committed_record(path, expected_id, |line| {
+        let probe: RecordProbe = serde_json::from_slice(line).map_err(|_| malformed())?;
+        scanned.apply(probe, line)
+    })?;
+    Ok((header.created_at, scanned))
 }
 
 #[cfg(test)]

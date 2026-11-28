@@ -5,6 +5,7 @@ use crate::error::Result;
 use crate::locking::{lock, read, write};
 use std::collections::BTreeMap;
 use std::fs::{File, OpenOptions, TryLockError};
+use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard, RwLock};
 
@@ -102,14 +103,9 @@ pub(crate) fn acquire(path: &Path, load: impl FnOnce(&mut File) -> Result<StoreS
             title: Arc::clone(&entry.title),
         }));
     }
-    let mut file = OpenOptions::new().read(true).append(true).open(path)?;
-    match file.try_lock() {
-        Ok(()) => {}
-        Err(TryLockError::WouldBlock) => {
-            return Err(session_error("session is already open in another rho process"));
-        }
-        Err(TryLockError::Error(error)) => return Err(error.into()),
-    }
+    let Claim::Locked(mut file) = claim_current(path, open_for_append)? else {
+        return Err(session_error("session is already open in another rho process"));
+    };
     let loaded = match load(&mut file) {
         Ok(loaded) => loaded,
         Err(error) => {
@@ -136,26 +132,73 @@ pub(crate) fn acquire(path: &Path, load: impl FnOnce(&mut File) -> Result<StoreS
 /// Removes `path` unless some opener (this or another process) holds its session lock.
 /// The lock stays held through the unlink so no opener can slip in between.
 pub(crate) fn remove_unless_held(path: &Path) -> bool {
+    remove_unless_claimed(path, |path| File::open(path))
+}
+
+fn remove_unless_claimed(path: &Path, open: impl FnMut(&Path) -> io::Result<File>) -> bool {
     let held = held();
     if held.contains_key(path) {
         return false;
     }
-    let Ok(file) = File::open(path) else {
+    let Ok(Claim::Locked(file)) = claim_current(path, open) else {
         return false;
     };
-    if file.try_lock().is_err() {
-        return false;
-    }
     let removed = std::fs::remove_file(path).is_ok();
     drop(file.unlock());
     drop(held);
     removed
 }
 
+fn open_for_append(path: &Path) -> io::Result<File> {
+    OpenOptions::new().read(true).append(true).open(path)
+}
+
+enum Claim {
+    Locked(File),
+    Busy,
+}
+
+const CLAIM_ATTEMPTS: usize = 8;
+
+/// Locks the file at `path` with a handle from `open`. A handle opened before an upgrade renamed a
+/// replacement over `path` locks the orphaned file, so it is released and `path` reopened.
+fn claim_current(path: &Path, mut open: impl FnMut(&Path) -> io::Result<File>) -> io::Result<Claim> {
+    for _ in 0..CLAIM_ATTEMPTS {
+        let file = open(path)?;
+        match file.try_lock() {
+            Ok(()) => {}
+            Err(TryLockError::WouldBlock) => return Ok(Claim::Busy),
+            Err(TryLockError::Error(error)) => return Err(error),
+        }
+        if is_file_at(&file, path)? {
+            return Ok(Claim::Locked(file));
+        }
+        file.unlock()?;
+    }
+    Ok(Claim::Busy)
+}
+
+#[cfg(unix)]
+fn is_file_at(file: &File, path: &Path) -> io::Result<bool> {
+    use std::os::unix::fs::MetadataExt;
+    let (held, current) = (file.metadata()?, std::fs::metadata(path)?);
+    Ok(held.dev() == current.dev() && held.ino() == current.ino())
+}
+
+/// Limitation: stable std has no file identity off unix (`file_index` is unstable), so a handle
+/// opened before an upgrade there goes undetected.
+#[cfg(not(unix))]
+fn is_file_at(_file: &File, _path: &Path) -> io::Result<bool> {
+    Ok(true)
+}
+
 #[cfg(test)]
 mod tests {
+    use super::{Claim, claim_current, remove_unless_claimed};
     use crate::session::SessionManager;
+    use crate::session::tests::{LEGACY_V2_ID, LEGACY_V2_SESSION};
     use std::fs::{OpenOptions, TryLockError};
+    use std::path::Path;
     use std::sync::Arc;
 
     #[tokio::test]
@@ -227,6 +270,46 @@ mod tests {
             dropper.join().unwrap();
             assert!(reopened.is_ok());
         }
+    }
+
+    fn upgraded_legacy_session_with_stale_handle(
+        dir: &std::path::Path,
+    ) -> (SessionManager, std::path::PathBuf, std::fs::File) {
+        let path = dir.join(format!("{LEGACY_V2_ID}.jsonl"));
+        std::fs::write(&path, LEGACY_V2_SESSION).unwrap();
+        let opened_before_upgrade = external_handle(&path);
+        let upgrader = SessionManager::new(dir, Some(LEGACY_V2_ID)).unwrap();
+        (upgrader, path, opened_before_upgrade)
+    }
+
+    fn stale_then_fresh(stale: std::fs::File) -> impl FnMut(&Path) -> std::io::Result<std::fs::File> {
+        let mut stale = Some(stale);
+        move |path: &Path| stale.take().map_or_else(|| super::open_for_append(path), Ok)
+    }
+
+    #[test]
+    fn a_handle_opened_before_an_upgrade_cannot_claim_the_upgraded_session() {
+        let dir = crate::test_support::temp_dir();
+        let (upgrader, path, stale) = upgraded_legacy_session_with_stale_handle(&dir);
+
+        let claim = claim_current(&path, stale_then_fresh(stale)).unwrap();
+
+        assert!(matches!(claim, Claim::Busy));
+        drop(upgrader);
+    }
+
+    #[test]
+    fn pruning_through_a_handle_opened_before_an_upgrade_keeps_the_upgraded_file() {
+        let dir = crate::test_support::temp_dir();
+        let (upgrader, path, stale) = upgraded_legacy_session_with_stale_handle(&dir);
+        drop(upgrader);
+        let other_process = external_handle(&path);
+        other_process.try_lock().unwrap();
+
+        let removed = remove_unless_claimed(&path, stale_then_fresh(stale));
+
+        assert!(!removed);
+        assert!(std::fs::read_to_string(&path).unwrap().contains("\"version\":3"));
     }
 
     fn external_handle(path: &std::path::Path) -> std::fs::File {

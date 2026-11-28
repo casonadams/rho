@@ -37,6 +37,7 @@ pub use compaction::{
 pub const DEFAULT_CONTEXT_WINDOW_MESSAGES: usize = 24;
 pub const DEFAULT_COMPACTION_MAX_BYTES: usize = 8 * 1024;
 pub use crate::secrets::redact_credentials_text;
+pub use checkpoint::unfinished_turn_closing;
 pub(crate) use format::create_session_file;
 pub use format::{SessionEvent, SessionEventKind, SessionHeader, SessionRecord, StoreState};
 pub(crate) use fs::{
@@ -47,7 +48,7 @@ pub use prune::{prune_empty_sessions_async, prune_expired_sessions_async};
 pub use subagents::{SubagentContext, SubagentContextSummary, SubagentContexts};
 pub use summary::{SessionSummary, delete_session_async, list_session_summaries_async};
 pub use tree::{SessionTree, TitleSource, TreeNodeData, TreeNodeKind};
-pub use turns::ConversationTurn;
+pub use turns::{ConversationTurn, RewindOutcome};
 use validation::CanonicalHistory;
 
 use crate::error::Result;

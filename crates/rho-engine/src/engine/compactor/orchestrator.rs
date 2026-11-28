@@ -17,7 +17,7 @@ use super::llm::LlmCompactor;
 use crate::engine::AgentEngine;
 use crate::engine::metrics::{RunTracker, StructuralUsage};
 use crate::engine::tracking::{ContextTracker, UsageTracker};
-use rho_harness_core::session::SessionManager;
+use rho_harness_core::session::{SessionManager, unfinished_turn_closing};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CompactionStats {
@@ -391,13 +391,15 @@ impl AgentEngine {
         Ok(messages)
     }
 
-    /// Rewinds the session to `target_turn`, after an unfinished turn joins the history so it stays
+    /// Rewinds the session to `target_turn`, with an unfinished turn joining the history so it stays
     /// in the tree with the other rewound turns; the shorter context starts its budget notices over.
     pub async fn rewind_to_turn(&self, target_turn: usize) -> Result<usize> {
-        self.promote_unfinished_turn().await?;
-        let retained = self.session_manager.rewind_to_turn(target_turn).await?;
-        self.context.reset_notices();
-        Ok(retained)
+        let note = ChatMessage::assistant(UNFINISHED_TURN_NOTE);
+        let outcome = self.session_manager.rewind_to_turn(target_turn, note).await?;
+        if outcome.rewound {
+            self.context.reset_notices();
+        }
+        Ok(outcome.retained)
     }
 
     /// Compaction summarizes canonical history only, so an unfinished turn's saved steps join it first.
@@ -405,10 +407,7 @@ impl AgentEngine {
         let Some(pending) = self.session_manager.load_checkpoint().await? else {
             return Ok(());
         };
-        let closing = match pending.last() {
-            Some(ChatMessage::Assistant { .. }) => Vec::new(),
-            _ => vec![ChatMessage::assistant(UNFINISHED_TURN_NOTE)],
-        };
+        let closing = unfinished_turn_closing(&pending, ChatMessage::assistant(UNFINISHED_TURN_NOTE));
         self.session_manager.promote_checkpoint(closing).await
     }
 }

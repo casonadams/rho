@@ -3,7 +3,9 @@
 
 mod branch {
     use super::common::test_engine;
+    use crate::engine::tracking::ContextLimitSource;
     use rho_harness_core::model::ChatMessage;
+    use rho_harness_core::session::{CompactionMetadata, SessionManager};
     use std::sync::Arc;
 
     use crate::provider::adapter::MockAdapter;
@@ -66,22 +68,83 @@ mod branch {
         assert!(summary.contains("[REDACTED]"));
     }
 
-    #[tokio::test]
-    async fn rewind_keeps_an_unfinished_turn_in_the_tree() {
-        let (engine, _dir) = test_engine("rewind", None, None).await;
-        let session = &engine.session_manager;
-        for n in 1..=2 {
+    async fn finished_turns_then_unfinished(session: &SessionManager, turns: usize) {
+        for n in 1..=turns {
             let turn = vec![
                 ChatMessage::user(format!("prompt {n}")),
                 ChatMessage::assistant(format!("answer {n}")),
             ];
             session.append_messages(&session.session_id, turn).await.unwrap();
         }
-        let first_turn = session.load_messages().await.unwrap()[..2].to_vec();
         session
             .save_checkpoint(vec![ChatMessage::user("unfinished prompt")])
             .await
             .unwrap();
+    }
+
+    async fn history(session: &SessionManager) -> (Vec<ChatMessage>, Option<Vec<ChatMessage>>, usize) {
+        (
+            session.load_messages().await.unwrap(),
+            session.load_checkpoint().await.unwrap(),
+            session.load_tree().await.unwrap().len(),
+        )
+    }
+
+    #[tokio::test]
+    async fn rewind_that_keeps_every_turn_leaves_the_unfinished_turn_pending() {
+        for target in [0, 3, 99] {
+            let (engine, _dir) = test_engine("rewind-noop", None, None).await;
+            let session = &engine.session_manager;
+            finished_turns_then_unfinished(session, 2).await;
+            let before = history(session).await;
+            let budget = engine.context.budget(200_000, ContextLimitSource::Provider, 183_616);
+            budget.notice(150_000, |_| true);
+
+            let retained = engine.rewind_to_turn(target).await.unwrap();
+
+            assert_eq!(retained, 4, "target {target}");
+            assert_eq!(history(session).await, before, "target {target}");
+            let mut renoticed = false;
+            budget.notice(150_000, |_| {
+                renoticed = true;
+                true
+            });
+            assert!(!renoticed, "target {target}: notices were reset");
+        }
+    }
+
+    #[tokio::test]
+    async fn rewind_before_the_last_compaction_leaves_the_unfinished_turn_pending() {
+        let (engine, _dir) = test_engine("rewind-refused", None, None).await;
+        let session = &engine.session_manager;
+        let turn = vec![ChatMessage::user("prompt 1"), ChatMessage::assistant("answer 1")];
+        session.append_messages(&session.session_id, turn).await.unwrap();
+        let metadata = CompactionMetadata {
+            summary: "Summary".to_string(),
+            first_kept_node_id: session.active_leaf_id().await.unwrap(),
+            first_kept_message_index: None,
+            tokens_before: 10,
+            tokens_after: 5,
+            read_files: Vec::new(),
+            modified_files: Vec::new(),
+            custom_instructions: None,
+        };
+        session.append_compaction("Summary", metadata).await.unwrap();
+        finished_turns_then_unfinished(session, 1).await;
+        let before = history(session).await;
+
+        let error = engine.rewind_to_turn(0).await.unwrap_err().to_string();
+
+        assert!(error.contains("before the last compaction"), "{error}");
+        assert_eq!(history(session).await, before);
+    }
+
+    #[tokio::test]
+    async fn rewind_keeps_an_unfinished_turn_in_the_tree() {
+        let (engine, _dir) = test_engine("rewind", None, None).await;
+        let session = &engine.session_manager;
+        finished_turns_then_unfinished(session, 2).await;
+        let first_turn = session.load_messages().await.unwrap()[..2].to_vec();
 
         let retained = engine.rewind_to_turn(1).await.unwrap();
 

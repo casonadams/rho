@@ -5,7 +5,7 @@ use super::types::{
 use crate::error::{AppError, Result};
 use chrono::Utc;
 use serde_json::Value;
-use std::io::Write;
+use std::io::{BufRead, Write};
 use std::path::Path;
 
 use super::super::empty_store_state;
@@ -251,7 +251,31 @@ fn parse_committed_bytes(bytes: &[u8], expected_id: &str) -> Result<StoreState> 
     Ok(state)
 }
 
-pub(crate) fn parse_header(line: &[u8]) -> Result<SessionHeader> {
+/// Validates the header of the session file at `path`, then passes each committed record line to
+/// `visit` without its newline; a torn trailing line is ignored.
+pub(crate) fn for_each_committed_record(
+    path: &Path,
+    expected_id: &str,
+    mut visit: impl FnMut(&[u8]) -> Result<()>,
+) -> Result<SessionHeader> {
+    let mut reader = std::io::BufReader::new(std::fs::File::open(path)?);
+    let mut line = Vec::new();
+    if reader.read_until(b'\n', &mut line)? == 0 || line.pop() != Some(b'\n') {
+        return Err(session_error("session is missing the mandatory version header"));
+    }
+    let header = parse_header(&line)?;
+    validate_header(&header, expected_id)?;
+    loop {
+        line.clear();
+        reader.read_until(b'\n', &mut line)?;
+        if line.pop() != Some(b'\n') {
+            return Ok(header);
+        }
+        visit(&line)?;
+    }
+}
+
+fn parse_header(line: &[u8]) -> Result<SessionHeader> {
     let value: Value = serde_json::from_slice(line).map_err(|_| session_error("legacy session cannot be resumed"))?;
     if value.get("record_type").and_then(Value::as_str) != Some("header") {
         return Err(session_error("legacy session cannot be resumed"));
@@ -262,7 +286,7 @@ pub(crate) fn parse_header(line: &[u8]) -> Result<SessionHeader> {
     serde_json::from_value(value).map_err(|_| session_error("session version header is malformed"))
 }
 
-pub(crate) fn validate_header(header: &SessionHeader, expected_id: &str) -> Result<()> {
+fn validate_header(header: &SessionHeader, expected_id: &str) -> Result<()> {
     if header.version > SESSION_VERSION {
         return Err(session_error(format!(
             "unsupported session version {}: written by a newer rho; this rho reads versions {OLDEST_SESSION_VERSION} to {SESSION_VERSION}",

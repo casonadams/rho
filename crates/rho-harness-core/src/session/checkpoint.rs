@@ -1,6 +1,6 @@
 use super::SessionManager;
 use super::append::Planned;
-use super::format::{Durability, SessionRecord};
+use super::format::{Durability, SessionRecord, StoreState};
 use super::fs::session_error;
 use super::tree::TreeNodeKind;
 use crate::error::Result;
@@ -71,17 +71,7 @@ impl SessionManager {
                 .checkpoint
                 .as_ref()
                 .ok_or_else(|| session_error("run checkpoint is missing"))?;
-            let promoted: Vec<ChatMessage> = checkpoint.iter().chain(&messages).cloned().collect();
-            state.integrity.check_canonical_batch(&promoted)?;
-            let record = SessionRecord::CheckpointNode {
-                sequence: state.next_sequence,
-                session_id: session_id.to_string(),
-                timestamp: Utc::now(),
-                node_id: uuid::Uuid::new_v4().to_string(),
-                parent_id: state.tree.active_leaf_id.clone(),
-                kind: TreeNodeKind::AssistantTurn,
-                messages,
-            };
+            let record = promotion_record(state, session_id, checkpoint, messages)?;
             Ok(Planned {
                 records: vec![record],
                 output: (),
@@ -89,4 +79,32 @@ impl SessionManager {
         })
         .await
     }
+}
+
+/// The messages that close a pending checkpoint: `note`, unless it already ends with an assistant message.
+pub fn unfinished_turn_closing(checkpoint: &[ChatMessage], note: ChatMessage) -> Vec<ChatMessage> {
+    match checkpoint.last() {
+        Some(ChatMessage::Assistant { .. }) => Vec::new(),
+        _ => vec![note],
+    }
+}
+
+/// The record that makes `checkpoint` followed by `closing` a turn under the active leaf.
+pub(crate) fn promotion_record(
+    state: &StoreState,
+    session_id: &str,
+    checkpoint: &[ChatMessage],
+    closing: Vec<ChatMessage>,
+) -> Result<SessionRecord> {
+    let promoted: Vec<ChatMessage> = checkpoint.iter().chain(&closing).cloned().collect();
+    state.integrity.check_canonical_batch(&promoted)?;
+    Ok(SessionRecord::CheckpointNode {
+        sequence: state.next_sequence,
+        session_id: session_id.to_string(),
+        timestamp: Utc::now(),
+        node_id: uuid::Uuid::new_v4().to_string(),
+        parent_id: state.tree.active_leaf_id.clone(),
+        kind: TreeNodeKind::AssistantTurn,
+        messages: closing,
+    })
 }
