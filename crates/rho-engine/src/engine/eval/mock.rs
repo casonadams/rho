@@ -67,6 +67,7 @@ pub fn mock_engine(model: Arc<dyn ModelAdapter>, config: MockEngineConfig<'_>) -
         title_tracker: crate::engine::title::TitleTracker::default(),
         context: crate::engine::tracking::ContextTracker::new(),
         run_tracker: RunTracker::default(),
+        active_turn_hook: std::sync::Mutex::default(),
         project_context: std::sync::Arc::default(),
         router: crate::provider::ModelRouter::new(
             std::sync::Arc::new(tokio::sync::Mutex::new(crate::auth::AuthStore::default())),

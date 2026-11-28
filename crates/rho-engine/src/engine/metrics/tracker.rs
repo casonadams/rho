@@ -147,28 +147,23 @@ impl RunTracker {
         })
     }
 
-    pub fn terminate(&self, session_id: &str, status: TerminalStatus) -> RunMetrics {
-        let observation = self.take();
-        let usage = observation.as_ref().and_then(|state| {
-            let usage = state
-                .completion_calls
-                .iter()
-                .fold(StructuralUsage::default(), |total, call| total.merge(&call.usage));
-            usage.is_reported().then_some(usage)
-        });
-        let calls = observation
-            .as_ref()
-            .map(|state| call_metrics(&state.completion_calls, Some(state)))
-            .unwrap_or_default();
+    /// Ends the run in progress with `status`; `None` when no run is in progress, so a run ends once.
+    pub fn terminate(&self, session_id: &str, status: TerminalStatus) -> Option<RunMetrics> {
+        let observation = self.take()?;
+        let usage = observation
+            .completion_calls
+            .iter()
+            .fold(StructuralUsage::default(), |total, call| total.merge(&call.usage));
+        let calls = call_metrics(&observation.completion_calls, Some(&observation));
         let requests = calls.len();
-        metrics_from_observation(ObservationMetricsInput {
-            observation,
+        Some(metrics_from_observation(ObservationMetricsInput {
+            observation: Some(observation),
             session_id,
             status,
-            usage,
+            usage: usage.is_reported().then_some(usage),
             completion_calls: calls,
             requests,
-        })
+        }))
     }
 
     fn state(&self) -> std::sync::MutexGuard<'_, Option<RunObservation>> {

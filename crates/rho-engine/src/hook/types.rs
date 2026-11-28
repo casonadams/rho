@@ -15,6 +15,8 @@ pub enum HookEvent {
         tool_calls_count: usize,
         turn: usize,
         session_id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        error: Option<String>,
     },
     ToolCall {
         tool_name: String,

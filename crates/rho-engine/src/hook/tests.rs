@@ -32,9 +32,11 @@ fn turn_end_payload_status_is_the_terminal_status_serde_name() {
             tool_calls_count: 0,
             turn: 1,
             session_id: "s1".to_string(),
+            error: None,
         };
         let json = serde_json::to_value(&event).unwrap();
         assert_eq!(json["status"], expected, "{status:?}");
+        assert!(json.get("error").is_none(), "{status:?}");
     }
 }
 

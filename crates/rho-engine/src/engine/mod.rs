@@ -54,6 +54,8 @@ pub struct AgentEngine {
     pub(crate) title_tracker: title::TitleTracker,
     pub(crate) context: ContextTracker,
     pub(crate) run_tracker: metrics::RunTracker,
+    /// The hooks of the turn in progress, told how it ended by whichever path ends its run.
+    pub(crate) active_turn_hook: std::sync::Mutex<Option<Arc<crate::hook::LifecycleHook>>>,
     pub(crate) project_context: Arc<tokio::sync::Mutex<Option<(std::path::PathBuf, context::ProjectContext)>>>,
     pub(crate) router: crate::provider::ModelRouter,
     pub(crate) model: Option<crate::engine::compactor::llm::ModelHandle>,

@@ -85,12 +85,13 @@ impl LifecycleHook {
         self.run_hooks_for_event("turn_start", &event).await;
     }
 
-    pub async fn notify_turn_end(&self, status: TerminalStatus, tool_calls_count: usize) {
+    pub async fn notify_turn_end(&self, status: TerminalStatus, tool_calls_count: usize, error: Option<String>) {
         let event = HookEvent::TurnEnd {
             status,
             tool_calls_count,
             turn: self.turn.fetch_add(1, Ordering::SeqCst),
             session_id: self.session_id.clone(),
+            error,
         };
         self.run_hooks_for_event("turn_end", &event).await;
     }

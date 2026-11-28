@@ -233,7 +233,11 @@ workspace is trusted with `RHO_TRUST_PROJECT=1`:
 | `on_completion_call`   | Runs before prompt submission to the LLM provider.                                         |
 | `on_invalid_tool_call` | Runs when an LLM requests a non-existent tool. Can retry with feedback or halt.            |
 | `turn_start`           | Notifies turn start with the user's prompt.                                                |
-| `turn_end`             | Notifies turn completion; `status` is `completed` or `content_filtered`.                   |
+| `turn_end`             | Notifies every turn end, exactly once per turn, with its terminal `status`.                |
+
+The `turn_end` payload's `status` is one of `completed`, `content_filtered`, `failed`, `cancelled`, or
+`budget_exhausted` (the turn used up `max_turns` model calls). A `failed` turn also carries an `error` field with the
+redacted error message; other statuses omit it.
 
 ### How Hooks Work
 

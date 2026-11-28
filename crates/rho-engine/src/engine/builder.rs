@@ -301,6 +301,7 @@ impl AgentEngineBuilder {
             title_tracker: super::title::TitleTracker::default(),
             context,
             run_tracker: super::metrics::RunTracker::default(),
+            active_turn_hook: std::sync::Mutex::default(),
             project_context: Arc::default(),
             router,
             model,

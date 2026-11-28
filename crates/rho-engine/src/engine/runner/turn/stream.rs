@@ -337,6 +337,9 @@ mod tests {
             Arc::new(MockAdapter::default()),
             MockEngineConfig::new(&temp_dir, rho_harness_core::config::Config::default()),
         );
+        engine
+            .run_tracker
+            .start("model", crate::engine::metrics::PromptCacheKey::default());
         let presenter: Arc<dyn Presenter> = Arc::new(NoopPresenter);
         let sink = engine.create_approval_sink(&presenter);
         let mut loop_state = TurnLoopState {

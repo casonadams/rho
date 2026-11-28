@@ -616,7 +616,9 @@ mod tests {
 
         sink.tool_denied();
 
-        let metrics = tracker.terminate("session", crate::engine::metrics::TerminalStatus::Completed);
+        let metrics = tracker
+            .terminate("session", crate::engine::metrics::TerminalStatus::Completed)
+            .unwrap();
         assert_eq!(metrics.tool_denials, 1);
         assert_eq!(metrics.tool_errors, 1);
     }

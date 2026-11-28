@@ -36,7 +36,7 @@ fn tracker_counts_tool_errors_and_denials_separately() {
     tracker.tool_finished(ToolOutcome::Denied);
     tracker.tool_called();
     tracker.tool_finished(ToolOutcome::Error);
-    let metrics = tracker.terminate("session", TerminalStatus::Failed);
+    let metrics = tracker.terminate("session", TerminalStatus::Failed).unwrap();
 
     assert_eq!(metrics.tool_calls, 2);
     assert_eq!(metrics.tool_errors, 2);
@@ -103,13 +103,25 @@ fn run_summary_records_the_model_and_when_each_request_was_sent() {
     let sent = std::time::Instant::now();
     tracker.completion(CompletionCall::new(0, usage()), sent);
 
-    let metrics = tracker.terminate("session", TerminalStatus::Cancelled);
+    let metrics = tracker.terminate("session", TerminalStatus::Cancelled).unwrap();
 
     assert_eq!(metrics.model, "claude-opus-5-5");
     assert_eq!(metrics.completion_calls.len(), 1);
     assert!(metrics.completion_calls[0].started_ms.is_some());
     let last = tracker.last_request().unwrap();
     assert_eq!((last.started, last.cache_key), (sent, key));
+}
+
+#[test]
+fn a_run_terminates_only_once() {
+    let tracker = RunTracker::default();
+    tracker.start("model", PromptCacheKey::default());
+
+    let first = tracker.terminate("session", TerminalStatus::Cancelled);
+    let second = tracker.terminate("session", TerminalStatus::Cancelled);
+
+    assert!(first.is_some());
+    assert!(second.is_none());
 }
 
 #[test]
@@ -130,7 +142,7 @@ fn run_metrics_record_the_prune_decision() {
     let decision = PruneDecision::new(PruneAction::Kept, 100, 900);
     tracker.pruned(decision);
 
-    let metrics = tracker.terminate("session", TerminalStatus::Cancelled);
+    let metrics = tracker.terminate("session", TerminalStatus::Cancelled).unwrap();
 
     assert_eq!(metrics.prune, Some(decision));
     let json = serde_json::to_value(&metrics).unwrap();

@@ -54,8 +54,7 @@ impl AgentEngine {
         self.finish_turn(artifacts, lifecycle).await
     }
 
-    /// Runs the turn loop until the turn is over, starting it again with the turns it has left
-    /// each time it stops to make room in its context.
+    /// Runs the turn to its end; a turn whose run is still open when it fails ends as failed.
     async fn drive_turn(
         &self,
         sink: &Arc<TerminalApprovalSink>,
@@ -64,8 +63,30 @@ impl AgentEngine {
         lifecycle: &Arc<crate::hook::LifecycleHook>,
         loop_state: &mut TurnLoopState,
     ) -> Result<TurnOutput> {
-        let presenter = lifecycle.presenter();
+        *crate::locking::lock(&self.active_turn_hook) = Some(lifecycle.clone());
         lifecycle.notify_turn_start(&loop_state.current_prompt).await;
+        let result = self
+            .drive_turn_runs(sink, preamble, request, lifecycle, loop_state)
+            .await;
+        if let Err(error) = &result
+            && let Err(record_error) = self.record_failed_metrics(error).await
+        {
+            tracing::warn!(error = %record_error, "could not record the failed turn");
+        }
+        result
+    }
+
+    /// Runs the turn loop until the turn is over, starting it again with the turns it has left
+    /// each time it stops to make room in its context.
+    async fn drive_turn_runs(
+        &self,
+        sink: &Arc<TerminalApprovalSink>,
+        preamble: &str,
+        request: &TurnRequest<'_>,
+        lifecycle: &Arc<crate::hook::LifecycleHook>,
+        loop_state: &mut TurnLoopState,
+    ) -> Result<TurnOutput> {
+        let presenter = lifecycle.presenter();
         let mut state = TurnStreamState::new();
         loop {
             let runner = self
