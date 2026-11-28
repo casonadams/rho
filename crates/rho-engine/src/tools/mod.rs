@@ -34,8 +34,6 @@ pub(crate) use ask::AskTool;
 pub use bash::{BashArgs, BashTool};
 pub use builtin_tools::{BuiltinTools, build_builtin_tools};
 pub use edit::EditArgs;
-#[cfg(test)]
-pub(crate) use edit::EditTool;
 pub use engine_tool::EngineTool;
 pub(crate) use engine_tool::GenericTool;
 pub use fd::{FdArgs, FdSort};
@@ -47,8 +45,6 @@ pub use rg::RgArgs;
 pub use rho_harness_core::args::{WebFetchArgs, WebSearchArgs};
 pub use rho_harness_core::net::HttpRequest;
 pub use subagent::{SubagentArgs, SubagentRole, SubagentRunner, SubagentTool};
-#[cfg(test)]
-pub(crate) use todo::TodoTool;
 pub use traversal::list_workspace_files;
 pub use types::ToolResult;
 pub(crate) use types::normalize_schema;
@@ -56,8 +52,6 @@ pub use web::{HttpClient, WebFetchConfig, WebSearchConfig};
 pub use workflow::{WorkflowRun, WorkflowRunner};
 pub(crate) use worktree_tool::WorktreeTool;
 pub use write::WriteArgs;
-#[cfg(test)]
-pub(crate) use write::WriteTool;
 
 /// Workspace root shared by a session's tools and relocatable mid-turn (`worktree(action="create")`).
 /// Each subagent gets its own handle, so relocating the parent never moves a running subagent.

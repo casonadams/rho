@@ -13,8 +13,8 @@ fn prune_historical_tool_outputs(
         volatile_turns,
         line_threshold,
         protect_recent_tokens: 0,
-        prune_minimum_tokens: 0,
-        min_prune_tokens: 0,
+        min_total_savings: 0,
+        min_result_tokens: 0,
         model: None,
     };
     prune_historical_tool_outputs_with_policy(messages, &policy)
@@ -379,7 +379,7 @@ fn assert_failed_bash_stub(output: &str) {
     ];
 
     let policy = PrunePolicy {
-        prune_minimum_tokens: 0,
+        min_total_savings: 0,
         ..PrunePolicy::cache_preserving()
     };
     let pruned = prune_historical_tool_outputs_with_policy(&history, &policy);
@@ -1080,8 +1080,8 @@ fn test_protect_recent_tokens_prevents_pruning() {
         volatile_turns: 1,
         line_threshold: DEFAULT_PRUNE_LINE_THRESHOLD,
         protect_recent_tokens: 30_000,
-        prune_minimum_tokens: 0,
-        min_prune_tokens: 0,
+        min_total_savings: 0,
+        min_result_tokens: 0,
         model: None,
     };
     let pruned = prune_historical_tool_outputs_with_policy(&history, &policy_protected);
@@ -1091,8 +1091,8 @@ fn test_protect_recent_tokens_prevents_pruning() {
         volatile_turns: 1,
         line_threshold: DEFAULT_PRUNE_LINE_THRESHOLD,
         protect_recent_tokens: 5,
-        prune_minimum_tokens: 0,
-        min_prune_tokens: 0,
+        min_total_savings: 0,
+        min_result_tokens: 0,
         model: None,
     };
     let pruned_unprotected = prune_historical_tool_outputs_with_policy(&history, &policy_unprotected);
@@ -1110,7 +1110,7 @@ fn test_protect_recent_tokens_prevents_pruning() {
 }
 
 #[test]
-fn test_prune_minimum_tokens_savings_floor() {
+fn test_min_total_savings_floor() {
     let (call, res) = make_tool_turn("c1", "bash", "cargo test", &"verbose test output\n".repeat(30));
     let history = vec![
         ChatMessage::user("Run test"),
@@ -1124,8 +1124,8 @@ fn test_prune_minimum_tokens_savings_floor() {
         volatile_turns: 1,
         line_threshold: DEFAULT_PRUNE_LINE_THRESHOLD,
         protect_recent_tokens: 0,
-        prune_minimum_tokens: 50_000,
-        min_prune_tokens: 0,
+        min_total_savings: 50_000,
+        min_result_tokens: 0,
         model: None,
     };
     let pruned_skipped = prune_historical_tool_outputs_with_policy(&history, &high_savings_floor);
@@ -1135,8 +1135,8 @@ fn test_prune_minimum_tokens_savings_floor() {
         volatile_turns: 1,
         line_threshold: DEFAULT_PRUNE_LINE_THRESHOLD,
         protect_recent_tokens: 0,
-        prune_minimum_tokens: 10,
-        min_prune_tokens: 0,
+        min_total_savings: 10,
+        min_result_tokens: 0,
         model: None,
     };
     let pruned_executed = prune_historical_tool_outputs_with_policy(&history, &low_savings_floor);
@@ -1144,7 +1144,7 @@ fn test_prune_minimum_tokens_savings_floor() {
 }
 
 #[test]
-fn test_min_prune_tokens_skips_small_outputs() {
+fn test_min_result_tokens_skips_small_outputs() {
     let short_lines = "x\n".repeat(25);
     let (call, res) = make_tool_turn("c1", "bash", "echo", &short_lines);
     let history = vec![
@@ -1159,8 +1159,8 @@ fn test_min_prune_tokens_skips_small_outputs() {
         volatile_turns: 1,
         line_threshold: DEFAULT_PRUNE_LINE_THRESHOLD,
         protect_recent_tokens: 0,
-        prune_minimum_tokens: 0,
-        min_prune_tokens: 100,
+        min_total_savings: 0,
+        min_result_tokens: 100,
         model: None,
     };
     let pruned = prune_historical_tool_outputs_with_policy(&history, &policy_skip_small);
@@ -1170,19 +1170,19 @@ fn test_min_prune_tokens_skips_small_outputs() {
 #[test]
 fn test_prune_policy_for_context_window() {
     let p_128k = PrunePolicy::for_context_window(128_000);
-    assert_eq!(p_128k.prune_minimum_tokens, 6_400);
+    assert_eq!(p_128k.min_total_savings, 6_400);
     assert_eq!(p_128k.protect_recent_tokens, 19_200);
 
     let p_200k = PrunePolicy::for_context_window(200_000);
-    assert_eq!(p_200k.prune_minimum_tokens, 10_000);
+    assert_eq!(p_200k.min_total_savings, 10_000);
     assert_eq!(p_200k.protect_recent_tokens, 30_000);
 
     let p_1m = PrunePolicy::for_context_window(1_000_000);
-    assert_eq!(p_1m.prune_minimum_tokens, 20_000);
+    assert_eq!(p_1m.min_total_savings, 20_000);
     assert_eq!(p_1m.protect_recent_tokens, 30_000);
 
     let p_tiny = PrunePolicy::for_context_window(32_000);
-    assert_eq!(p_tiny.prune_minimum_tokens, 3_000);
+    assert_eq!(p_tiny.min_total_savings, 3_000);
     assert_eq!(p_tiny.protect_recent_tokens, 10_000);
 }
 
@@ -1464,8 +1464,8 @@ fn cache_test_policy() -> PrunePolicy {
         volatile_turns: 1,
         line_threshold: DEFAULT_PRUNE_LINE_THRESHOLD,
         protect_recent_tokens: 3_000,
-        prune_minimum_tokens: 1_000,
-        min_prune_tokens: DEFAULT_MIN_PRUNE_TOKENS,
+        min_total_savings: 1_000,
+        min_result_tokens: DEFAULT_MIN_RESULT_TOKENS,
         model: Some("claude-sonnet-4".to_string()),
     }
 }
@@ -1624,15 +1624,15 @@ fn test_find_recent_tokens_cutoff_uses_precomputed_sizes() {
 }
 
 #[test]
-fn with_sizes_matches_if_changed_for_precomputed_sizes() {
+fn precomputed_sizes_match_policy_pruning() {
     let policy = cache_test_policy();
     let messages = verbose_read_history(30, None);
     let sizes = rho_harness_core::tokens::estimate_each_message_tokens(&messages, "claude-sonnet-4");
-    let expected = prune_historical_tool_outputs_if_changed(&messages, &policy);
-    assert!(expected.is_some());
+    let expected = prune_historical_tool_outputs_with_policy(&messages, &policy);
+    assert_ne!(expected, messages);
     assert_eq!(
-        prune_historical_tool_outputs_with_sizes(&messages, &sizes, &policy),
-        expected
+        prune_with_token_cache(&messages, &sizes, &policy, &mut MessageTokenCache::new()),
+        Some(expected)
     );
 }
 
@@ -1668,7 +1668,7 @@ fn repeated_prune_of_long_history_does_not_retokenize() {
 }
 
 #[test]
-fn if_changed_returns_none_when_nothing_is_pruned() {
+fn prune_with_token_cache_returns_none_when_nothing_is_pruned() {
     let messages = vec![
         ChatMessage::User {
             content: vec![UserContent::Text(TextContent::new("hello"))],
@@ -1682,10 +1682,11 @@ fn if_changed_returns_none_when_nothing_is_pruned() {
         volatile_turns: 1,
         line_threshold: DEFAULT_PRUNE_LINE_THRESHOLD,
         protect_recent_tokens: 0,
-        prune_minimum_tokens: 0,
-        min_prune_tokens: 0,
+        min_total_savings: 0,
+        min_result_tokens: 0,
         model: None,
     };
-    assert!(prune_historical_tool_outputs_if_changed(&messages, &policy).is_none());
+    let sizes = rho_harness_core::tokens::estimate_each_message_tokens(&messages, policy.tokenizer_model());
+    assert!(prune_with_token_cache(&messages, &sizes, &policy, &mut MessageTokenCache::new()).is_none());
     assert_eq!(prune_historical_tool_outputs_with_policy(&messages, &policy), messages);
 }

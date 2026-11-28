@@ -18,16 +18,16 @@ use stubs::{
 
 pub const DEFAULT_PRUNE_LINE_THRESHOLD: usize = 15;
 pub const DEFAULT_PROTECT_RECENT_TOKENS: usize = 30_000;
-pub const DEFAULT_PRUNE_MINIMUM_SAVINGS: usize = 20_000;
-pub const DEFAULT_MIN_PRUNE_TOKENS: usize = 50;
+pub const DEFAULT_MIN_TOTAL_SAVINGS: usize = 20_000;
+pub const DEFAULT_MIN_RESULT_TOKENS: usize = 50;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PrunePolicy {
     pub volatile_turns: usize,
     pub line_threshold: usize,
     pub protect_recent_tokens: usize,
-    pub prune_minimum_tokens: usize,
-    pub min_prune_tokens: usize,
+    pub min_total_savings: usize,
+    pub min_result_tokens: usize,
     pub model: Option<String>,
 }
 
@@ -43,21 +43,21 @@ impl PrunePolicy {
             volatile_turns: 1,
             line_threshold: DEFAULT_PRUNE_LINE_THRESHOLD,
             protect_recent_tokens: DEFAULT_PROTECT_RECENT_TOKENS,
-            prune_minimum_tokens: DEFAULT_PRUNE_MINIMUM_SAVINGS,
-            min_prune_tokens: DEFAULT_MIN_PRUNE_TOKENS,
+            min_total_savings: DEFAULT_MIN_TOTAL_SAVINGS,
+            min_result_tokens: DEFAULT_MIN_RESULT_TOKENS,
             model: None,
         }
     }
 
     pub fn for_context_window(context_window: usize) -> Self {
-        let savings_floor = (context_window / 20).clamp(3_000, DEFAULT_PRUNE_MINIMUM_SAVINGS);
+        let savings_floor = (context_window / 20).clamp(3_000, DEFAULT_MIN_TOTAL_SAVINGS);
         let protect_recent = (context_window * 3 / 20).clamp(10_000, DEFAULT_PROTECT_RECENT_TOKENS);
         Self {
             volatile_turns: 1,
             line_threshold: DEFAULT_PRUNE_LINE_THRESHOLD,
             protect_recent_tokens: protect_recent,
-            prune_minimum_tokens: savings_floor,
-            min_prune_tokens: DEFAULT_MIN_PRUNE_TOKENS,
+            min_total_savings: savings_floor,
+            min_result_tokens: DEFAULT_MIN_RESULT_TOKENS,
             model: None,
         }
     }
@@ -221,7 +221,7 @@ struct PruneContext<'a> {
     tool_calls: &'a HashMap<String, ToolCallMeta>,
     superseded_call_ids: &'a HashSet<String>,
     line_threshold: usize,
-    min_prune_tokens: usize,
+    min_result_tokens: usize,
     model: &'a str,
 }
 
@@ -292,9 +292,9 @@ fn prune_tool_result_item(
     let is_superseded = ctx.superseded_call_ids.contains(&res.call.to_string());
     let text = extract_tool_result_text(&res.content);
 
-    if ctx.min_prune_tokens > 0 && !is_superseded {
+    if ctx.min_result_tokens > 0 && !is_superseded {
         let tokens = memo.get_or_compute_text(&text, ctx.model);
-        if tokens < ctx.min_prune_tokens {
+        if tokens < ctx.min_result_tokens {
             return None;
         }
     }
@@ -329,29 +329,8 @@ fn prune_user_message_content(
 }
 
 pub fn prune_historical_tool_outputs_with_policy(messages: &[ChatMessage], policy: &PrunePolicy) -> Vec<ChatMessage> {
-    prune_historical_tool_outputs_if_changed(messages, policy).unwrap_or_else(|| messages.to_vec())
-}
-
-pub fn prune_historical_tool_outputs_if_changed(
-    messages: &[ChatMessage],
-    policy: &PrunePolicy,
-) -> Option<Vec<ChatMessage>> {
-    if messages.is_empty() {
-        return None;
-    }
-
-    let model = policy.tokenizer_model();
-    let sizes = rho_harness_core::tokens::estimate_each_message_tokens(messages, model);
-    prune_historical_tool_outputs_with_sizes(messages, &sizes, policy)
-}
-
-/// `sizes[i]` must equal the token estimate for `messages[i]` under `policy.model`.
-pub fn prune_historical_tool_outputs_with_sizes(
-    messages: &[ChatMessage],
-    sizes: &[usize],
-    policy: &PrunePolicy,
-) -> Option<Vec<ChatMessage>> {
-    prune_with_token_cache(messages, sizes, policy, &mut MessageTokenCache::new())
+    let sizes = rho_harness_core::tokens::estimate_each_message_tokens(messages, policy.tokenizer_model());
+    prune_with_token_cache(messages, &sizes, policy, &mut MessageTokenCache::new()).unwrap_or_else(|| messages.to_vec())
 }
 
 /// A pass keys each message in the suffix sums, each pruned message, and each tool result text;
@@ -368,7 +347,7 @@ pub(super) fn prune_with_token_cache(
     if messages.is_empty() {
         return None;
     }
-    assert_eq!(sizes.len(), messages.len(), "one size per message is required");
+    debug_assert_eq!(sizes.len(), messages.len(), "one size per message is required");
 
     let model = policy.tokenizer_model();
     let cutoff_idx = find_turn_boundary_cutoff(messages, policy.volatile_turns);
@@ -385,7 +364,7 @@ pub(super) fn prune_with_token_cache(
         tool_calls: &tool_calls,
         superseded_call_ids: &superseded_ids,
         line_threshold: policy.line_threshold,
-        min_prune_tokens: policy.min_prune_tokens,
+        min_result_tokens: policy.min_result_tokens,
         model,
     };
 
@@ -404,7 +383,7 @@ pub(super) fn prune_with_token_cache(
         })
         .collect();
 
-    if replacements.is_empty() || (policy.prune_minimum_tokens > 0 && total_savings < policy.prune_minimum_tokens) {
+    if replacements.is_empty() || (policy.min_total_savings > 0 && total_savings < policy.min_total_savings) {
         return None;
     }
 

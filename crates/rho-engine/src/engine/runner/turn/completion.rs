@@ -1,9 +1,9 @@
 use crate::engine::AgentEngine;
 use crate::engine::metrics::types::PromptResponse;
-use crate::engine::metrics::{RunMetrics, TerminalStatus, ToolOutcome};
+use crate::engine::metrics::{RunMetrics, StructuralUsage, TerminalStatus, ToolOutcome};
 use crate::engine::runner::helpers::redact_text;
 use crate::engine::runner::sink::TurnArtifacts;
-use crate::engine::runner::turn::types::{RunStatus, TurnOutput, UsageDetails};
+use crate::engine::runner::turn::types::{RunStatus, TurnOutput};
 use crate::provider::adapter::FinishReason;
 use rho_harness_core::error::{AppError, Result};
 use rho_harness_core::presentation::TurnTelemetry;
@@ -62,7 +62,7 @@ impl AgentEngine {
         &self,
         response: &PromptResponse,
         generation_elapsed_ms: u64,
-    ) -> Result<Option<UsageDetails>> {
+    ) -> Result<Option<StructuralUsage>> {
         let usage = response.usage;
         let usage_details = usage.is_reported().then_some(usage);
         let latest_context_usage = response.completion_calls.last().map(|call| call.usage).unwrap_or(usage);
@@ -91,7 +91,7 @@ impl AgentEngine {
         Ok(metrics)
     }
 
-    fn build_turn_telemetry(&self, artifacts: &TurnArtifacts, usage: UsageDetails) -> TurnTelemetry {
+    fn build_turn_telemetry(&self, artifacts: &TurnArtifacts, usage: StructuralUsage) -> TurnTelemetry {
         let timestamp_unix_ms = u64::try_from(crate::clock::unix_now_ms()).unwrap_or(0);
         TurnTelemetry {
             timestamp_unix_ms,

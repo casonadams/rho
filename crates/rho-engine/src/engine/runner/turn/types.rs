@@ -9,8 +9,6 @@ pub enum RunStatus {
     ContentFiltered,
 }
 
-pub type UsageDetails = StructuralUsage;
-
 #[derive(Clone, Default, Debug)]
 pub struct CancellationSignal {
     inner: std::sync::Arc<CancellationSignalInner>,
@@ -97,20 +95,13 @@ impl<'a> TurnRequest<'a> {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum QueuedMessageBoundary {
-    ActiveRunCompleted,
-}
-
-pub const QUEUED_MESSAGE_BOUNDARY: QueuedMessageBoundary = QueuedMessageBoundary::ActiveRunCompleted;
-
 #[derive(Debug)]
 pub struct TurnOutput {
     pub final_text: String,
     pub tool_calls_count: usize,
     pub tool_failures_count: usize,
     pub requests: usize,
-    pub usage: Option<UsageDetails>,
+    pub usage: Option<StructuralUsage>,
     pub status: RunStatus,
     pub metrics: RunMetrics,
 }

@@ -1311,7 +1311,7 @@ async fn todo_turn(dir: &std::path::Path, resume: Option<&str>, model: Arc<MockA
         run_tracker: Default::default(),
     };
     let sink = TerminalApprovalSink::new(&pres, cfg, sm.clone());
-    let tools: Vec<Arc<dyn EngineTool>> = vec![Arc::new(crate::tools::TodoTool::default())];
+    let tools: Vec<Arc<dyn EngineTool>> = vec![Arc::new(crate::tools::todo::TodoTool::default())];
     let runner = AgentRunner::new(model, tools, sm.clone(), sink).prompt("go");
     run_agent_loop(runner, &acking_emitter()).await.unwrap();
     let last_result = sm

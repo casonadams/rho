@@ -9,8 +9,9 @@ use crate::permission::guard::GuardEvaluator;
 use crate::permission::hook::{PermissionAction, PermissionHook};
 use crate::permission::policy::{build_policy, parse_scope_from_str};
 use crate::provider::adapter::MockAdapter;
+use crate::tools::edit::EditTool;
 use crate::tools::engine_tool::EngineTool;
-use crate::tools::{EditTool, WriteTool};
+use crate::tools::write::WriteTool;
 
 #[tokio::test]
 async fn test_allowed_call_runs_silently() {

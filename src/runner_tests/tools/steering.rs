@@ -1,6 +1,5 @@
 use super::super::helpers::{presenter, request, test_engine};
 use crate::config::Config;
-use crate::engine::runner::{QUEUED_MESSAGE_BOUNDARY, QueuedMessageBoundary};
 use crate::ui::TerminalRenderer;
 use rho_engine::provider::adapter::{MockAdapter, ModelStreamEvent};
 use rho_harness_core::model::{AssistantContent, ChatMessage, ToolCall, ToolFunction, UserContent};
@@ -30,7 +29,6 @@ async fn assert_steering_event_order(sm: &crate::session::SessionManager) {
 
 #[tokio::test]
 async fn queued_steering_is_delivered_after_the_active_tool_run_completes() {
-    assert_eq!(QUEUED_MESSAGE_BOUNDARY, QueuedMessageBoundary::ActiveRunCompleted);
     let model = Arc::new(MockAdapter::default());
     model.add_turn(vec![Ok(ModelStreamEvent::ToolCall(ToolCall::new(
         "call-1",
